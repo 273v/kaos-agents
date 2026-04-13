@@ -135,6 +135,8 @@ class PlanExecuteAgent(ChatAgent):
             complexity_threshold=self._settings.complexity_threshold,
             simple_word_threshold=self._settings.simple_goal_word_threshold,
             max_steps=self._max_plan_steps,
+            confidence_threshold=self._settings.confidence_threshold,
+            deepen_threshold=self._settings.deepen_threshold,
         )
 
         # Build tool call records with actual tool names from the plan graph
@@ -150,8 +152,11 @@ class PlanExecuteAgent(ChatAgent):
                     props = pg.get_step(sid)
                     if props and props.get("tool_name"):
                         step_tool_names[sid] = props["tool_name"]
-            except Exception:
-                pass  # Fall back to step_id if graph can't be parsed
+            except Exception as exc:
+                logger.warning(
+                    "plan_execute: failed to recover tool names from plan graph: %s",
+                    exc,
+                )
 
         for step_id, step_result in result.step_results.items():
             actual_tool = step_tool_names.get(step_id, step_id)

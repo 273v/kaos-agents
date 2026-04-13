@@ -54,6 +54,8 @@ async def compose(
     budget: PlanBudget | None = None,
     model: str = "anthropic:claude-haiku-4-5",
     parallel: bool = True,
+    confidence_threshold: float | None = None,
+    deepen_threshold: float | None = None,
 ) -> ComposeResult:
     """Execute a plan graph.
 
@@ -140,13 +142,16 @@ async def compose(
                 tokens=act_result.token_count,
             )
 
-            # Route
-            decision = route(
-                judgment,
-                budget,
-                replan_count=replan_count,
-                step_id=step_id,
-            )
+            # Route (with configurable thresholds)
+            route_kwargs: dict[str, Any] = {
+                "replan_count": replan_count,
+                "step_id": step_id,
+            }
+            if confidence_threshold is not None:
+                route_kwargs["confidence_threshold"] = confidence_threshold
+            if deepen_threshold is not None:
+                route_kwargs["deepen_threshold"] = deepen_threshold
+            decision = route(judgment, budget, **route_kwargs)
 
             traces.append(
                 PrimitiveTrace(
@@ -168,24 +173,34 @@ async def compose(
                 final_stop = StopReason.FAILURE
                 break
 
-            if decision.decision == Decision.REPLAN:
+            if decision.decision in (Decision.REPLAN, Decision.DEEPEN):
                 replan_count += 1
                 budget.record_replan()
-                # Skip downstream steps of the failed step
+                # Undo the completion — Route decided this step's result isn't good enough.
+                # Mark as failed so downstream steps don't execute on bad results.
+                graph.mark_failed(
+                    step_id,
+                    f"Route decided {decision.decision.value}: {decision.reason}",
+                )
                 _skip_dependents(graph, step_id)
-                # Continue to next iteration — remaining ready steps still execute
+                # Note: Compose itself doesn't re-expand. That's the strategy layer's job.
+                # We just stop this graph's execution. The strategy can inspect the
+                # ComposeResult and decide whether to expand a new plan.
                 continue
 
-            # CONTINUE or DEEPEN — proceed normally
+            # CONTINUE — proceed normally
             # DEEPEN would require Expand, which is the strategy layer's job
 
         # Check if we hit a terminal decision
         if final_stop != StopReason.SUCCESS:
             break
 
-    # If we exited normally (all complete), that's success
-    if graph.is_complete() and final_stop == StopReason.SUCCESS:
+    # Determine final status
+    if graph.is_complete() and not graph.has_failures() and final_stop == StopReason.SUCCESS:
         final_stop = StopReason.SUCCESS
+    elif graph.has_failures() and final_stop == StopReason.SUCCESS:
+        # Graph completed but has failures — not a clean success
+        final_stop = StopReason.FAILURE
 
     elapsed_ms = (time.perf_counter() - start_time) * 1000
 

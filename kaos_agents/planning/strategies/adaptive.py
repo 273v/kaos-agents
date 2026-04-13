@@ -95,6 +95,8 @@ async def execute_adaptive(
     simple_word_threshold: int = 15,
     max_steps: int = 8,
     parallel: bool = True,
+    confidence_threshold: float | None = None,
+    deepen_threshold: float | None = None,
 ) -> ComposeResult:
     """Execute a goal adaptively — simple goals go direct, complex goals decompose.
 
@@ -139,6 +141,8 @@ async def execute_adaptive(
                 budget=budget,
                 max_steps=max_steps,
                 parallel=parallel,
+                confidence_threshold=confidence_threshold,
+                deepen_threshold=deepen_threshold,
             )
         return result
 
@@ -153,4 +157,6 @@ async def execute_adaptive(
         budget=budget,
         max_steps=max_steps,
         parallel=parallel,
+        confidence_threshold=confidence_threshold,
+        deepen_threshold=deepen_threshold,
     )

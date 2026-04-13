@@ -35,6 +35,8 @@ async def execute_decompose(
     budget: PlanBudget | None = None,
     max_steps: int = 8,
     parallel: bool = True,
+    confidence_threshold: float | None = None,
+    deepen_threshold: float | None = None,
 ) -> ComposeResult:
     """Decompose a goal into a full plan and execute it.
 
@@ -89,4 +91,6 @@ async def execute_decompose(
         budget=budget,
         model=model,
         parallel=parallel,
+        confidence_threshold=confidence_threshold,
+        deepen_threshold=deepen_threshold,
     )
