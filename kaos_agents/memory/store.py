@@ -1,0 +1,134 @@
+"""SessionStore — VFS-backed persistence for SessionMemory.
+
+Handles save/load of memory state. STREAMING sections are appended as JSONL.
+SNAPSHOT sections are written as full JSON at checkpoints. The store is
+async to match the VFS API.
+
+VFS layout per session:
+    kaos-agents/sessions/{session_id}/memory.json
+
+For Phase 1, we use a single JSON file per session. Phase 2 will add
+per-section JSONL streaming for high-write sections.
+"""
+
+from __future__ import annotations
+
+import json
+
+from kaos_core.logging import get_logger
+from kaos_core.vfs.core import VirtualFileSystem
+
+from kaos_agents.errors import SessionCorruptedError, SessionNotFoundError
+from kaos_agents.memory.session import SessionMemory
+from kaos_agents.memory.types import DEFAULT_SECTIONS, SectionConfig
+
+logger = get_logger(__name__)
+
+# VFS path prefix for all agent sessions
+_SESSION_PREFIX = "kaos-agents/sessions"
+
+
+def _session_path(session_id: str) -> str:
+    """VFS path for a session's memory snapshot."""
+    return f"{_SESSION_PREFIX}/{session_id}/memory.json"
+
+
+class SessionStore:
+    """VFS-backed persistence for SessionMemory.
+
+    Saves and loads complete memory snapshots as JSON. Each session is stored
+    under a deterministic VFS path keyed by session_id.
+
+    The store is stateless — it does not cache sessions in memory. Each
+    save/load is a complete round-trip to the VFS.
+    """
+
+    __slots__ = ("_sections", "_vfs")
+
+    def __init__(
+        self,
+        vfs: VirtualFileSystem,
+        *,
+        sections: tuple[SectionConfig, ...] = DEFAULT_SECTIONS,
+    ) -> None:
+        self._vfs = vfs
+        self._sections = sections
+
+    async def save(self, memory: SessionMemory) -> str:
+        """Save memory state to VFS. Returns the VFS path."""
+        path = _session_path(memory.session_id)
+        data = memory.to_dict()
+        payload = json.dumps(data, separators=(",", ":"), default=str).encode()
+        await self._vfs.write(path, payload)
+        logger.debug(
+            "store.save: session=%s path=%s bytes=%d",
+            memory.session_id,
+            path,
+            len(payload),
+        )
+        return path
+
+    async def load(self, session_id: str) -> SessionMemory:
+        """Load memory state from VFS.
+
+        Raises SessionNotFoundError if no saved state exists.
+        Raises SessionCorruptedError if the saved state cannot be deserialized.
+        """
+        path = _session_path(session_id)
+        if not await self._vfs.exists(path):
+            raise SessionNotFoundError(
+                f"No saved session found for session_id={session_id!r}. "
+                f"Create a new session with SessionMemory(session_id=...).",
+            )
+
+        try:
+            payload = await self._vfs.read(path)
+            data = json.loads(payload)
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise SessionCorruptedError(
+                f"Session {session_id!r} exists but cannot be deserialized: {exc}. "
+                f"The session file may be corrupted. Delete and recreate the session.",
+            ) from exc
+
+        memory = SessionMemory.from_dict(data, sections=self._sections)
+        logger.debug(
+            "store.load: session=%s turns=%d tokens=%d",
+            session_id,
+            memory.turn_count,
+            memory.total_tokens,
+        )
+        return memory
+
+    async def exists(self, session_id: str) -> bool:
+        """Check if a saved session exists."""
+        return await self._vfs.exists(_session_path(session_id))
+
+    async def delete(self, session_id: str) -> bool:
+        """Delete a saved session. Returns True if it existed."""
+        path = _session_path(session_id)
+        if not await self._vfs.exists(path):
+            return False
+        await self._vfs.delete(path)
+        logger.debug("store.delete: session=%s", session_id)
+        return True
+
+    async def list_sessions(self) -> list[str]:
+        """List all saved session IDs."""
+        paths = await self._vfs.list(f"{_SESSION_PREFIX}/")
+        # Extract session_id from paths like "kaos-agents/sessions/{id}/memory.json"
+        session_ids = []
+        for path in paths:
+            parts = path.strip("/").split("/")
+            if len(parts) >= 3 and parts[-1] == "memory.json":
+                session_ids.append(parts[-2])
+        return session_ids
+
+    async def load_or_create(self, session_id: str) -> SessionMemory:
+        """Load an existing session or create a fresh one."""
+        if await self.exists(session_id):
+            return await self.load(session_id)
+        logger.debug("store.load_or_create: new session %s", session_id)
+        return SessionMemory(
+            session_id=session_id,
+            sections=self._sections,
+        )

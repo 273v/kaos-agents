@@ -1,0 +1,127 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kaos-agents"
+dynamic = ["version"]
+description = "Agentic runtime with persistent memory for KAOS"
+readme = "README.md"
+requires-python = ">=3.13"
+license = { text = "LicenseRef-Proprietary" }
+authors = [
+  { name = "273 Ventures LLC", email = "it@273ventures.com" },
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Typing :: Typed",
+]
+dependencies = [
+  "kaos-core>=0.1.0",
+  "kaos-nlp-core>=0.1.0",
+  "pydantic>=2.11.0",
+]
+
+[project.optional-dependencies]
+llm = ["kaos-llm-client>=0.1.0", "kaos-llm-core>=0.1.0"]
+mcp = ["kaos-mcp>=0.1.0"]
+
+[dependency-groups]
+dev = [
+  "kaos-llm-client>=0.1.0",
+  "kaos-llm-core>=0.1.0",
+  "kaos-content>=0.1.0",
+  "pytest>=8.3.5",
+  "pytest-asyncio>=0.26.0",
+  "pytest-cov>=6.0.0",
+  "pytest-benchmark>=5.1.0",
+  "ruff>=0.11.0",
+  "ty>=0.0.1a17",
+]
+
+[project.urls]
+Homepage = "https://273ventures.com"
+Documentation = "https://docs.273ventures.com"
+Repository = "https://github.com/273v/kaos-modules"
+
+[tool.hatch.version]
+path = "kaos_agents/_version.py"
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/kaos_agents",
+  "/README.md",
+  "/CLAUDE.md",
+  "/docs",
+  "/tests",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["kaos_agents"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = [
+  "-ra",
+  "--strict-markers",
+  "--strict-config",
+  "--cov=kaos_agents",
+  "--cov-branch",
+  "--cov-report=term-missing",
+]
+markers = [
+  "integration: end-to-end behavior checks",
+  "unit: focused unit checks",
+  "live: requires live API keys",
+  "benchmark: performance benchmarks",
+]
+
+[tool.coverage.run]
+source = ["kaos_agents"]
+branch = true
+omit = [
+  "*/tests/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "@abstractmethod",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF", "C4", "PTH"]
+ignore = ["B008", "E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["kaos_agents"]
+
+[tool.ty.src]
+include = ["kaos_agents", "tests"]
+
+[tool.uv]
+package = true
+
+[tool.uv.sources]
+kaos-core = { path = "../kaos-core", editable = true }
+kaos-nlp-core = { path = "../kaos-nlp-core", editable = true }
+kaos-llm-client = { path = "../kaos-llm-client", editable = true }
+kaos-llm-core = { path = "../kaos-llm-core", editable = true }
+kaos-content = { path = "../kaos-content", editable = true }
+kaos-mcp = { path = "../kaos-mcp", editable = true }
