@@ -112,7 +112,7 @@ class BaseAgent:
         memory.end_turn()
         await self._store.save(memory)
 
-        return AgentResponse(
+        return AgentResponse.create(
             text=response_text,
             intent=intent,
             tool_calls=tuple(tool_calls),
@@ -214,6 +214,9 @@ class BaseAgent:
         extra_instruction: str = "",
     ) -> str:
         """Generate a simple text response via Call."""
+        from kaos_agents._llm_imports import require_llm_core
+
+        require_llm_core()
         from kaos_llm_core import Call, InputField, OutputField, Signature
 
         class Respond(Signature):

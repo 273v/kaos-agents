@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from kaos_agents._version import __version__
+from kaos_agents.agent import BaseAgent
 from kaos_agents.errors import (
     EvictionError,
     KaosAgentError,
@@ -23,20 +24,43 @@ from kaos_agents.memory import (
     SummarizationPolicy,
 )
 from kaos_agents.models import AgentResponse, IntentResult, IntentType, ToolCallRecord
+from kaos_agents.planning import (
+    ComposeResult,
+    Decision,
+    EvalMode,
+    Judgment,
+    PlanBudget,
+    PlanGraph,
+    PrimitiveTrace,
+    RouteResult,
+    Step,
+    StepStatus,
+    StepType,
+    StopReason,
+)
 from kaos_agents.settings import KaosAgentSettings
 
 __all__ = [
     "AgentResponse",
+    "BaseAgent",
+    "ComposeResult",
+    "Decision",
+    "EvalMode",
     "EvictionError",
     "EvictionPolicy",
     "IntentResult",
     "IntentType",
+    "Judgment",
     "KaosAgentError",
     "KaosAgentSettings",
     "MemoryBudgetExceededError",
     "MemoryItem",
     "MemoryType",
     "PersistenceMode",
+    "PlanBudget",
+    "PlanGraph",
+    "PrimitiveTrace",
+    "RouteResult",
     "Section",
     "SectionConfig",
     "SectionNotConfiguredError",
@@ -44,6 +68,10 @@ __all__ = [
     "SessionMemory",
     "SessionNotFoundError",
     "SessionStore",
+    "Step",
+    "StepStatus",
+    "StepType",
+    "StopReason",
     "SummarizationPolicy",
     "ToolCallRecord",
     "__version__",

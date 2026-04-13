@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum, unique
 from typing import Any
 
@@ -23,8 +23,13 @@ class IntentResult:
     """Result of intent classification."""
 
     intent: IntentType
-    confidence: float  # 0.0 - 1.0
+    confidence: float  # 0.0 to 1.0
     reasoning: str  # Why this intent was chosen
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.confidence <= 1.0:
+            # Use object.__setattr__ because frozen
+            object.__setattr__(self, "confidence", max(0.0, min(1.0, self.confidence)))
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,9 +37,26 @@ class ToolCallRecord:
     """Record of a tool call made during a turn."""
 
     tool_name: str
-    arguments: dict[str, Any]
-    result_summary: str
+    arguments: tuple[tuple[str, Any], ...] = ()  # Immutable key-value pairs
+    result_summary: str = ""
     is_error: bool = False
+
+    @classmethod
+    def from_dict_args(
+        cls,
+        tool_name: str,
+        arguments: dict[str, Any],
+        result_summary: str = "",
+        *,
+        is_error: bool = False,
+    ) -> ToolCallRecord:
+        """Create from a mutable dict (convenience for callers)."""
+        return cls(
+            tool_name=tool_name,
+            arguments=tuple(sorted(arguments.items())),
+            result_summary=result_summary,
+            is_error=is_error,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,4 +73,29 @@ class AgentResponse:
     artifacts: tuple[str, ...] = ()  # Artifact URIs produced
     turn_number: int = 0
     tokens_used: int = 0
-    metadata: dict[str, Any] = field(default_factory=dict)
+    # metadata is a tuple of key-value pairs for true immutability
+    metadata: tuple[tuple[str, Any], ...] = ()
+
+    @classmethod
+    def create(
+        cls,
+        text: str,
+        intent: IntentResult,
+        *,
+        tool_calls: tuple[ToolCallRecord, ...] = (),
+        artifacts: tuple[str, ...] = (),
+        turn_number: int = 0,
+        tokens_used: int = 0,
+        metadata: dict[str, Any] | None = None,
+    ) -> AgentResponse:
+        """Create with dict metadata (convenience for callers)."""
+        meta = tuple(sorted(metadata.items())) if metadata else ()
+        return cls(
+            text=text,
+            intent=intent,
+            tool_calls=tool_calls,
+            artifacts=artifacts,
+            turn_number=turn_number,
+            tokens_used=tokens_used,
+            metadata=meta,
+        )

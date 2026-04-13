@@ -84,6 +84,7 @@ class PlanExecuteAgent(ChatAgent):
     ) -> tuple[str, list[ToolCallRecord]]:
         """Handle multi-step plan via adaptive strategy."""
         from kaos_agents.actions.tool_bridge import bridge_runtime_tools
+        from kaos_agents.planning.result_check import is_error_result
         from kaos_agents.planning.strategies.adaptive import execute_adaptive
         from kaos_agents.planning.types import PlanBudget
 
@@ -140,11 +141,11 @@ class PlanExecuteAgent(ChatAgent):
         tool_calls: list[ToolCallRecord] = []
         for step_id, step_result in result.step_results.items():
             tool_calls.append(
-                ToolCallRecord(
+                ToolCallRecord.from_dict_args(
                     tool_name=step_id,
                     arguments={},
                     result_summary=str(step_result)[:200],
-                    is_error="ERROR" in str(step_result),
+                    is_error=is_error_result(str(step_result)),
                 )
             )
 

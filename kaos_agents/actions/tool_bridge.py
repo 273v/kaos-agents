@@ -32,7 +32,15 @@ def kaos_tool_to_llm_tool(kaos_tool: KaosTool, context: KaosContext | None = Non
 
     Returns:
         A kaos-llm-core Tool instance.
+
+    Raises:
+        ImportError: If kaos-llm-core or kaos-llm-client are not installed.
+            Install with: ``uv add 'kaos-agents[llm]'``
     """
+    from kaos_agents._llm_imports import require_llm_client, require_llm_core
+
+    require_llm_client()
+    require_llm_core()
     from kaos_llm_client.types import ToolDefinition
     from kaos_llm_core.programs.tool import Tool
 

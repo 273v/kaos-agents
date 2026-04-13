@@ -2,4 +2,32 @@
 
 from __future__ import annotations
 
-__all__: list[str] = []
+from kaos_agents.planning.graph import PlanGraph
+from kaos_agents.planning.types import (
+    ComposeResult,
+    Decision,
+    EvalMode,
+    Judgment,
+    PlanBudget,
+    PrimitiveTrace,
+    RouteResult,
+    Step,
+    StepStatus,
+    StepType,
+    StopReason,
+)
+
+__all__ = [
+    "ComposeResult",
+    "Decision",
+    "EvalMode",
+    "Judgment",
+    "PlanBudget",
+    "PlanGraph",
+    "PrimitiveTrace",
+    "RouteResult",
+    "Step",
+    "StepStatus",
+    "StepType",
+    "StopReason",
+]

@@ -75,6 +75,9 @@ class ChatAgent(BaseAgent):
             response = await self._simple_respond(message, memory)
             return response, []
 
+        from kaos_agents._llm_imports import require_llm_core
+
+        require_llm_core()
         from kaos_llm_core import InputField, OutputField, Signature
         from kaos_llm_core.programs.react import ReAct
 
@@ -132,9 +135,9 @@ class ChatAgent(BaseAgent):
             for obs in iteration.tool_results:
                 result_text = str(obs.result)[:200] if obs.result else ""
                 tool_calls.append(
-                    ToolCallRecord(
+                    ToolCallRecord.from_dict_args(
                         tool_name=obs.tool_name,
-                        arguments=obs.arguments,
+                        arguments=obs.arguments or {},
                         result_summary=result_text,
                         is_error=obs.is_error,
                     )

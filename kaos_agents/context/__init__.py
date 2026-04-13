@@ -2,4 +2,8 @@
 
 from __future__ import annotations
 
-__all__: list[str] = []
+from kaos_agents.context.classify import classify_intent
+
+__all__ = [
+    "classify_intent",
+]
