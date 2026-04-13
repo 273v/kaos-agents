@@ -26,6 +26,7 @@ from kaos_agents.planning.types import (
     PrimitiveTrace,
     StopReason,
 )
+from kaos_agents.settings import DEFAULT_MODEL
 
 if TYPE_CHECKING:
     from kaos_llm_core.programs.tool import Tool
@@ -39,7 +40,7 @@ async def execute_rolling(
     tools: dict[str, Tool] | None = None,
     tool_descriptions: dict[str, str] | None = None,
     context: str = "",
-    model: str = "anthropic:claude-haiku-4-5",
+    model: str = DEFAULT_MODEL,
     budget: PlanBudget | None = None,
     horizon: int = 3,
     max_horizons: int = 4,

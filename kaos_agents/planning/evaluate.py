@@ -11,14 +11,12 @@ Structural mode runs first. If it resolves the judgment, no LLM call is needed.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from kaos_core.logging import get_logger
 
 from kaos_agents.planning.types import EvalMode, Judgment
-
-if TYPE_CHECKING:
-    pass
+from kaos_agents.settings import DEFAULT_MODEL
 
 logger = get_logger(__name__)
 
@@ -99,7 +97,7 @@ async def evaluate_semantic(
     expected: str,
     *,
     context: str = "",
-    model: str = "anthropic:claude-haiku-4-5",
+    model: str = DEFAULT_MODEL,
 ) -> Judgment:
     """Evaluate result quality via LLM.
 
@@ -166,7 +164,7 @@ async def evaluate(
     tool_name: str | None = None,
     available_tools: set[str] | None = None,
     context: str = "",
-    model: str = "anthropic:claude-haiku-4-5",
+    model: str = DEFAULT_MODEL,
     force_semantic: bool = False,
 ) -> Judgment:
     """Evaluate a result — structural first, semantic fallback.

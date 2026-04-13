@@ -23,6 +23,7 @@ from kaos_core.logging import get_logger
 from pydantic import BaseModel, Field
 
 from kaos_agents.planning.types import Step, StepType
+from kaos_agents.settings import DEFAULT_MODEL
 
 logger = get_logger(__name__)
 
@@ -34,7 +35,7 @@ async def expand(
     context: str = "",
     prior_failures: str = "",
     max_steps: int = 10,
-    model: str = "anthropic:claude-haiku-4-5",
+    model: str = DEFAULT_MODEL,
 ) -> list[Step]:
     """Generate plan steps for a goal via LLM.
 

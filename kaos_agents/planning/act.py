@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 from kaos_core.logging import get_logger
 
 from kaos_agents.planning.types import PrimitiveTrace, StepType
+from kaos_agents.settings import DEFAULT_MODEL
 
 if TYPE_CHECKING:
     from kaos_llm_core.programs.tool import Tool
@@ -41,7 +42,7 @@ async def act(
     tool: Tool | None = None,
     tool_args: dict[str, Any] | None = None,
     llm_prompt: str | None = None,
-    llm_model: str = "anthropic:claude-haiku-4-5",
+    llm_model: str = DEFAULT_MODEL,
     tool_timeout_seconds: float = 60.0,
 ) -> ActResult:
     """Execute a single action.

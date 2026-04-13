@@ -17,6 +17,7 @@ from kaos_agents.planning.act import act
 from kaos_agents.planning.evaluate import evaluate_structural
 from kaos_agents.planning.expand import expand
 from kaos_agents.planning.types import ComposeResult, PlanBudget, StepType, StopReason
+from kaos_agents.settings import DEFAULT_MODEL
 
 if TYPE_CHECKING:
     from kaos_llm_core.programs.tool import Tool
@@ -30,7 +31,7 @@ async def execute_direct(
     tools: dict[str, Tool] | None = None,
     tool_descriptions: dict[str, str] | None = None,
     context: str = "",
-    model: str = "anthropic:claude-haiku-4-5",
+    model: str = DEFAULT_MODEL,
     budget: PlanBudget | None = None,
 ) -> ComposeResult:
     """Execute a goal directly — one step, no plan graph.

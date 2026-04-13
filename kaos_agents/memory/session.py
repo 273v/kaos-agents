@@ -26,6 +26,7 @@ from kaos_agents.memory.types import (
     SectionConfig,
     SummarizationPolicy,
 )
+from kaos_agents.settings import DEFAULT_MODEL
 
 logger = get_logger(__name__)
 
@@ -222,7 +223,7 @@ class SessionMemory:
     async def summarize_turn(
         self,
         *,
-        model: str = "anthropic:claude-haiku-4-5",
+        model: str = DEFAULT_MODEL,
     ) -> int:
         """Summarize sections with ON_TURN or ON_OVERFLOW policy at end of turn.
 

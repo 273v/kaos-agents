@@ -18,7 +18,7 @@ from typing import Any
 
 from kaos_core.logging import get_logger
 from kaos_graph import Graph
-from kaos_graph.algorithms import critical_path, find_cycles, topological_sort
+from kaos_graph.algorithms import critical_path, descendants, find_cycles, topological_sort
 
 from kaos_agents.planning.types import (
     Judgment,
@@ -322,6 +322,12 @@ class PlanGraph:
         issues = self.validate()
         if issues:
             logger.warning("plan_graph.insert_subplan: validation issues: %s", issues)
+
+    # -- Descendants ---------------------------------------------------------
+
+    def descendants(self, node_id: str) -> list[str]:
+        """Return all transitive successors of *node_id* in the plan graph."""
+        return descendants(self._graph, node_id)
 
     # -- Critical path -------------------------------------------------------
 

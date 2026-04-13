@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING
 
 from kaos_core.logging import get_logger
 
+from kaos_agents.settings import DEFAULT_MODEL
+
 if TYPE_CHECKING:
     from kaos_agents.memory.types import MemoryItem, MemoryType
 
@@ -24,7 +26,7 @@ async def summarize_items(
     items: list[MemoryItem],
     section_type: MemoryType,
     *,
-    model: str = "anthropic:claude-haiku-4-5",
+    model: str = DEFAULT_MODEL,
     target_tokens: int = 200,
     chars_per_token: float = 4.0,
 ) -> str:

@@ -16,6 +16,7 @@ from kaos_core.logging import get_logger
 from kaos_agents.planning.strategies.decompose import execute_decompose
 from kaos_agents.planning.strategies.direct import execute_direct
 from kaos_agents.planning.types import ComposeResult, PlanBudget, StopReason
+from kaos_agents.settings import DEFAULT_MODEL
 
 if TYPE_CHECKING:
     from kaos_llm_core.programs.tool import Tool
@@ -89,7 +90,7 @@ async def execute_adaptive(
     tool_descriptions: dict[str, str] | None = None,
     context: str = "",
     prior_failures: str = "",
-    model: str = "anthropic:claude-haiku-4-5",
+    model: str = DEFAULT_MODEL,
     budget: PlanBudget | None = None,
     complexity_threshold: float = 0.6,
     simple_word_threshold: int = 15,

@@ -38,6 +38,7 @@ from kaos_agents.planning.types import (
     StepType,
     StopReason,
 )
+from kaos_agents.settings import DEFAULT_MODEL
 
 if TYPE_CHECKING:
     from kaos_llm_core.programs.tool import Tool
@@ -50,7 +51,7 @@ async def compose(
     *,
     tools: dict[str, Tool] | None = None,
     budget: PlanBudget | None = None,
-    model: str = "anthropic:claude-haiku-4-5",
+    model: str = DEFAULT_MODEL,
     parallel: bool = True,
     confidence_threshold: float | None = None,
     deepen_threshold: float | None = None,
@@ -315,10 +316,8 @@ def _skip_remaining(graph: PlanGraph) -> None:
 
 def _skip_dependents(graph: PlanGraph, failed_step_id: str) -> None:
     """Skip steps that depend on a failed step."""
-    from kaos_graph.algorithms import descendants
-
     try:
-        deps = descendants(graph._graph, failed_step_id)
+        deps = graph.descendants(failed_step_id)
     except Exception:
         return
 

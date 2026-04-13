@@ -126,3 +126,8 @@ class KaosAgentSettings(ModuleSettings):
         env_file=".env",
         extra="ignore",
     )
+
+
+# Default model string for use as function parameter defaults.
+# Derived from KaosAgentSettings so there's a single source of truth.
+DEFAULT_MODEL: str = KaosAgentSettings.model_fields["default_llm_model"].default

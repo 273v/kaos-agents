@@ -12,16 +12,13 @@ from typing import TYPE_CHECKING
 from kaos_core.logging import get_logger
 
 from kaos_agents.models import IntentResult, IntentType
+from kaos_agents.settings import DEFAULT_MODEL
 
 if TYPE_CHECKING:
     from kaos_agents.memory.session import SessionMemory
     from kaos_agents.memory.types import MemoryItem
 
 logger = get_logger(__name__)
-
-# Default model for classification (cheap, fast).
-# In production, this is overridden by KaosAgentSettings.default_llm_model.
-_DEFAULT_CLASSIFY_MODEL = "anthropic:claude-haiku-4-5"
 
 # Heuristic keyword lists for fallback classification.
 # These are module constants (not hardcoded in function bodies) so they
@@ -54,7 +51,7 @@ async def classify_intent(
     user_message: str,
     memory: SessionMemory,
     *,
-    model: str = _DEFAULT_CLASSIFY_MODEL,
+    model: str = DEFAULT_MODEL,
     context_items: dict[str, list[MemoryItem]] | None = None,
     context_text: str = "",
 ) -> IntentResult:
