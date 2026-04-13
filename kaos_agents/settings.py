@@ -43,6 +43,55 @@ class KaosAgentSettings(ModuleSettings):
         "Conservative default; adjust per model family.",
     )
 
+    # Planning: route thresholds
+    confidence_threshold: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Below this confidence, Route triggers REPLAN.",
+    )
+    deepen_threshold: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Below this confidence, Route triggers DEEPEN instead of REPLAN.",
+    )
+
+    # Planning: budget defaults
+    plan_max_steps: int = Field(
+        default=20,
+        ge=1,
+        description="Maximum steps in a single plan execution.",
+    )
+    plan_max_replans: int = Field(
+        default=3,
+        ge=0,
+        description="Maximum replan attempts before STOP_FAILURE (circuit breaker).",
+    )
+    plan_max_cost_usd: float = Field(
+        default=1.0,
+        gt=0,
+        description="Maximum cost in USD for a single plan execution.",
+    )
+    plan_max_wall_clock_seconds: float = Field(
+        default=120.0,
+        gt=0,
+        description="Maximum wall-clock time for a single plan execution.",
+    )
+
+    # Planning: adaptive strategy
+    complexity_threshold: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        description="ADaPT complexity threshold. Above → direct execution, below → decompose.",
+    )
+    simple_goal_word_threshold: int = Field(
+        default=15,
+        ge=1,
+        description="Goals with fewer words than this are assessed as simple.",
+    )
+
     model_config = SettingsConfigDict(
         env_prefix="KAOS_AGENT_",
         env_file=".env",

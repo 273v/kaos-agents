@@ -20,9 +20,9 @@ from kaos_agents.planning.types import (
 
 logger = get_logger(__name__)
 
-# Default thresholds — configurable via KaosAgentSettings
-DEFAULT_CONFIDENCE_THRESHOLD = 0.5
-DEFAULT_DEEPEN_THRESHOLD = 0.3
+# Defaults match KaosAgentSettings. Pass settings values explicitly.
+_DEFAULT_CONFIDENCE_THRESHOLD = 0.5
+_DEFAULT_DEEPEN_THRESHOLD = 0.3
 
 
 def route(
@@ -30,8 +30,8 @@ def route(
     budget: PlanBudget,
     *,
     replan_count: int = 0,
-    confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
-    deepen_threshold: float = DEFAULT_DEEPEN_THRESHOLD,
+    confidence_threshold: float = _DEFAULT_CONFIDENCE_THRESHOLD,
+    deepen_threshold: float = _DEFAULT_DEEPEN_THRESHOLD,
     step_id: str | None = None,
 ) -> RouteResult:
     """Make a control flow decision based on judgment and budget.
