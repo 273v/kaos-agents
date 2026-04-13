@@ -88,8 +88,8 @@ class BaseAgent:
             ],
         )
 
-        # Step 5: Classify intent
-        intent = await self._classify(message, memory)
+        # Step 5: Classify intent (with assembled context)
+        intent = await self._classify(message, memory, context_items)
 
         logger.debug(
             "agent.turn: session=%s intent=%s confidence=%.2f",
@@ -122,9 +122,23 @@ class BaseAgent:
 
     # -- Overridable dispatch handlers ---------------------------------------
 
-    async def _classify(self, message: str, memory: SessionMemory) -> IntentResult:
+    async def _classify(
+        self,
+        message: str,
+        memory: SessionMemory,
+        context_items: dict[MemoryType, list[Any]] | None = None,
+    ) -> IntentResult:
         """Classify user intent. Override for custom classification."""
-        return await classify_intent(message, memory, model=self._model)
+        # Build context text from assembled items for the classifier
+        context_text = ""
+        if context_items:
+            parts = []
+            for _mt, items in context_items.items():
+                if items:
+                    parts.append("\n".join(item.content for item in items))
+            context_text = "\n".join(parts)
+
+        return await classify_intent(message, memory, model=self._model, context_text=context_text)
 
     async def _dispatch(
         self,
@@ -159,7 +173,7 @@ class BaseAgent:
         context_items: dict[MemoryType, list[Any]],
     ) -> tuple[str, list[ToolCallRecord]]:
         """Handle simple conversational response. Uses a Call."""
-        response = await self._simple_respond(message, memory)
+        response = await self._simple_respond(message, memory, context_items=context_items)
         return response, []
 
     async def _handle_clarify(
@@ -212,6 +226,7 @@ class BaseAgent:
         memory: SessionMemory,
         *,
         extra_instruction: str = "",
+        context_items: dict[MemoryType, list[Any]] | None = None,
     ) -> str:
         """Generate a simple text response via Call."""
         from kaos_agents._llm_imports import require_llm_core
@@ -226,8 +241,18 @@ class BaseAgent:
             conversation_history: str = InputField(description="Recent conversation for context")
             response: str = OutputField(description="Your response to the user")
 
-        recent = memory.get_recent(MemoryType.MESSAGES, 10)
-        history = "\n".join(item.content for item in recent) if recent else "(new conversation)"
+        # Use pre-assembled context if available, otherwise build from memory
+        if context_items:
+            parts = []
+            for mt, items in context_items.items():
+                if items:
+                    parts.append(
+                        f"=== {mt.value.upper()} ===\n" + "\n".join(i.content for i in items)
+                    )
+            history = "\n\n".join(parts) if parts else "(new conversation)"
+        else:
+            recent = memory.get_recent(MemoryType.MESSAGES, 10)
+            history = "\n".join(item.content for item in recent) if recent else "(new conversation)"
 
         instructions = "You are a helpful assistant."
         if extra_instruction:

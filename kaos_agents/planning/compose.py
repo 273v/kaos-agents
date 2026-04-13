@@ -117,11 +117,14 @@ async def compose(
             )
 
             if judgment is None:
-                # Structural was inconclusive — accept optimistically
+                # Structural was inconclusive — has expected output that needs
+                # semantic verification, but we only do structural in Compose.
+                # Mark as tentative match at low confidence so Route can decide.
                 judgment = Judgment(
                     matched=True,
-                    confidence=0.6,
-                    reasoning="Structural check inconclusive; accepting result.",
+                    confidence=0.4,
+                    reasoning="Structural check inconclusive (has expected output). "
+                    "Result accepted tentatively — semantic verification not performed.",
                     mode=EvalMode.STRUCTURAL,
                 )
 

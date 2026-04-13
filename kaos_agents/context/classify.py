@@ -45,6 +45,7 @@ async def classify_intent(
     *,
     model: str = _DEFAULT_CLASSIFY_MODEL,
     context_items: dict[str, list[MemoryItem]] | None = None,
+    context_text: str = "",
 ) -> IntentResult:
     """Classify user intent using an LLM.
 
@@ -53,12 +54,15 @@ async def classify_intent(
         memory: The session memory for context.
         model: LLM model to use for classification.
         context_items: Pre-assembled context (if already computed).
+        context_text: Pre-assembled context as text (passed to LLM).
 
     Returns:
         IntentResult with intent type, confidence, and reasoning.
     """
     try:
-        return await _classify_with_llm(user_message, memory, model=model)
+        return await _classify_with_llm(
+            user_message, memory, model=model, context_text=context_text
+        )
     except Exception as exc:
         logger.warning(
             "classify_intent: LLM classification failed (%s: %s), using heuristic fallback",
@@ -73,8 +77,12 @@ async def _classify_with_llm(
     memory: SessionMemory,
     *,
     model: str,
+    context_text: str = "",
 ) -> IntentResult:
     """LLM-based intent classification."""
+    from kaos_agents._llm_imports import require_llm_core
+
+    require_llm_core()
     from kaos_llm_core import Call, InputField, OutputField, Signature
 
     class ClassifyIntent(Signature):
@@ -82,17 +90,20 @@ async def _classify_with_llm(
 
         message: str = InputField(description="The user's message to classify")
         conversation_context: str = InputField(
-            description="Recent conversation history for context"
+            description="Recent conversation history and assembled memory context"
         )
         intent: str = OutputField(description="One of: respond, tool_use, research, plan, clarify")
         confidence: float = OutputField(description="Confidence score 0.0 to 1.0")
         reasoning: str = OutputField(description="Brief explanation of the classification")
 
-    # Build conversation context from memory
-    from kaos_agents.memory.types import MemoryType
+    # Use provided context, or build from memory if not provided
+    if not context_text:
+        from kaos_agents.memory.types import MemoryType
 
-    recent = memory.get_recent(MemoryType.MESSAGES, 5)
-    context_text = "\n".join(item.content for item in recent) if recent else "(no prior messages)"
+        recent = memory.get_recent(MemoryType.MESSAGES, 5)
+        context_text = (
+            "\n".join(item.content for item in recent) if recent else "(no prior messages)"
+        )
 
     call = Call(ClassifyIntent, model=model, instructions=_CLASSIFY_INSTRUCTION)
     result = await call(message=user_message, conversation_context=context_text)

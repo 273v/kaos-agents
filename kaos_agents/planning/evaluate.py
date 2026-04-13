@@ -142,11 +142,11 @@ async def evaluate_semantic(
             new_facts=tuple(output.new_facts) if output.new_facts else (),
         )
     except Exception as exc:
-        logger.warning("evaluate_semantic failed: %s — falling back to optimistic", exc)
+        logger.warning("evaluate_semantic failed: %s — marking as unverified", exc)
         return Judgment(
-            matched=True,
-            confidence=0.5,
-            reasoning=f"Semantic evaluation failed ({exc}); accepting result optimistically.",
+            matched=False,
+            confidence=0.0,
+            reasoning=f"Semantic evaluation failed ({exc}). Result is unverified.",
             mode=EvalMode.STRUCTURAL,
         )
 

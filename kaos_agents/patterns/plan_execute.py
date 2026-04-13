@@ -137,13 +137,28 @@ class PlanExecuteAgent(ChatAgent):
             max_steps=self._max_plan_steps,
         )
 
-        # Build tool call records from step results
+        # Build tool call records with actual tool names from the plan graph
         tool_calls: list[ToolCallRecord] = []
+        # Parse plan graph to recover tool names per step
+        step_tool_names: dict[str, str] = {}
+        if result.plan_json and result.plan_json != "{}":
+            try:
+                from kaos_agents.planning.graph import PlanGraph
+
+                pg = PlanGraph.from_json(result.plan_json)
+                for sid in pg.step_ids():
+                    props = pg.get_step(sid)
+                    if props and props.get("tool_name"):
+                        step_tool_names[sid] = props["tool_name"]
+            except Exception:
+                pass  # Fall back to step_id if graph can't be parsed
+
         for step_id, step_result in result.step_results.items():
+            actual_tool = step_tool_names.get(step_id, step_id)
             tool_calls.append(
                 ToolCallRecord.from_dict_args(
-                    tool_name=step_id,
-                    arguments={},
+                    tool_name=actual_tool,
+                    arguments={"step_id": step_id},
                     result_summary=str(step_result)[:200],
                     is_error=is_error_result(str(step_result)),
                 )

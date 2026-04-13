@@ -58,3 +58,25 @@ class TestAdaptiveComplexity:
         # With threshold=3, this is "long"
         strict = _assess_complexity("one two three four five", n_tools=3, simple_word_threshold=3)
         assert strict < default
+
+
+class TestRollingBuildResult:
+    def test_build_result(self):
+        from kaos_agents.planning.strategies.rolling import _build_result
+        from kaos_agents.planning.types import PlanBudget, StopReason
+
+        budget = PlanBudget()
+        budget.record_step(cost_usd=0.01, tokens=100)
+        result = _build_result([], {"s1": "ok"}, 1, budget, StopReason.SUCCESS)
+        assert result.stop_reason == StopReason.SUCCESS
+        assert result.steps_executed == 1
+        assert result.total_cost_usd == 0.01
+        assert result.step_results == {"s1": "ok"}
+
+    def test_build_result_failure(self):
+        from kaos_agents.planning.strategies.rolling import _build_result
+        from kaos_agents.planning.types import PlanBudget, StopReason
+
+        budget = PlanBudget()
+        result = _build_result([], {}, 0, budget, StopReason.FAILURE)
+        assert result.stop_reason == StopReason.FAILURE
