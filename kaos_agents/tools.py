@@ -421,9 +421,10 @@ class AgentMemoryQueryTool(KaosTool):
             # Load session
             try:
                 memory = await store.load(session_id)
-            except Exception:
+            except Exception as exc:
+                logger.debug("Failed to load session '%s': %s", session_id, exc, exc_info=True)
                 return ToolResult.create_error(
-                    f"Session '{session_id}' not found. "
+                    f"Session '{session_id}' not found or failed to load: {exc}. "
                     "Check that the session_id matches a previous kaos-agent-chat or kaos-agent-plan call. "
                     "Sessions persist in VFS — they may have expired if older than 7 days."
                 )

@@ -319,6 +319,7 @@ def _skip_dependents(graph: PlanGraph, failed_step_id: str) -> None:
     try:
         deps = graph.descendants(failed_step_id)
     except Exception:
+        logger.debug("Failed to skip dependents of %s", failed_step_id, exc_info=True)
         return
 
     for dep_id in deps:
