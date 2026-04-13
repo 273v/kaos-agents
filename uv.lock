@@ -370,6 +370,7 @@ name = "kaos-agents"
 source = { editable = "." }
 dependencies = [
     { name = "kaos-core" },
+    { name = "kaos-graph" },
     { name = "kaos-nlp-core" },
     { name = "pydantic" },
 ]
@@ -399,6 +400,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "kaos-core", editable = "../kaos-core" },
+    { name = "kaos-graph", editable = "../kaos-graph" },
     { name = "kaos-llm-client", marker = "extra == 'llm'", editable = "../kaos-llm-client" },
     { name = "kaos-llm-core", marker = "extra == 'llm'", editable = "../kaos-llm-core" },
     { name = "kaos-mcp", marker = "extra == 'mcp'", editable = "../kaos-mcp" },
@@ -491,6 +493,29 @@ dev = [
     { name = "pytest-benchmark", specifier = ">=5.1.0" },
     { name = "pytest-cov", specifier = ">=6.0.0" },
     { name = "ruff", specifier = ">=0.11.0" },
+    { name = "ty", specifier = ">=0.0.1a17" },
+]
+
+[[package]]
+name = "kaos-graph"
+version = "0.1.0"
+source = { editable = "../kaos-graph" }
+
+[package.metadata]
+requires-dist = [
+    { name = "kaos-content", marker = "extra == 'tabular'", editable = "../kaos-content" },
+    { name = "kaos-core", marker = "extra == 'mcp'", editable = "../kaos-core" },
+    { name = "kaos-llm-core", marker = "extra == 'programs'", editable = "../kaos-llm-core" },
+    { name = "kaos-mcp", marker = "extra == 'mcp'", editable = "../kaos-mcp" },
+    { name = "pyoxigraph", marker = "extra == 'rdf'", specifier = ">=0.5" },
+]
+provides-extras = ["rdf", "mcp", "tabular", "programs"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.3" },
+    { name = "pytest-asyncio", specifier = ">=0.25" },
+    { name = "ruff", specifier = ">=0.11" },
     { name = "ty", specifier = ">=0.0.1a17" },
 ]
 

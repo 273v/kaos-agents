@@ -24,6 +24,7 @@ classifiers = [
 ]
 dependencies = [
   "kaos-core>=0.1.0",
+  "kaos-graph>=0.1.0",
   "kaos-nlp-core>=0.1.0",
   "pydantic>=2.11.0",
 ]
@@ -120,6 +121,7 @@ package = true
 
 [tool.uv.sources]
 kaos-core = { path = "../kaos-core", editable = true }
+kaos-graph = { path = "../kaos-graph", editable = true }
 kaos-nlp-core = { path = "../kaos-nlp-core", editable = true }
 kaos-llm-client = { path = "../kaos-llm-client", editable = true }
 kaos-llm-core = { path = "../kaos-llm-core", editable = true }
