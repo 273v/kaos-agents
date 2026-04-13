@@ -243,11 +243,7 @@ class PlanGraph:
         # Check for missing tool names on TOOL steps
         for step_id in self._graph.node_ids():
             node = self._graph.node(step_id)
-            if (
-                node
-                and node.get("step_type") == StepType.TOOL.value
-                and not node.get("tool_name")
-            ):
+            if node and node.get("step_type") == StepType.TOOL.value and not node.get("tool_name"):
                 issues.append(f"Step {step_id}: TOOL type but no tool_name")
 
         # Check for orphan nodes (no edges at all, not a root)
