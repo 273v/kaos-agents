@@ -112,7 +112,14 @@ class BaseAgent:
                 summary = f"Tool: {tc.tool_name}({tc.arguments}) → {tc.result_summary}"
                 memory.add(MemoryType.ACTIONS, summary)
 
-        # Step 8: End turn, persist
+        # Step 8: Summarize (if needed), end turn, persist
+        try:
+            n_summarized = await memory.summarize_turn(model=self._model)
+            if n_summarized > 0:
+                logger.debug("agent.turn: summarized %d sections", n_summarized)
+        except Exception as exc:
+            logger.warning("agent.turn: summarization failed (non-fatal): %s", exc)
+
         memory.end_turn()
         await self._store.save(memory)
 

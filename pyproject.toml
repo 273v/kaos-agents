@@ -39,6 +39,8 @@ dev = [
   "kaos-llm-client>=0.1.0",
   "kaos-llm-core>=0.1.0",
   "kaos-content>=0.1.0",
+  "kaos-source>=0.1.0",
+  "kaos-web>=0.1.0",
   "pytest>=8.3.5",
   "pytest-asyncio>=0.26.0",
   "pytest-cov>=6.0.0",
@@ -46,6 +48,9 @@ dev = [
   "ruff>=0.11.0",
   "ty>=0.0.1a17",
 ]
+
+[project.scripts]
+kaos-agents-serve = "kaos_agents.serve:main"
 
 [project.urls]
 Homepage = "https://273ventures.com"
@@ -117,6 +122,7 @@ known-first-party = ["kaos_agents"]
 
 [tool.ty.src]
 include = ["kaos_agents", "tests"]
+exclude = ["kaos_agents/serve.py"]
 
 [tool.uv]
 package = true
@@ -129,3 +135,5 @@ kaos-llm-client = { path = "../kaos-llm-client", editable = true }
 kaos-llm-core = { path = "../kaos-llm-core", editable = true }
 kaos-content = { path = "../kaos-content", editable = true }
 kaos-mcp = { path = "../kaos-mcp", editable = true }
+kaos-source = { path = "../kaos-source", editable = true }
+kaos-web = { path = "../kaos-web", editable = true }

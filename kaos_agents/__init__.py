@@ -39,6 +39,7 @@ from kaos_agents.planning import (
     StopReason,
 )
 from kaos_agents.settings import KaosAgentSettings
+from kaos_agents.tools import register_agent_tools
 
 __all__ = [
     "AgentResponse",
@@ -75,4 +76,5 @@ __all__ = [
     "SummarizationPolicy",
     "ToolCallRecord",
     "__version__",
+    "register_agent_tools",
 ]

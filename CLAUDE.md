@@ -15,7 +15,8 @@ kaos-agents
     ├── SessionMemory     — 15-section context management with budgets, eviction, persistence
     ├── ToolBridge        — wraps KaosTool → kaos-llm-core Tool for ReAct
     ├── AgentLoop         — 8-step turn: add message → assemble context → classify → dispatch → update memory
-    └── MCP Tools         — kaos-agent-run, kaos-agent-chat, kaos-agent-plan, kaos-agent-memory-query
+    ├── MCP Tools         — kaos-agent-chat, kaos-agent-plan, kaos-agent-memory-query, kaos-agent-memory-clear
+    └── Planning          — 7 primitives, 4 strategies, PlanGraph (kaos-graph backed)
     ↓
 kaos-llm-core            — Call, ReAct, Refine, RAG, Budget, traces
     ↓
@@ -44,6 +45,30 @@ kaos-core                — runtime, VFS, artifacts, settings, tools
 
 No new external dependencies.
 
+## MCP Tools
+
+4 tools registered via `register_agent_tools(runtime)`:
+
+| Tool | Name | Purpose |
+|------|------|---------|
+| AgentChatTool | `kaos-agent-chat` | Single conversational turn with optional ReAct tool calling |
+| AgentPlanTool | `kaos-agent-plan` | Multi-step plan-execute for complex goals |
+| AgentMemoryQueryTool | `kaos-agent-memory-query` | Read session memory contents (read-only) |
+| AgentMemoryClearTool | `kaos-agent-memory-clear` | Clear session memory (destructive) |
+
+### MCP Serve
+
+```bash
+# stdio (for Claude Code)
+kaos-agents-serve
+
+# with additional tool modules available to the agent
+kaos-agents-serve --with-source --with-web --with-pdf
+
+# streamable HTTP
+kaos-agents-serve --http --port 8000
+```
+
 ## Settings — KaosAgentSettings
 
 `KaosAgentSettings(ModuleSettings)` with `env_prefix="KAOS_AGENT_"`.
@@ -54,6 +79,17 @@ No new external dependencies.
 | `KAOS_AGENT_SNAPSHOT_INTERVAL_TURNS` | 1 | SNAPSHOT persistence frequency |
 | `KAOS_AGENT_MAX_SESSION_AGE_HOURS` | 168 | Session TTL (7 days) |
 | `KAOS_AGENT_CHARS_PER_TOKEN` | 4.0 | Token estimation ratio |
+| `KAOS_AGENT_DEFAULT_LLM_MODEL` | anthropic:claude-haiku-4-5 | Default model for classify, respond, evaluate |
+| `KAOS_AGENT_PLANNING_LLM_MODEL` | anthropic:claude-haiku-4-5 | Model for plan expansion |
+| `KAOS_AGENT_MAX_TOOLS` | 30 | Max tools bridged for ReAct |
+| `KAOS_AGENT_MAX_REACT_ITERATIONS` | 10 | Max ReAct loop iterations |
+| `KAOS_AGENT_TOOL_TIMEOUT_SECONDS` | 60.0 | Tool invocation timeout |
+| `KAOS_AGENT_CONFIDENCE_THRESHOLD` | 0.5 | Below this, Route triggers REPLAN |
+| `KAOS_AGENT_DEEPEN_THRESHOLD` | 0.3 | Below this, Route triggers DEEPEN |
+| `KAOS_AGENT_PLAN_MAX_STEPS` | 20 | Max steps in plan execution |
+| `KAOS_AGENT_PLAN_MAX_REPLANS` | 3 | Max replan attempts |
+| `KAOS_AGENT_PLAN_MAX_COST_USD` | 1.0 | Max cost per plan |
+| `KAOS_AGENT_PLAN_MAX_WALL_CLOCK_SECONDS` | 120.0 | Max wall-clock time per plan |
 
 ## QA Sequence (mandatory)
 

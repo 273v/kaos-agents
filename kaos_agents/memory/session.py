@@ -24,6 +24,7 @@ from kaos_agents.memory.types import (
     MemoryItem,
     MemoryType,
     SectionConfig,
+    SummarizationPolicy,
 )
 
 logger = get_logger(__name__)
@@ -208,8 +209,8 @@ class SessionMemory:
     def end_turn(self) -> None:
         """Called at the end of each agent turn.
 
-        Increments turn counter. Sections with ON_TURN summarization
-        would be summarized here (placeholder for Phase 2).
+        Increments turn counter. For async summarization at end of turn,
+        call ``await summarize_turn()`` before ``end_turn()``.
         """
         self._turn_count += 1
         logger.debug(
@@ -217,6 +218,74 @@ class SessionMemory:
             self._turn_count,
             self.total_tokens,
         )
+
+    async def summarize_turn(
+        self,
+        *,
+        model: str = "anthropic:claude-haiku-4-5",
+    ) -> int:
+        """Summarize sections with ON_TURN or ON_OVERFLOW policy at end of turn.
+
+        ON_TURN sections are always summarized. ON_OVERFLOW sections are
+        summarized only if they're over budget.
+
+        Args:
+            model: LLM model for summarization.
+
+        Returns:
+            Number of sections summarized.
+        """
+        from kaos_agents.memory.summarize import summarize_items
+
+        summarized = 0
+        for mt, section in self._sections.items():
+            if not section.needs_summarization:
+                continue
+            if section.item_count < 2:
+                continue  # Nothing meaningful to summarize
+
+            should_summarize = False
+            if section.summarization_policy == SummarizationPolicy.ON_TURN:
+                should_summarize = True
+            elif section.summarization_policy in (
+                SummarizationPolicy.ON_OVERFLOW,
+                SummarizationPolicy.AUTO,
+            ):
+                should_summarize = section.is_over_budget
+
+            if not should_summarize:
+                continue
+
+            items = section.collect_all_items()
+            target_tokens = (
+                max(50, section.budget_tokens // 3) if section.budget_tokens > 0 else 200
+            )
+
+            summary_text = await summarize_items(
+                items,
+                mt,
+                model=model,
+                target_tokens=target_tokens,
+                chars_per_token=self._chars_per_token,
+            )
+
+            if summary_text:
+                # Replace section contents with the summary
+                section.clear()
+                section.add(
+                    f"[Summary of {len(items)} items] {summary_text}",
+                    chars_per_token=self._chars_per_token,
+                    metadata={"summarized_from": len(items)},
+                )
+                summarized += 1
+                logger.debug(
+                    "memory.summarize_turn: section=%s items=%d → summary (%d chars)",
+                    mt.value,
+                    len(items),
+                    len(summary_text),
+                )
+
+        return summarized
 
     # -- Serialization -------------------------------------------------------
 

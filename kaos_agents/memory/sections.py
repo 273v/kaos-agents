@@ -13,6 +13,7 @@ from kaos_agents.memory.types import (
     MemoryItem,
     MemoryType,
     SectionConfig,
+    SummarizationPolicy,
     create_item,
 )
 
@@ -199,6 +200,22 @@ class Section:
     def items(self) -> Iterator[MemoryItem]:
         """Iterate over items in insertion order."""
         return iter(self._items)
+
+    @property
+    def needs_summarization(self) -> bool:
+        """True if this section has a summarization policy that could be triggered."""
+        return self._config.summarization_policy not in (
+            SummarizationPolicy.NEVER,
+            SummarizationPolicy.MANUAL,
+        )
+
+    @property
+    def summarization_policy(self) -> SummarizationPolicy:
+        return self._config.summarization_policy
+
+    def collect_all_items(self) -> list[MemoryItem]:
+        """Return all items in insertion order (for summarization)."""
+        return list(self._items)
 
     # -- Eviction ------------------------------------------------------------
 
