@@ -33,7 +33,7 @@ kaos-core                — runtime, VFS, artifacts, settings, tools
 - **Token budgeting.** Each section has a `budget_tokens` limit. Total assembly budget is a secondary cap. Priority ordering determines what gets trimmed first.
 - **Eviction policies per section.** FIFO, LRU, LFU, PRIORITY, REFUSE, NONE — each section declares its policy.
 - **Grounding integration.** FINDINGS section stores `Claim` instances with `Span` citations from kaos-llm-core grounding.
-- **RAG integration.** Document Q&A dispatches to `RAG` program (not raw ReAct). RAG handles retrieve → reason → verify → retry.
+- **RAG integration.** Document Q&A via `ResearchAgent` dispatches to kaos-llm-core's `RAG` program. RAG handles retrieve → reason → verify → retry. Verified claims (Answer/Claim/Span) are stored in the FINDINGS section with provenance metadata. Insufficient evidence results in explicit refusal (InsufficientEvidence).
 
 ## Dependencies
 
