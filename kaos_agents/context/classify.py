@@ -150,7 +150,9 @@ def _classify_heuristic(user_message: str, memory: SessionMemory) -> IntentResul
     msg_lower = user_message.lower().strip()
 
     # Greetings and simple responses
-    if len(msg_lower.split()) <= 3 and any(w in msg_lower for w in _GREETING_WORDS):
+    # Use word set intersection (not substring) to avoid "hi" matching "this"
+    words = set(msg_lower.split())
+    if len(words) <= 3 and words & _GREETING_WORDS:
         return IntentResult(
             intent=IntentType.RESPOND,
             confidence=0.8,
@@ -164,7 +166,7 @@ def _classify_heuristic(user_message: str, memory: SessionMemory) -> IntentResul
         memory.has_section(MemoryType.DOCUMENTS)
         and memory.section_item_count(MemoryType.DOCUMENTS) > 0
     )
-    if has_docs and any(w in msg_lower for w in _QUESTION_WORDS):
+    if has_docs and words & _QUESTION_WORDS:
         return IntentResult(
             intent=IntentType.RESEARCH,
             confidence=0.6,
@@ -179,8 +181,8 @@ def _classify_heuristic(user_message: str, memory: SessionMemory) -> IntentResul
             reasoning="Multi-step language detected (heuristic).",
         )
 
-    # Action words → tool_use
-    if any(w in msg_lower for w in _ACTION_WORDS):
+    # Action words → tool_use (word boundary match, not substring)
+    if words & _ACTION_WORDS:
         return IntentResult(
             intent=IntentType.TOOL_USE,
             confidence=0.6,
