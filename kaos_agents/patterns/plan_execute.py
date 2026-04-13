@@ -57,11 +57,11 @@ class PlanExecuteAgent(ChatAgent):
         *,
         runtime: KaosRuntime | None = None,
         context: KaosContext | None = None,
-        model: str = "anthropic:claude-sonnet-4-6",
+        model: str | None = None,
         tool_filter: list[str] | None = None,
-        max_tools: int = 30,
-        max_react_iterations: int = 10,
-        max_plan_steps: int = 8,
+        max_tools: int | None = None,
+        max_react_iterations: int | None = None,
+        max_plan_steps: int | None = None,
         settings: KaosAgentSettings | None = None,
     ) -> None:
         super().__init__(
@@ -74,7 +74,7 @@ class PlanExecuteAgent(ChatAgent):
             max_react_iterations=max_react_iterations,
             settings=settings,
         )
-        self._max_plan_steps = max_plan_steps
+        self._max_plan_steps = max_plan_steps or self._settings.plan_max_steps
 
     async def _handle_plan(
         self,

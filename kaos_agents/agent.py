@@ -28,6 +28,10 @@ from kaos_agents.memory.types import MemoryType
 from kaos_agents.models import AgentResponse, IntentResult, IntentType, ToolCallRecord
 from kaos_agents.settings import KaosAgentSettings
 
+# Default instruction for the respond handler. Module-level constant
+# so it's auditable and overridable (subclasses can replace self._respond_instruction).
+_DEFAULT_RESPOND_INSTRUCTION = "You are a helpful assistant."
+
 if TYPE_CHECKING:
     from kaos_core.vfs.core import VirtualFileSystem
 
@@ -48,12 +52,12 @@ class BaseAgent:
         self,
         vfs: VirtualFileSystem,
         *,
-        model: str = "anthropic:claude-haiku-4-5",
+        model: str | None = None,
         settings: KaosAgentSettings | None = None,
     ) -> None:
         self._settings = KaosAgentSettings.resolve(settings)
         self._store = SessionStore(vfs)
-        self._model = model
+        self._model = model or self._settings.default_llm_model
 
     async def turn(self, message: str, session_id: str) -> AgentResponse:
         """Execute a single agent turn.
@@ -254,7 +258,7 @@ class BaseAgent:
             recent = memory.get_recent(MemoryType.MESSAGES, 10)
             history = "\n".join(item.content for item in recent) if recent else "(new conversation)"
 
-        instructions = "You are a helpful assistant."
+        instructions = _DEFAULT_RESPOND_INSTRUCTION
         if extra_instruction:
             instructions = f"{instructions} {extra_instruction}"
 

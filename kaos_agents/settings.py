@@ -43,6 +43,35 @@ class KaosAgentSettings(ModuleSettings):
         "Conservative default; adjust per model family.",
     )
 
+    # LLM model defaults
+    default_llm_model: str = Field(
+        default="anthropic:claude-haiku-4-5",
+        description="Default LLM model for agent operations (classify, respond, evaluate). "
+        "Use the cheapest current-generation model for routine operations.",
+    )
+    planning_llm_model: str = Field(
+        default="anthropic:claude-haiku-4-5",
+        description="LLM model for plan expansion. Same as default unless stronger "
+        "reasoning is needed for complex decomposition.",
+    )
+
+    # Tool execution
+    max_tools: int = Field(
+        default=30,
+        ge=1,
+        description="Maximum tools bridged for ReAct. Performance degrades above ~30.",
+    )
+    max_react_iterations: int = Field(
+        default=10,
+        ge=1,
+        description="Maximum iterations in a ReAct tool-calling loop.",
+    )
+    tool_timeout_seconds: float = Field(
+        default=60.0,
+        gt=0,
+        description="Timeout for individual tool invocations.",
+    )
+
     # Planning: route thresholds
     confidence_threshold: float = Field(
         default=0.5,

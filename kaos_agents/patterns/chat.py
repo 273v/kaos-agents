@@ -16,6 +16,10 @@ from kaos_agents.actions.tool_bridge import bridge_runtime_tools
 from kaos_agents.agent import BaseAgent
 from kaos_agents.models import ToolCallRecord
 
+_REACT_INSTRUCTION = (
+    "Complete the user's request using the available tools. Be thorough and cite your sources."
+)
+
 if TYPE_CHECKING:
     from kaos_core.base.context import KaosContext
     from kaos_core.registry.container import KaosRuntime
@@ -50,18 +54,18 @@ class ChatAgent(BaseAgent):
         *,
         runtime: KaosRuntime | None = None,
         context: KaosContext | None = None,
-        model: str = "anthropic:claude-sonnet-4-6",
+        model: str | None = None,
         tool_filter: list[str] | None = None,
-        max_tools: int = 30,
-        max_react_iterations: int = 10,
+        max_tools: int | None = None,
+        max_react_iterations: int | None = None,
         settings: KaosAgentSettings | None = None,
     ) -> None:
         super().__init__(vfs, model=model, settings=settings)
         self._runtime = runtime
         self._context = context
         self._tool_filter = tool_filter
-        self._max_tools = max_tools
-        self._max_react_iterations = max_react_iterations
+        self._max_tools = max_tools or self._settings.max_tools
+        self._max_react_iterations = max_react_iterations or self._settings.max_react_iterations
 
     async def _handle_tool_use(
         self,
@@ -113,8 +117,7 @@ class ChatAgent(BaseAgent):
             tools=tools,
             model=self._model,
             max_iterations=self._max_react_iterations,
-            instructions="Complete the user's request using the available tools. "
-            "Be thorough and cite your sources.",
+            instructions=_REACT_INSTRUCTION,
         )
 
         try:

@@ -17,12 +17,14 @@ from kaos_agents.planning.types import (
     PlanBudget,
     RouteResult,
 )
+from kaos_agents.settings import KaosAgentSettings as _Settings
 
 logger = get_logger(__name__)
 
-# Defaults match KaosAgentSettings. Pass settings values explicitly.
-_DEFAULT_CONFIDENCE_THRESHOLD = 0.5
-_DEFAULT_DEEPEN_THRESHOLD = 0.3
+# Defaults derived from settings to avoid duplication.
+# In production, callers should pass settings values explicitly.
+_DEFAULT_CONFIDENCE_THRESHOLD: float = _Settings.model_fields["confidence_threshold"].default
+_DEFAULT_DEEPEN_THRESHOLD: float = _Settings.model_fields["deepen_threshold"].default
 
 
 def route(
@@ -55,6 +57,12 @@ def route(
     Returns:
         RouteResult with decision and rationale.
     """
+    # Validate confidence is in [0, 1] — catch upstream bugs early
+    if not 0.0 <= judgment.confidence <= 1.0:
+        logger.warning(
+            "route: judgment.confidence=%.2f out of [0,1], clamping", judgment.confidence
+        )
+
     # 1. Budget check — always first
     stop_reason = budget.should_stop()
     if stop_reason is not None:

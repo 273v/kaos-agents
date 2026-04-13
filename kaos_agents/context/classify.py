@@ -19,8 +19,19 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# Default model for classification (cheap, fast)
+# Default model for classification (cheap, fast).
+# In production, this is overridden by KaosAgentSettings.default_llm_model.
 _DEFAULT_CLASSIFY_MODEL = "anthropic:claude-haiku-4-5"
+
+# Heuristic keyword lists for fallback classification.
+# These are module constants (not hardcoded in function bodies) so they
+# can be audited, tested, and potentially made configurable.
+_GREETING_WORDS = frozenset({"hello", "hi", "thanks", "ok", "yes", "no", "bye"})
+_QUESTION_WORDS = frozenset({"what", "how", "why", "when", "where", "who"})
+_ACTION_WORDS = frozenset(
+    {"extract", "search", "find", "get", "fetch", "download", "parse", "analyze"}
+)
+_PLAN_PHRASES = ("then", "after that", "first", "step by step", "steps to")
 
 # System instruction for the classifier
 _CLASSIFY_INSTRUCTION = """Classify the user's intent into one of these categories:
@@ -108,13 +119,21 @@ async def _classify_with_llm(
     call = Call(ClassifyIntent, model=model, instructions=_CLASSIFY_INSTRUCTION)
     result = await call(message=user_message, conversation_context=context_text)
 
-    # Parse the intent string
+    # Parse the intent string with validation logging
+    raw_intent = result.intent.lower().strip()
     try:
-        intent_type = IntentType(result.intent.lower().strip())
+        intent_type = IntentType(raw_intent)
     except ValueError:
-        intent_type = IntentType.RESPOND  # Safe fallback
+        logger.warning(
+            "classify_intent: LLM returned invalid intent '%s', falling back to RESPOND",
+            raw_intent,
+        )
+        intent_type = IntentType.RESPOND
 
-    confidence = max(0.0, min(1.0, float(result.confidence)))
+    raw_confidence = float(result.confidence)
+    if not 0.0 <= raw_confidence <= 1.0:
+        logger.debug("classify_intent: LLM confidence %.2f out of [0,1], clamping", raw_confidence)
+    confidence = max(0.0, min(1.0, raw_confidence))
 
     return IntentResult(
         intent=intent_type,
@@ -131,9 +150,7 @@ def _classify_heuristic(user_message: str, memory: SessionMemory) -> IntentResul
     msg_lower = user_message.lower().strip()
 
     # Greetings and simple responses
-    if len(msg_lower.split()) <= 3 and any(
-        w in msg_lower for w in ("hello", "hi", "thanks", "ok", "yes", "no", "bye")
-    ):
+    if len(msg_lower.split()) <= 3 and any(w in msg_lower for w in _GREETING_WORDS):
         return IntentResult(
             intent=IntentType.RESPOND,
             confidence=0.8,
@@ -147,7 +164,7 @@ def _classify_heuristic(user_message: str, memory: SessionMemory) -> IntentResul
         memory.has_section(MemoryType.DOCUMENTS)
         and memory.section_item_count(MemoryType.DOCUMENTS) > 0
     )
-    if has_docs and any(w in msg_lower for w in ("what", "how", "why", "when", "where", "who")):
+    if has_docs and any(w in msg_lower for w in _QUESTION_WORDS):
         return IntentResult(
             intent=IntentType.RESEARCH,
             confidence=0.6,
@@ -155,10 +172,7 @@ def _classify_heuristic(user_message: str, memory: SessionMemory) -> IntentResul
         )
 
     # Multi-step indicators → plan (check before action words)
-    if any(
-        phrase in msg_lower
-        for phrase in ("then", "after that", "first", "step by step", "steps to")
-    ):
+    if any(phrase in msg_lower for phrase in _PLAN_PHRASES):
         return IntentResult(
             intent=IntentType.PLAN,
             confidence=0.5,
@@ -166,10 +180,7 @@ def _classify_heuristic(user_message: str, memory: SessionMemory) -> IntentResul
         )
 
     # Action words → tool_use
-    if any(
-        w in msg_lower
-        for w in ("extract", "search", "find", "get", "fetch", "download", "parse", "analyze")
-    ):
+    if any(w in msg_lower for w in _ACTION_WORDS):
         return IntentResult(
             intent=IntentType.TOOL_USE,
             confidence=0.6,
