@@ -23,3 +23,10 @@ class MemoryBudgetExceededError(KaosAgentError):
 
 class EvictionError(KaosAgentError):
     """Raised when eviction fails to free sufficient space."""
+
+
+class SectionNotConfiguredError(KaosAgentError, KeyError):
+    """Raised when accessing a section not in the memory profile.
+
+    Inherits KeyError for stdlib compatibility (dict-like interface).
+    """

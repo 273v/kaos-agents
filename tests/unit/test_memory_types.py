@@ -81,7 +81,7 @@ class TestMemoryItem:
     def test_frozen(self):
         item = create_item(MemoryType.MESSAGES, "hello")
         with pytest.raises(AttributeError):
-            item.content = "world"  # type: ignore[misc]
+            item.content = "world"  # ty: ignore[invalid-assignment]
 
 
 class TestCreateItem:
@@ -119,7 +119,7 @@ class TestSectionConfig:
             budget_tokens=3000,
         )
         with pytest.raises(AttributeError):
-            config.budget_tokens = 5000  # type: ignore[misc]
+            config.budget_tokens = 5000  # ty: ignore[invalid-assignment]
 
     def test_defaults(self):
         config = SectionConfig(

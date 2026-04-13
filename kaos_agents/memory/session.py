@@ -17,6 +17,7 @@ from typing import Any
 
 from kaos_core.logging import get_logger
 
+from kaos_agents.errors import SectionNotConfiguredError
 from kaos_agents.memory.sections import Section
 from kaos_agents.memory.types import (
     DEFAULT_SECTIONS,
@@ -270,13 +271,14 @@ class SessionMemory:
     # -- Internals -----------------------------------------------------------
 
     def _get_section(self, section: MemoryType) -> Section:
-        """Get a section by type, raising KeyError if not configured."""
+        """Get a section by type, raising SectionNotConfiguredError if not configured."""
         try:
             return self._sections[section]
         except KeyError:
-            raise KeyError(
+            raise SectionNotConfiguredError(
                 f"Section {section.value} is not configured in this memory profile. "
-                f"Available sections: {[mt.value for mt in self._sections]}."
+                f"Available sections: {[mt.value for mt in self._sections]}. "
+                f"Add the section to the profile or use a different MemoryType.",
             ) from None
 
     def __repr__(self) -> str:

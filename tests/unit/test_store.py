@@ -46,11 +46,22 @@ class TestSessionStoreSaveLoad:
         with pytest.raises(SessionNotFoundError, match="No saved session"):
             await store.load("nonexistent")
 
-    async def test_load_corrupted_raises(self, store: SessionStore, vfs: VirtualFileSystem):
-        # Write garbage data
+    async def test_load_corrupted_json_raises(self, store: SessionStore, vfs: VirtualFileSystem):
+        # Write invalid JSON bytes
         await vfs.write("kaos-agents/sessions/bad/memory.json", b"not json{{{")
         with pytest.raises(SessionCorruptedError, match="cannot be deserialized"):
             await store.load("bad")
+
+    async def test_load_structurally_invalid_raises(
+        self, store: SessionStore, vfs: VirtualFileSystem
+    ):
+        # Write valid JSON but missing required fields (session_id)
+        await vfs.write(
+            "kaos-agents/sessions/bad-struct/memory.json",
+            b'{"not_session_id": "oops", "sections": {}}',
+        )
+        with pytest.raises(SessionCorruptedError, match="invalid structure"):
+            await store.load("bad-struct")
 
     async def test_overwrite_on_save(self, store: SessionStore):
         mem = SessionMemory("test-2")

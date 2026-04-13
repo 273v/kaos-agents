@@ -17,24 +17,28 @@ class KaosAgentSettings(ModuleSettings):
     # Context budget
     default_context_budget_tokens: int = Field(
         default=16_000,
+        gt=0,
         description="Default total token budget for context assembly across all sections.",
     )
 
     # Persistence
     snapshot_interval_turns: int = Field(
         default=1,
+        ge=1,
         description="Persist SNAPSHOT sections every N turns. 1 = every turn.",
     )
 
     # Session
     max_session_age_hours: int = Field(
         default=168,
+        ge=1,
         description="Maximum session age before automatic cleanup (default: 7 days).",
     )
 
     # Token estimation
     chars_per_token: float = Field(
         default=4.0,
+        gt=0,
         description="Characters per token estimate for budget calculations. "
         "Conservative default; adjust per model family.",
     )

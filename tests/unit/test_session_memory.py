@@ -39,8 +39,17 @@ class TestSessionMemoryBasic:
             mem.add(MemoryType.ROLE, "should fail")
 
     def test_unknown_section_raises(self):
+        from kaos_agents.errors import SectionNotConfiguredError
+
         mem = SessionMemory("test")
-        with pytest.raises(KeyError, match="not configured"):
+        with pytest.raises(SectionNotConfiguredError, match="not configured"):
+            mem.add(MemoryType.LAST_USER_MESSAGE, "should fail")
+
+    def test_unknown_section_is_also_key_error(self):
+        """SectionNotConfiguredError inherits KeyError for stdlib compat."""
+
+        mem = SessionMemory("test")
+        with pytest.raises(KeyError):
             mem.add(MemoryType.LAST_USER_MESSAGE, "should fail")
 
     def test_has_section(self):

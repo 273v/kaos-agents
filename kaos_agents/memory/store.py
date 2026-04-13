@@ -84,13 +84,18 @@ class SessionStore:
         try:
             payload = await self._vfs.read(path)
             data = json.loads(payload)
+            memory = SessionMemory.from_dict(data, sections=self._sections)
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             raise SessionCorruptedError(
                 f"Session {session_id!r} exists but cannot be deserialized: {exc}. "
                 f"The session file may be corrupted. Delete and recreate the session.",
             ) from exc
-
-        memory = SessionMemory.from_dict(data, sections=self._sections)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise SessionCorruptedError(
+                f"Session {session_id!r} has invalid structure: {exc}. "
+                f"The snapshot may be from an incompatible version. "
+                f"Delete with SessionStore.delete() and recreate the session.",
+            ) from exc
         logger.debug(
             "store.load: session=%s turns=%d tokens=%d",
             session_id,

@@ -7,6 +7,7 @@ from kaos_agents.errors import (
     EvictionError,
     KaosAgentError,
     MemoryBudgetExceededError,
+    SectionNotConfiguredError,
     SessionCorruptedError,
     SessionNotFoundError,
 )
@@ -34,6 +35,7 @@ __all__ = [
     "PersistenceMode",
     "Section",
     "SectionConfig",
+    "SectionNotConfiguredError",
     "SessionCorruptedError",
     "SessionMemory",
     "SessionNotFoundError",
