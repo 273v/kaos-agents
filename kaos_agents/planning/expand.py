@@ -20,6 +20,7 @@ import uuid
 from typing import Any
 
 from kaos_core.logging import get_logger
+from pydantic import BaseModel, Field
 
 from kaos_agents.planning.types import Step, StepType
 
@@ -110,29 +111,63 @@ async def expand(
     return steps
 
 
+class GeneratedStep(BaseModel):
+    """Pydantic model for validating LLM-generated plan steps.
+
+    This is the schema that raw LLM output is validated against before
+    being converted to Step instances. Any field the LLM omits gets
+    a sensible default instead of a silent KeyError.
+    """
+
+    step_number: int = 1
+    description: str = ""
+    tool_name: str = "llm"
+    input_description: str = ""
+    expected_output: str = ""
+    depends_on: list[int] = Field(default_factory=list)
+
+
+def _validate_raw_steps(raw_steps: list[Any]) -> list[GeneratedStep]:
+    """Validate raw LLM output into typed GeneratedStep instances.
+
+    Malformed entries are logged and skipped instead of crashing.
+    """
+    validated = []
+    for i, raw in enumerate(raw_steps):
+        try:
+            if isinstance(raw, dict):
+                validated.append(GeneratedStep.model_validate(raw))
+            else:
+                logger.warning("expand: step %d is not a dict, skipping: %s", i, type(raw))
+        except Exception as exc:
+            logger.warning("expand: step %d validation failed, skipping: %s", i, exc)
+    return validated
+
+
 def _parse_steps(
     raw_steps: list[dict[str, Any]],
     available_tools: dict[str, str],
 ) -> list[Step]:
     """Parse and validate LLM-generated steps.
 
-    Validates tool names against the registry. Steps with hallucinated
-    tool names are converted to LLM reasoning steps with a warning.
+    Validates structure via Pydantic model, then validates tool names
+    against the registry. Steps with hallucinated tool names are
+    converted to LLM reasoning steps with a warning.
     """
     valid_tool_names = set(available_tools.keys())
+    validated = _validate_raw_steps(raw_steps)
     steps: list[Step] = []
-    id_map: dict[int, str] = {}  # step_number → step_id
+    id_map: dict[int, str] = {}
 
-    for raw in raw_steps:
-        step_num = raw.get("step_number", len(steps) + 1)
+    for gen in validated:
+        step_num = gen.step_number
         step_id = f"step-{step_num}-{uuid.uuid4().hex[:6]}"
         id_map[step_num] = step_id
 
-        tool_name = str(raw.get("tool_name", "llm")).strip()
-        description = str(raw.get("description", f"Step {step_num}"))
-        input_desc = str(raw.get("input_description", ""))
-        expected = str(raw.get("expected_output", ""))
-
+        tool_name = gen.tool_name.strip()
+        description = gen.description or f"Step {step_num}"
+        input_desc = gen.input_description
+        expected = gen.expected_output
         # Determine step type and validate tool
         if tool_name == "llm" or tool_name == "":
             step_type = StepType.LLM
@@ -152,8 +187,7 @@ def _parse_steps(
             validated_tool = tool_name
 
         # Resolve dependencies
-        raw_deps = raw.get("depends_on", [])
-        deps = tuple(id_map[d] for d in raw_deps if isinstance(d, int) and d in id_map)
+        deps = tuple(id_map[d] for d in gen.depends_on if isinstance(d, int) and d in id_map)
 
         steps.append(
             Step(

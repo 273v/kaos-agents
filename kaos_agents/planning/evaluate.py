@@ -43,10 +43,12 @@ def evaluate_structural(
     3. Is the result empty? → matched=False
     4. Otherwise → None (needs semantic evaluation)
     """
+    from kaos_agents.planning.result_check import is_empty_result, is_error_result
+
     result_str = str(result) if result is not None else ""
 
     # Check for error results
-    if result_str.startswith("ERROR:") or result_str.startswith('{"error":'):
+    if is_error_result(result_str):
         return Judgment(
             matched=False,
             confidence=1.0,
@@ -65,7 +67,7 @@ def evaluate_structural(
         )
 
     # Check empty result
-    if not result_str.strip():
+    if is_empty_result(result_str):
         return Judgment(
             matched=False,
             confidence=0.9,

@@ -94,19 +94,35 @@ async def act(
     )
 
 
-async def _act_tool(tool: Tool | None, args: dict[str, Any]) -> dict[str, Any]:
+async def _act_tool(
+    tool: Tool | None,
+    args: dict[str, Any],
+    *,
+    timeout_seconds: float = 60.0,
+) -> dict[str, Any]:
     """Execute a tool via the kaos-llm-core Tool interface."""
+    import asyncio
+
     if tool is None:
         return {"output": "ERROR: No tool provided for TOOL step.", "is_error": True}
 
-    result = await tool.invoke(args)
-    result_str = str(result)
+    from kaos_agents.planning.result_check import is_error_result
 
-    is_error = result_str.startswith("ERROR:") or result_str.startswith('{"error":')
+    try:
+        async with asyncio.timeout(timeout_seconds):
+            result = await tool.invoke(args)
+    except TimeoutError:
+        return {
+            "output": f"ERROR: Tool '{tool.name}' timed out after {timeout_seconds}s. "
+            "Try a simpler query or increase the timeout.",
+            "is_error": True,
+        }
+
+    result_str = str(result)
 
     return {
         "output": result_str,
-        "is_error": is_error,
+        "is_error": is_error_result(result_str),
     }
 
 

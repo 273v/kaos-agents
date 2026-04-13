@@ -15,7 +15,7 @@ from kaos_core.logging import get_logger
 
 from kaos_agents.planning.strategies.decompose import execute_decompose
 from kaos_agents.planning.strategies.direct import execute_direct
-from kaos_agents.planning.types import ComposeResult, PlanBudget
+from kaos_agents.planning.types import ComposeResult, PlanBudget, StopReason
 
 if TYPE_CHECKING:
     from kaos_llm_core.programs.tool import Tool
@@ -127,7 +127,7 @@ async def execute_adaptive(
         )
 
         # If direct failed, fall back to decomposition
-        if result.stop_reason != "success" and budget.should_stop() is None:
+        if result.stop_reason != StopReason.SUCCESS and budget.should_stop() is None:
             logger.debug("adaptive: direct failed, falling back to decompose")
             return await execute_decompose(
                 goal,

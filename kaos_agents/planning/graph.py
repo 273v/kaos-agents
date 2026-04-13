@@ -351,7 +351,7 @@ class PlanGraph:
             if node is None:
                 continue
             desc = node.get("description", step_id)
-            status = node.get("status", "pending")
+            status = node.get("status", StepStatus.PENDING.value)
             # Truncate long descriptions
             label = desc[:40] + "..." if len(str(desc)) > 40 else desc
             safe_label = str(label).replace('"', "'")

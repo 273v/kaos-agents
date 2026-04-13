@@ -178,10 +178,12 @@ class PlanExecuteAgent(ChatAgent):
 
 def _synthesize_results(results: dict[str, Any]) -> str:
     """Combine step results into a response summary."""
+    from kaos_agents.planning.result_check import is_error_result
+
     parts = []
     for step_id, result in results.items():
         result_str = str(result)
-        if result_str and not result_str.startswith("ERROR"):
+        if result_str and not is_error_result(result_str):
             # Truncate long results
             if len(result_str) > 300:
                 result_str = result_str[:300] + "..."

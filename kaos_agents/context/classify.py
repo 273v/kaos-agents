@@ -59,8 +59,12 @@ async def classify_intent(
     """
     try:
         return await _classify_with_llm(user_message, memory, model=model)
-    except Exception:
-        logger.debug("classify_intent: LLM classification failed, using heuristic fallback")
+    except Exception as exc:
+        logger.warning(
+            "classify_intent: LLM classification failed (%s: %s), using heuristic fallback",
+            type(exc).__name__,
+            exc,
+        )
         return _classify_heuristic(user_message, memory)
 
 

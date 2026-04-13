@@ -36,6 +36,7 @@ from kaos_agents.planning.types import (
     Judgment,
     PlanBudget,
     PrimitiveTrace,
+    StepStatus,
     StepType,
     StopReason,
 )
@@ -296,7 +297,7 @@ def _skip_remaining(graph: PlanGraph) -> None:
     """Skip all pending steps."""
     for step_id in graph.step_ids():
         props = graph.get_step(step_id)
-        if props and props.get("status") == "pending":
+        if props and props.get("status") == StepStatus.PENDING.value:
             graph.mark_skipped(step_id, "Budget or failure stop")
 
 
@@ -311,7 +312,7 @@ def _skip_dependents(graph: PlanGraph, failed_step_id: str) -> None:
 
     for dep_id in deps:
         props = graph.get_step(dep_id)
-        if props and props.get("status") == "pending":
+        if props and props.get("status") == StepStatus.PENDING.value:
             graph.mark_skipped(dep_id, f"Dependency {failed_step_id} failed")
 
 
