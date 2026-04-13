@@ -22,11 +22,15 @@ from kaos_agents.memory import (
     SessionStore,
     SummarizationPolicy,
 )
+from kaos_agents.models import AgentResponse, IntentResult, IntentType, ToolCallRecord
 from kaos_agents.settings import KaosAgentSettings
 
 __all__ = [
+    "AgentResponse",
     "EvictionError",
     "EvictionPolicy",
+    "IntentResult",
+    "IntentType",
     "KaosAgentError",
     "KaosAgentSettings",
     "MemoryBudgetExceededError",
@@ -41,5 +45,6 @@ __all__ = [
     "SessionNotFoundError",
     "SessionStore",
     "SummarizationPolicy",
+    "ToolCallRecord",
     "__version__",
 ]
