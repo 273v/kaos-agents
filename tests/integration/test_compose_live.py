@@ -93,7 +93,11 @@ class TestComposeLiveExpand:
         # Both SUCCESS and FAILURE are acceptable outcomes.
         result = await compose(pg, tools=MOCK_TOOLS, parallel=True)
 
-        assert result.stop_reason in (StopReason.SUCCESS, StopReason.FAILURE)
+        assert result.stop_reason in (
+            StopReason.SUCCESS,
+            StopReason.FAILURE,
+            StopReason.NEEDS_REPLAN,
+        )
         assert result.steps_executed >= 1
         assert result.wall_clock_ms > 0
 
@@ -118,7 +122,11 @@ class TestComposeLiveExpand:
 
         result = await compose(pg, tools=MOCK_TOOLS, parallel=True)
 
-        assert result.stop_reason in (StopReason.SUCCESS, StopReason.FAILURE)
+        assert result.stop_reason in (
+            StopReason.SUCCESS,
+            StopReason.FAILURE,
+            StopReason.NEEDS_REPLAN,
+        )
         assert result.steps_executed >= 1
 
     async def test_budget_limits_live_plan(self):
@@ -140,7 +148,12 @@ class TestComposeLiveExpand:
 
         assert result.steps_executed <= 2
         # Should either succeed in 2 steps or hit budget
-        assert result.stop_reason in (StopReason.SUCCESS, StopReason.MAX_STEPS)
+        assert result.stop_reason in (
+            StopReason.SUCCESS,
+            StopReason.MAX_STEPS,
+            StopReason.NEEDS_REPLAN,
+            StopReason.FAILURE,
+        )
 
     async def test_traces_from_live_compose(self):
         """Verify observability traces are collected."""

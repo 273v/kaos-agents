@@ -26,14 +26,12 @@ from typing import TYPE_CHECKING, Any
 from kaos_core.logging import get_logger
 
 from kaos_agents.planning.act import ActResult, act, make_trace
-from kaos_agents.planning.evaluate import evaluate_structural
+from kaos_agents.planning.evaluate import evaluate_semantic, evaluate_structural
 from kaos_agents.planning.graph import PlanGraph
 from kaos_agents.planning.route import route
 from kaos_agents.planning.types import (
     ComposeResult,
     Decision,
-    EvalMode,
-    Judgment,
     PlanBudget,
     PrimitiveTrace,
     StepStatus,
@@ -56,6 +54,7 @@ async def compose(
     parallel: bool = True,
     confidence_threshold: float | None = None,
     deepen_threshold: float | None = None,
+    tool_timeout_seconds: float = 60.0,
 ) -> ComposeResult:
     """Execute a plan graph.
 
@@ -119,15 +118,12 @@ async def compose(
             )
 
             if judgment is None:
-                # Structural was inconclusive — has expected output that needs
-                # semantic verification, but we only do structural in Compose.
-                # Mark as tentative match at low confidence so Route can decide.
-                judgment = Judgment(
-                    matched=True,
-                    confidence=0.4,
-                    reasoning="Structural check inconclusive (has expected output). "
-                    "Result accepted tentatively — semantic verification not performed.",
-                    mode=EvalMode.STRUCTURAL,
+                # Structural was inconclusive — step has expected_output that
+                # needs semantic verification. Call the semantic evaluator.
+                judgment = await evaluate_semantic(
+                    act_result.output,
+                    expected,
+                    model=model,
                 )
 
             # Update graph
@@ -176,20 +172,18 @@ async def compose(
             if decision.decision in (Decision.REPLAN, Decision.DEEPEN):
                 replan_count += 1
                 budget.record_replan()
-                # Undo the completion — Route decided this step's result isn't good enough.
-                # Mark as failed so downstream steps don't execute on bad results.
+                # Mark the step as failed and skip dependents
                 graph.mark_failed(
                     step_id,
                     f"Route decided {decision.decision.value}: {decision.reason}",
                 )
                 _skip_dependents(graph, step_id)
-                # Note: Compose itself doesn't re-expand. That's the strategy layer's job.
-                # We just stop this graph's execution. The strategy can inspect the
-                # ComposeResult and decide whether to expand a new plan.
-                continue
+                _skip_remaining(graph)
+                # Return NEEDS_REPLAN so the strategy layer can re-expand
+                final_stop = StopReason.NEEDS_REPLAN
+                break
 
             # CONTINUE — proceed normally
-            # DEEPEN would require Expand, which is the strategy layer's job
 
         # Check if we hit a terminal decision
         if final_stop != StopReason.SUCCESS:

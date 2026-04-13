@@ -130,7 +130,7 @@ class PlanExecuteAgent(ChatAgent):
             tool_descriptions=tool_descriptions,
             context=ctx.text,
             prior_failures=prior_failures,
-            model=self._model,
+            model=self._settings.planning_llm_model,
             budget=budget,
             complexity_threshold=self._settings.complexity_threshold,
             simple_word_threshold=self._settings.simple_goal_word_threshold,

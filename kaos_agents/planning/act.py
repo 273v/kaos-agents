@@ -42,6 +42,7 @@ async def act(
     tool_args: dict[str, Any] | None = None,
     llm_prompt: str | None = None,
     llm_model: str = "anthropic:claude-haiku-4-5",
+    tool_timeout_seconds: float = 60.0,
 ) -> ActResult:
     """Execute a single action.
 
@@ -59,7 +60,7 @@ async def act(
 
     try:
         if step_type == StepType.TOOL:
-            result = await _act_tool(tool, tool_args or {})
+            result = await _act_tool(tool, tool_args or {}, timeout_seconds=tool_timeout_seconds)
         elif step_type == StepType.LLM:
             result = await _act_llm(llm_prompt or "", llm_model)
         elif step_type == StepType.SUBPLAN:
@@ -128,6 +129,9 @@ async def _act_tool(
 
 async def _act_llm(prompt: str, model: str) -> dict[str, Any]:
     """Execute an LLM call."""
+    from kaos_agents._llm_imports import require_llm_core
+
+    require_llm_core()
     from kaos_llm_core import Call, InputField, OutputField, Signature
 
     class LLMStep(Signature):

@@ -49,6 +49,9 @@ async def expand(
     Returns:
         List of Steps with validated tool names and dependency references.
     """
+    from kaos_agents._llm_imports import require_llm_core
+
+    require_llm_core()
     from kaos_llm_core import Call, InputField, OutputField, Signature
 
     tool_descriptions = ""

@@ -106,6 +106,9 @@ async def evaluate_semantic(
     Used when structural evaluation is inconclusive and the step has
     an expected output description that needs semantic comparison.
     """
+    from kaos_agents._llm_imports import require_llm_core
+
+    require_llm_core()
     from kaos_llm_core import Call, InputField, OutputField, Signature
 
     class EvalSig(Signature):

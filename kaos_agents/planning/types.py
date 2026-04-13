@@ -128,6 +128,7 @@ class StopReason(StrEnum):
     MAX_REPLANS = "max_replans"
     MAX_WALL_CLOCK = "max_wall_clock"
     FAILURE = "failure"
+    NEEDS_REPLAN = "needs_replan"  # Route decided REPLAN — strategy should re-expand
     ESCALATED = "escalated"
 
 

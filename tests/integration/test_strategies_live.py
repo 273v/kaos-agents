@@ -69,7 +69,11 @@ class TestDecomposeStrategy:
             max_steps=4,
         )
         assert result.steps_executed >= 1
-        assert result.stop_reason in (StopReason.SUCCESS, StopReason.FAILURE)
+        assert result.stop_reason in (
+            StopReason.SUCCESS,
+            StopReason.FAILURE,
+            StopReason.NEEDS_REPLAN,
+        )
 
 
 @pytest.mark.live
@@ -96,7 +100,11 @@ class TestAdaptiveStrategy:
         )
         assert result.steps_executed >= 1
         # Complex goal should produce more steps
-        assert result.stop_reason in (StopReason.SUCCESS, StopReason.FAILURE)
+        assert result.stop_reason in (
+            StopReason.SUCCESS,
+            StopReason.FAILURE,
+            StopReason.NEEDS_REPLAN,
+        )
 
     async def test_budget_respected(self):
         budget = PlanBudget(max_steps=1)
