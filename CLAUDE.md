@@ -12,10 +12,11 @@ The agent is **stateless** — reconstructed per MCP call. All persistent state 
 Application / MCP Client
     ↓
 kaos-agents
-    ├── SessionMemory     — 15-section context management with budgets, eviction, persistence
+    ├── SessionMemory     — 13-section context management with budgets, eviction, BM25 search, persistence
     ├── ToolBridge        — wraps KaosTool → kaos-llm-core Tool for ReAct
     ├── AgentLoop         — 8-step turn: add message → assemble context → classify → dispatch → update memory
-    ├── MCP Tools         — kaos-agent-chat, kaos-agent-plan, kaos-agent-memory-query, kaos-agent-memory-clear
+    ├── MCP Tools         — 6 tools (chat, plan, memory-query, memory-search, memory-clear, recipe-list)
+    ├── Recipes           — 5 built-in workflow playbooks auto-loaded into PLAN_EXAMPLES
     └── Planning          — 7 primitives, 4 strategies, PlanGraph (kaos-graph backed)
     ↓
 kaos-llm-core            — Call, ReAct, Refine, RAG, Budget, traces
@@ -47,14 +48,41 @@ No new external dependencies.
 
 ## MCP Tools
 
-4 tools registered via `register_agent_tools(runtime)`:
+6 tools registered via `register_agent_tools(runtime)`:
 
 | Tool | Name | Purpose |
 |------|------|---------|
 | AgentChatTool | `kaos-agent-chat` | Single conversational turn with optional ReAct tool calling |
 | AgentPlanTool | `kaos-agent-plan` | Multi-step plan-execute for complex goals |
 | AgentMemoryQueryTool | `kaos-agent-memory-query` | Read session memory contents (read-only) |
+| AgentMemorySearchTool | `kaos-agent-memory-search` | BM25 search across memory sections |
 | AgentMemoryClearTool | `kaos-agent-memory-clear` | Clear session memory (destructive) |
+| AgentRecipeListTool | `kaos-agent-recipe-list` | List available workflow recipes |
+
+## Recipe Library
+
+5 built-in recipes in `kaos_agents/recipes/` — auto-loaded into PLAN_EXAMPLES on session creation:
+
+| Recipe | Description |
+|--------|-------------|
+| `contract-extraction` | Extract key terms with Cited[T] provenance |
+| `corpus-qa` | RAG-backed document Q&A with grounded citations |
+| `federal-register-research` | FR + eCFR regulatory research workflow |
+| `edgar-research` | SEC filing analysis with EDGAR tools |
+| `summarization` | Configurable style document summarization |
+
+API: `load_builtin_recipes()`, `load_recipe(name)`, `recipe_names()`, `format_recipe_for_memory()`
+
+## Memory Search
+
+BM25 search across searchable memory sections (MESSAGES, ACTIONS, DOCUMENTS, FINDINGS) using kaos-nlp-core Searcher:
+
+```python
+from kaos_agents.memory.search import search_memory
+results = search_memory(memory, "filing fee", top_k=5)
+```
+
+Returns ranked `MemorySearchResult` with content, section, score, item_id.
 
 ### MCP Serve
 

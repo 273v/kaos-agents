@@ -17,12 +17,14 @@ uv add "kaos-agents[mcp]"
 
 ## Features
 
-- **SessionMemory**: 13-section memory model with per-section token budgets, 7 eviction policies, VFS persistence
+- **SessionMemory**: 13-section memory model with per-section token budgets, 7 eviction policies, LLM summarization, BM25 search, VFS persistence
 - **Planning Primitives**: 7 composable building blocks (Recall, Evaluate, Expand, Act, Compose, Route, Graph Ops)
 - **Planning Strategies**: Adaptive (ADaPT), direct execution, hierarchical decomposition, rolling horizon
 - **PlanGraph**: kaos-graph backed plan DAG with topological execution, parallel levels, subplan insertion
-- **Agent Patterns**: BaseAgent (8-step turn loop), ChatAgent (ReAct tool calling), PlanExecuteAgent (adaptive planning)
+- **Agent Patterns**: BaseAgent (8-step turn loop), ChatAgent (ReAct tool calling), PlanExecuteAgent (adaptive planning), ResearchAgent (RAG-backed document Q&A)
 - **Intent Classification**: LLM-based with heuristic fallback (respond, tool_use, research, plan, clarify)
+- **Recipe Library**: 5 built-in workflow playbooks (contract extraction, corpus Q&A, FR/EDGAR research, summarization) auto-loaded into planning memory
+- **6 MCP Tools**: chat, plan, memory-query, memory-search, memory-clear, recipe-list
 
 ## Quick Start
 
@@ -43,5 +45,4 @@ context = memory.get_sections(
 
 ## Status
 
-Phase 1 complete: SessionMemory + planning primitives + strategies + agent patterns.
-247 tests (216 unit + 31 live/integration).
+Phase 0 + 0.5 complete. ~6,500 LOC source, 360 tests (291 unit + 69 integration).
