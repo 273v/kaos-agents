@@ -1,0 +1,35 @@
+{
+  "name": "federal-register-research",
+  "description": "Research federal regulations using the Federal Register and eCFR APIs",
+  "tools": [
+    "kaos-source-fr-search",
+    "kaos-source-fr-get-document",
+    "kaos-source-fr-get-content",
+    "kaos-source-fr-agencies",
+    "kaos-source-ecfr-titles",
+    "kaos-source-ecfr-structure",
+    "kaos-source-ecfr-content",
+    "kaos-agent-plan"
+  ],
+  "steps": [
+    {
+      "description": "Search the Federal Register for relevant rules, proposed rules, or notices",
+      "tool": "kaos-source-fr-search"
+    },
+    {
+      "description": "Get full metadata for promising documents",
+      "tool": "kaos-source-fr-get-document"
+    },
+    {
+      "description": "Fetch the full text content of key documents",
+      "tool": "kaos-source-fr-get-content"
+    },
+    {
+      "description": "Cross-reference with the current Code of Federal Regulations via eCFR",
+      "tool": "kaos-source-ecfr-content"
+    },
+    {
+      "description": "Synthesize findings into a research memo with citations to specific FR documents and CFR sections"
+    }
+  ]
+}

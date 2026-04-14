@@ -1,0 +1,26 @@
+{
+  "name": "contract-extraction",
+  "description": "Extract key terms from a contract or legal agreement with cited provenance",
+  "tools": [
+    "kaos-pdf-extract-parse",
+    "kaos-web-get-markdown",
+    "kaos-agent-chat"
+  ],
+  "steps": [
+    {
+      "description": "Parse the document into structured content (PDF, DOCX, or web page)",
+      "tool": "kaos-pdf-extract-parse"
+    },
+    {
+      "description": "Extract key terms using Cited[T] fields (effective date, parties, governing law, termination provisions, indemnification, liability caps)",
+      "tool": "kaos-agent-chat"
+    },
+    {
+      "description": "Verify every extracted term cites an exact verbatim quote from the source",
+      "note": "The Grounded wrapper handles this automatically"
+    },
+    {
+      "description": "Output structured results with each term linked to its source page and paragraph"
+    }
+  ]
+}

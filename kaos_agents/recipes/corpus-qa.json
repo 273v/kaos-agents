@@ -1,0 +1,32 @@
+{
+  "name": "corpus-qa",
+  "description": "Answer questions about a corpus of documents with grounded citations and refusal on insufficient evidence",
+  "tools": [
+    "kaos-pdf-extract-parse",
+    "kaos-source-discover",
+    "kaos-agent-chat"
+  ],
+  "steps": [
+    {
+      "description": "Discover and parse all documents in the corpus (PDF, DOCX, HTML)",
+      "tool": "kaos-source-discover"
+    },
+    {
+      "description": "Load parsed documents into agent memory (DOCUMENTS section)",
+      "note": "Use ResearchAgent.load_document() for each parsed document"
+    },
+    {
+      "description": "Ask the question using RAG \u2014 retrieves relevant passages, generates grounded answer",
+      "tool": "kaos-agent-chat",
+      "note": "ResearchAgent dispatches to kaos-llm-core RAG program automatically"
+    },
+    {
+      "description": "Verify citations (Answer.verify against source map)",
+      "note": "RAG handles verification internally with configurable match strategies"
+    },
+    {
+      "description": "If insufficient evidence, report what's missing and what would help",
+      "note": "InsufficientEvidence carries attempted_claims and what_would_resolve hints"
+    }
+  ]
+}
