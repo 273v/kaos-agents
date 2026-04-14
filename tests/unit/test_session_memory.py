@@ -220,3 +220,50 @@ class TestEvictionUnderPressure:
         assert mem.section_item_count(MemoryType.FINDINGS) == 10
         # Turn counter should be 10
         assert mem.turn_count == 10
+
+
+class TestLoadExplicit:
+    def test_load_role(self):
+        mem = SessionMemory("test")
+        n = mem.load_explicit(MemoryType.ROLE, ["You are a legal assistant."])
+        assert n == 1
+        items = mem.get_recent(MemoryType.ROLE, 5)
+        assert len(items) == 1
+        assert "legal assistant" in items[0].content
+
+    def test_load_playbooks(self):
+        mem = SessionMemory("test")
+        n = mem.load_explicit(
+            MemoryType.PLAYBOOKS,
+            [
+                "Privilege review: parse → resolve → classify → log",
+                "Contract extraction: parse → extract → verify",
+            ],
+        )
+        assert n == 2
+        items = mem.get(MemoryType.PLAYBOOKS)
+        assert len(items) == 2
+
+    def test_load_plan_examples(self):
+        mem = SessionMemory("test")
+        n = mem.load_explicit(
+            MemoryType.PLAN_EXAMPLES,
+            ["Example: Search FR for rules → extract key provisions → summarize"],
+        )
+        assert n == 1
+
+    def test_explicit_sections_cannot_be_added_via_add(self):
+        """add() should reject writes to explicit sections."""
+        mem = SessionMemory("test")
+        with pytest.raises(MemoryBudgetExceededError):
+            mem.add(MemoryType.ROLE, "Should fail")
+
+    def test_load_explicit_survives_persistence_round_trip(self):
+        """Loaded explicit items should survive serialization."""
+        mem = SessionMemory("test")
+        mem.load_explicit(MemoryType.ROLE, ["I am a research assistant."])
+        data = mem.to_dict()
+        restored = SessionMemory.from_dict(data)
+        items = restored.get_recent(MemoryType.ROLE, 5)
+        assert len(items) == 1
+        assert "research assistant" in items[0].content

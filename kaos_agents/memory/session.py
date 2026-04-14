@@ -25,6 +25,7 @@ from kaos_agents.memory.types import (
     MemoryType,
     SectionConfig,
     SummarizationPolicy,
+    create_item,
 )
 from kaos_agents.settings import DEFAULT_MODEL
 
@@ -77,6 +78,58 @@ class SessionMemory:
     def section_names(self) -> list[MemoryType]:
         """All configured section types."""
         return list(self._sections.keys())
+
+    # -- Explicit section loading ----------------------------------------------
+
+    def load_explicit(
+        self,
+        section: MemoryType,
+        items: list[str],
+    ) -> int:
+        """Load content into an explicit (immutable) memory section.
+
+        Explicit sections (ROLE, PLAYBOOKS, PLAN_EXAMPLES) are ``explicit_only=True``
+        and cannot be written to via :meth:`add` during the session. This method
+        populates them at session creation time, bypassing the explicit-only check.
+
+        Use this to load system instructions, workflow playbooks, and plan examples
+        from configuration files.
+
+        Args:
+            section: The explicit section to populate.
+            items: List of content strings to load.
+
+        Returns:
+            Number of items loaded.
+
+        Example::
+
+            memory = SessionMemory("session-1")
+            memory.load_explicit(MemoryType.ROLE, [
+                "You are a legal research assistant."
+            ])
+            memory.load_explicit(MemoryType.PLAYBOOKS, [
+                "Privilege review: 1) Parse emails 2) Resolve roles 3) Classify",
+                "Contract extraction: 1) Parse document 2) Extract clauses 3) Verify",
+            ])
+        """
+        sec = self._get_section(section)
+        count = 0
+        for content in items:
+            item = create_item(
+                section,
+                content,
+                chars_per_token=self._chars_per_token,
+            )
+            sec.add_item(item)
+            count += 1
+        logger.debug(
+            "memory.load_explicit: section=%s items=%d tokens=%d",
+            section.value,
+            count,
+            sec.token_count,
+        )
+        return count
 
     # -- Core operations -----------------------------------------------------
 
