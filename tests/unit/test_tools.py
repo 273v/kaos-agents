@@ -96,7 +96,7 @@ class TestToolRegistration:
     def test_register_agent_tools(self):
         runtime = KaosRuntime()
         count = register_agent_tools(runtime)
-        assert count == 4
+        assert count == 6
 
     def test_registered_tools_discoverable(self):
         runtime = KaosRuntime()

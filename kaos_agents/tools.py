@@ -527,6 +527,163 @@ class AgentMemoryClearTool(KaosTool):
             )
 
 
+class AgentMemorySearchTool(KaosTool):
+    """Search across an agent session's memory using BM25."""
+
+    @property
+    def metadata(self) -> ToolMetadata:
+        return ToolMetadata(
+            name="kaos-agent-memory-search",
+            display_name="Search Agent Memory",
+            description=(
+                "Search across a session's memory sections using BM25 ranking. "
+                "Searches MESSAGES, ACTIONS, DOCUMENTS, and FINDINGS by default. "
+                "Returns ranked results with content and relevance scores. "
+                "Use this to find specific information from prior turns."
+            ),
+            category=ToolCategory.DATA,
+            capability=ToolCapability.QUERY,
+            module_name=_MODULE,
+            version=_VERSION,
+            annotations=_AGENT_READ_ANNOTATIONS,
+            input_schema=[
+                ParameterSchema(
+                    name="session_id",
+                    type="string",
+                    description="Session identifier to search.",
+                ),
+                ParameterSchema(
+                    name="query",
+                    type="string",
+                    description="Natural-language search query.",
+                ),
+                ParameterSchema(
+                    name="top_k",
+                    type="integer",
+                    description="Maximum number of results. Default: 10.",
+                    required=False,
+                    constraints={"min": 1, "max": 50},
+                ),
+            ],
+        )
+
+    async def execute(
+        self, inputs: dict[str, Any], context: KaosContext | None = None
+    ) -> ToolResult:
+        session_id = inputs.get("session_id", "")
+        query = inputs.get("query", "")
+        top_k = int(inputs.get("top_k", 10))
+
+        if not session_id:
+            return ToolResult.create_error(
+                "Missing 'session_id' parameter. "
+                "Provide the session ID to search. "
+                'Example: {"session_id": "research-epa", "query": "filing fee"}'
+            )
+        if not query:
+            return ToolResult.create_error(
+                "Missing 'query' parameter. "
+                "Provide a search query. "
+                'Example: {"query": "what was the filing fee?"}'
+            )
+
+        try:
+            from kaos_agents.memory.search import search_memory
+            from kaos_agents.memory.store import SessionStore
+
+            runtime = context.runtime if context else None
+            vfs = _get_vfs(runtime)
+            store = SessionStore(vfs)
+
+            try:
+                memory = await store.load(session_id)
+            except Exception as exc:
+                logger.debug("Failed to load session '%s': %s", session_id, exc, exc_info=True)
+                return ToolResult.create_error(
+                    f"Session '{session_id}' not found: {exc}. "
+                    "Check the session_id matches a previous agent call."
+                )
+
+            results = search_memory(memory, query, top_k=top_k)
+
+            result_data = {
+                "session_id": session_id,
+                "query": query,
+                "result_count": len(results),
+                "results": [
+                    {
+                        "content": r.content[:200],
+                        "section": r.section.value,
+                        "score": round(r.score, 4),
+                    }
+                    for r in results
+                ],
+            }
+
+            summary = f"Found {len(results)} result(s) for '{query[:50]}' in session '{session_id}'"
+            return ToolResult.create_success(output=result_data, summary=summary)
+
+        except Exception as exc:
+            logger.warning("kaos-agent-memory-search: failed: %s", exc)
+            return ToolResult.create_error(
+                f"Memory search failed: {exc}. "
+                "Ensure kaos-nlp-core is installed and the session exists."
+            )
+
+
+class AgentRecipeListTool(KaosTool):
+    """List available workflow recipes."""
+
+    @property
+    def metadata(self) -> ToolMetadata:
+        return ToolMetadata(
+            name="kaos-agent-recipe-list",
+            display_name="List Agent Recipes",
+            description=(
+                "List all available workflow recipes (playbooks) that guide agent "
+                "planning. Each recipe describes a common workflow pattern with "
+                "required tools and step-by-step instructions. "
+                "Recipes are automatically loaded into agent memory on session creation."
+            ),
+            category=ToolCategory.DATA,
+            capability=ToolCapability.QUERY,
+            module_name=_MODULE,
+            version=_VERSION,
+            annotations=_AGENT_READ_ANNOTATIONS,
+            input_schema=[],
+        )
+
+    async def execute(
+        self, inputs: dict[str, Any], context: KaosContext | None = None
+    ) -> ToolResult:
+        try:
+            from kaos_agents.recipes import load_builtin_recipes
+
+            recipes = load_builtin_recipes()
+            result_data = {
+                "recipe_count": len(recipes),
+                "recipes": [
+                    {
+                        "name": r.get("name", "unnamed"),
+                        "description": r.get("description", ""),
+                        "tools": r.get("tools", []),
+                        "step_count": len(r.get("steps", [])),
+                    }
+                    for r in recipes
+                ],
+            }
+
+            names = ", ".join(r.get("name", "?") for r in recipes)
+            summary = f"{len(recipes)} recipes available: {names}"
+            return ToolResult.create_success(output=result_data, summary=summary)
+
+        except Exception as exc:
+            logger.warning("kaos-agent-recipe-list: failed: %s", exc)
+            return ToolResult.create_error(
+                f"Failed to list recipes: {exc}. The recipe library may not be installed correctly."
+            )
+
+
 def register_agent_tools(runtime: KaosRuntime) -> int:
     """Register all agent MCP tools with the runtime.
 
@@ -544,7 +701,9 @@ def register_agent_tools(runtime: KaosRuntime) -> int:
         AgentChatTool(),
         AgentPlanTool(),
         AgentMemoryQueryTool(),
+        AgentMemorySearchTool(),
         AgentMemoryClearTool(),
+        AgentRecipeListTool(),
     ]
     for tool in tools:
         runtime.tools.register_tool(tool)
