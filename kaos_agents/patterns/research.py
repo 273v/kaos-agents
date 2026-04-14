@@ -156,21 +156,34 @@ class ResearchAgent(ChatAgent):
                 answer = result.grounded_answer
                 response_text = str(answer.value)
 
-                # Store claims in FINDINGS with provenance
+                # Store claims in FINDINGS with full structured provenance
                 for claim in answer.claims:
                     sources = ", ".join(span.source_uri for span in claim.supporting_spans)
                     finding = (
                         f"[{claim.claim_type}] {claim.statement} "
                         f"(confidence={claim.confidence:.2f}, sources={sources})"
                     )
+                    # Structured metadata preserves the full Claim data for
+                    # downstream programmatic access (filtering, re-verification,
+                    # audit). The content string is the human-readable summary.
                     memory.add(
                         MemoryType.FINDINGS,
                         finding,
                         metadata={
                             "claim_type": str(claim.claim_type),
+                            "statement": claim.statement,
                             "confidence": claim.confidence,
-                            "sources": [s.source_uri for s in claim.supporting_spans],
                             "verified": result.is_verified,
+                            "sources": [s.source_uri for s in claim.supporting_spans],
+                            "spans": [
+                                {
+                                    "source_uri": s.source_uri,
+                                    "quote": s.quote,
+                                    "char_span": list(s.char_span),
+                                    "page": s.page,
+                                }
+                                for s in claim.supporting_spans
+                            ],
                         },
                     )
 
