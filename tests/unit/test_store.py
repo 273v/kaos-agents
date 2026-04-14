@@ -128,6 +128,12 @@ class TestSessionStoreLoadOrCreate:
     async def test_creates_new(self, store: SessionStore):
         mem = await store.load_or_create("new-session")
         assert mem.session_id == "new-session"
+        # New sessions have recipes loaded into PLAN_EXAMPLES
+        assert mem.section_item_count(MemoryType.PLAN_EXAMPLES) >= 5
+
+    async def test_creates_new_without_recipes(self, store: SessionStore):
+        mem = await store.load_or_create("no-recipes", load_recipes=False)
+        assert mem.session_id == "no-recipes"
         assert mem.total_tokens == 0
 
     async def test_loads_existing(self, store: SessionStore):

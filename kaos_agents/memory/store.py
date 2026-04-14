@@ -20,7 +20,7 @@ from kaos_core.vfs.core import VirtualFileSystem
 
 from kaos_agents.errors import SessionCorruptedError, SessionNotFoundError
 from kaos_agents.memory.session import SessionMemory
-from kaos_agents.memory.types import DEFAULT_SECTIONS, SectionConfig
+from kaos_agents.memory.types import DEFAULT_SECTIONS, MemoryType, SectionConfig
 
 logger = get_logger(__name__)
 
@@ -128,12 +128,51 @@ class SessionStore:
                 session_ids.append(parts[-2])
         return session_ids
 
-    async def load_or_create(self, session_id: str) -> SessionMemory:
-        """Load an existing session or create a fresh one."""
+    async def load_or_create(
+        self,
+        session_id: str,
+        *,
+        load_recipes: bool = True,
+    ) -> SessionMemory:
+        """Load an existing session or create a fresh one.
+
+        When creating a new session, automatically loads built-in recipes
+        into the PLAN_EXAMPLES memory section (unless ``load_recipes=False``).
+        Existing sessions already have their own persisted state and are
+        not modified.
+
+        Args:
+            session_id: Session identifier.
+            load_recipes: Whether to load built-in recipes into PLAN_EXAMPLES
+                for new sessions. Default True.
+
+        Returns:
+            A SessionMemory — either restored from VFS or freshly created.
+        """
         if await self.exists(session_id):
             return await self.load(session_id)
+
         logger.debug("store.load_or_create: new session %s", session_id)
-        return SessionMemory(
+        memory = SessionMemory(
             session_id=session_id,
             sections=self._sections,
         )
+
+        if load_recipes:
+            self._load_default_recipes(memory)
+
+        return memory
+
+    @staticmethod
+    def _load_default_recipes(memory: SessionMemory) -> None:
+        """Load built-in recipes into PLAN_EXAMPLES for a new session."""
+        try:
+            from kaos_agents.recipes import format_recipe_for_memory, load_builtin_recipes
+
+            recipes = load_builtin_recipes()
+            if recipes:
+                formatted = [format_recipe_for_memory(r) for r in recipes]
+                n = memory.load_explicit(MemoryType.PLAN_EXAMPLES, formatted)
+                logger.debug("store: loaded %d recipes into PLAN_EXAMPLES", n)
+        except Exception as exc:
+            logger.debug("store: failed to load recipes (non-fatal): %s", exc)
