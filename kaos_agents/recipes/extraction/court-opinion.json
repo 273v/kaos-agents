@@ -1,0 +1,33 @@
+{
+  "name": "court-opinion",
+  "description": "Extract structured metadata from a court opinion. Mirrors Harvey's published Court Opinions workflow (16 fields, 96.49% recall floor on matched corpus).",
+  "harvey_recall_floor": 0.9649,
+  "schema": {
+    "id": "court-opinion-v1",
+    "version": 1,
+    "columns": [
+      {"id": "case_name", "column_type": "string", "description": "Full case name (e.g., 'Miranda v. Arizona')."},
+      {"id": "citation", "column_type": "string", "description": "Primary reporter citation (e.g., '384 U.S. 436')."},
+      {"id": "court", "column_type": "string", "description": "Court name (e.g., 'Supreme Court of the United States', 'Second Circuit')."},
+      {"id": "decision_date", "column_type": "date", "description": "Date of the decision (ISO 8601)."},
+      {"id": "judges", "column_type": "list", "constraints": {"inner": "string"}, "description": "Judges / Justices on the panel."},
+      {"id": "author_judge", "column_type": "string", "description": "Judge who authored the majority opinion."},
+      {"id": "dissenting_judges", "column_type": "list", "constraints": {"inner": "string"}, "description": "Dissenting judges, if any."},
+      {"id": "concurring_judges", "column_type": "list", "constraints": {"inner": "string"}, "description": "Concurring judges, if any."},
+      {"id": "parties", "column_type": "list", "constraints": {"inner": "string"}, "description": "Named parties (plaintiff/appellant and defendant/appellee)."},
+      {"id": "cause_of_action", "column_type": "string", "description": "Primary cause(s) of action or claim at issue."},
+      {"id": "procedural_posture", "column_type": "string", "description": "Procedural posture (e.g., 'appeal from summary judgment', 'petition for certiorari')."},
+      {"id": "issues", "column_type": "list", "constraints": {"inner": "string"}, "description": "Key legal issues presented."},
+      {"id": "holding", "column_type": "verbatim_quote", "description": "Verbatim holding of the court."},
+      {"id": "disposition", "column_type": "enum", "constraints": {"values": ["affirmed", "reversed", "remanded", "affirmed_in_part", "reversed_in_part", "vacated", "other"]}, "description": "Disposition of the case on appeal."},
+      {"id": "key_statutes_cited", "column_type": "list", "constraints": {"inner": "string"}, "description": "Statutes / regulations materially cited (e.g., '42 U.S.C. § 1983', '17 CFR 240.10b-5')."},
+      {"id": "key_cases_cited", "column_type": "list", "constraints": {"inner": "string"}, "description": "Key precedent cases cited."}
+    ]
+  },
+  "notes": [
+    "The holding is the precise legal rule articulated by the court — emit the exact passage as verbatim_quote.",
+    "Distinguish holdings from dicta. Harvey's workflow focuses on the ratio decidendi.",
+    "Key statutes should include both federal and state statutes in their canonical reporter form."
+  ],
+  "golden_sets": ["legalbench"]
+}

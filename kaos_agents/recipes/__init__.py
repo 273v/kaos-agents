@@ -63,6 +63,55 @@ def recipe_names() -> list[str]:
     return [r["name"] for r in load_builtin_recipes()]
 
 
+# -- Extraction recipes (WS-TR.PR-4) --------------------------------------
+
+
+def load_extraction_recipes() -> list[dict[str, Any]]:
+    """Load the WS-TR extraction recipes under ``recipes/extraction/``.
+
+    Each recipe bundles an :class:`ExtractionSchema` JSON under ``schema``,
+    plus metadata (``harvey_recall_floor``, ``notes``, ``golden_sets``).
+    Distinct from the top-level agent recipes (which are planning playbooks)
+    — extraction recipes are pre-authored schemas for the WS-TR Extract
+    program and the ``kaos-extract-*`` MCP tools.
+
+    Returns:
+        List of parsed extraction-recipe dicts.
+    """
+    recipes: list[dict[str, Any]] = []
+    recipe_dir = Path(__file__).parent / "extraction"
+    if not recipe_dir.is_dir():
+        return recipes
+    for path in sorted(recipe_dir.glob("*.json")):
+        try:
+            data = json.loads(path.read_text())
+            if isinstance(data, dict) and "name" in data and "schema" in data:
+                recipes.append(data)
+        except Exception as exc:
+            logger.warning("Failed to load extraction recipe %s: %s", path.name, exc)
+    return recipes
+
+
+def load_extraction_recipe(name: str) -> dict[str, Any] | None:
+    """Load a specific extraction recipe by name.
+
+    Args:
+        name: Recipe name (e.g., ``"merger-agreement"``, ``"lease"``).
+
+    Returns:
+        The recipe dict, or ``None`` if not found.
+    """
+    for recipe in load_extraction_recipes():
+        if recipe.get("name") == name:
+            return recipe
+    return None
+
+
+def extraction_recipe_names() -> list[str]:
+    """List available extraction-recipe names."""
+    return [r["name"] for r in load_extraction_recipes()]
+
+
 def format_recipe_for_memory(recipe: dict[str, Any]) -> str:
     """Format a recipe as a text string for loading into PLAN_EXAMPLES.
 

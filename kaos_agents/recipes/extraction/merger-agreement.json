@@ -1,0 +1,45 @@
+{
+  "name": "merger-agreement",
+  "description": "Extract key deal points from an M&A merger agreement. Mirrors Harvey's published Merger Agreements workflow (27 fields, 99.66% recall floor on matched corpus).",
+  "harvey_recall_floor": 0.9966,
+  "schema": {
+    "id": "merger-agreement-v1",
+    "version": 1,
+    "columns": [
+      {"id": "parties", "column_type": "list", "constraints": {"inner": "string"}, "description": "All named parties to the merger (acquirer, target, subsidiaries)."},
+      {"id": "effective_date", "column_type": "date", "description": "Execution date of the agreement (ISO 8601)."},
+      {"id": "closing_date", "column_type": "date", "description": "Expected closing date if stated (ISO 8601)."},
+      {"id": "transaction_structure", "column_type": "string", "description": "Structure of the transaction: merger, stock purchase, asset purchase, reverse merger, etc."},
+      {"id": "purchase_price", "column_type": "money", "description": "Total consideration. Return amount + currency."},
+      {"id": "consideration_mix", "column_type": "string", "description": "Mix of cash, stock, earnout, assumed liabilities."},
+      {"id": "exchange_ratio", "column_type": "string", "description": "Stock exchange ratio or cash-per-share if stated."},
+      {"id": "governing_law", "column_type": "string", "description": "US state whose law governs the agreement."},
+      {"id": "forum_selection", "column_type": "string", "description": "Forum / venue for disputes."},
+      {"id": "no_solicit_clause", "column_type": "boolean", "description": "Whether the agreement contains a no-solicit / no-shop provision."},
+      {"id": "no_solicit_scope", "column_type": "verbatim_quote", "description": "If no_solicit_clause is true, the verbatim scope text.", "required": false},
+      {"id": "termination_fee", "column_type": "money", "description": "Break-up fee (termination fee payable on acceptance of superior proposal).", "required": false},
+      {"id": "reverse_termination_fee", "column_type": "money", "description": "Reverse break-up fee (fee payable by acquirer on regulatory/financing failure).", "required": false},
+      {"id": "regulatory_approvals", "column_type": "list", "constraints": {"inner": "string"}, "description": "Required regulatory approvals (HSR, CFIUS, foreign antitrust, sector regulators)."},
+      {"id": "material_adverse_effect_definition", "column_type": "verbatim_quote", "description": "Verbatim MAE / MAC clause definition."},
+      {"id": "mae_carveouts", "column_type": "list", "constraints": {"inner": "string"}, "description": "Named carve-outs from the MAE definition."},
+      {"id": "representations_survival_period", "column_type": "string", "description": "Survival period for representations and warranties.", "required": false},
+      {"id": "indemnification_cap", "column_type": "money", "description": "Indemnification cap / limitation of liability if stated.", "required": false},
+      {"id": "indemnification_basket", "column_type": "money", "description": "Indemnification deductible / basket.", "required": false},
+      {"id": "escrow_amount", "column_type": "money", "description": "Escrow amount for indemnification / working capital.", "required": false},
+      {"id": "key_conditions_precedent", "column_type": "list", "constraints": {"inner": "string"}, "description": "Key conditions precedent to closing beyond standard ones."},
+      {"id": "financing_commitment", "column_type": "boolean", "description": "Whether the acquirer's obligation is conditioned on financing."},
+      {"id": "employee_matters", "column_type": "string", "description": "Treatment of target employees / equity awards (brief summary).", "required": false},
+      {"id": "non_compete", "column_type": "boolean", "description": "Whether the agreement includes non-compete provisions for key executives."},
+      {"id": "non_compete_duration", "column_type": "string", "description": "Duration of non-compete if present.", "required": false},
+      {"id": "confidentiality_survival", "column_type": "string", "description": "Survival period for confidentiality obligations.", "required": false},
+      {"id": "dispute_resolution", "column_type": "string", "description": "Mechanism for disputes: litigation, arbitration (incl. rules), mediation."}
+    ]
+  },
+  "notes": [
+    "Use provenance='cited' so every extracted value cites a verbatim source span.",
+    "MAE / MAC clauses are often multi-paragraph; verbatim_quote columns emit the full clause.",
+    "Termination fees are usually explicit dollar amounts; reverse termination fees may be structured as percentages of deal value.",
+    "Regulatory approvals often hide in the 'Efforts' covenant; scan for HSR Act, CFIUS, foreign antitrust."
+  ],
+  "golden_sets": ["atticus/maud"]
+}

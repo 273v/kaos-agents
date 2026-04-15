@@ -12,9 +12,31 @@ The agent is **stateless** — reconstructed per MCP call. All persistent state 
 Application / MCP Client
     ↓
 kaos-agents
+    ├── Agent + Runner    — Agent is frozen config (instructions, model, tools, pattern)
+    │                       Runner is the execution engine (runtime, context, VFS, hooks)
+    │                       run() → AsyncIterator[AgentEvent], turn() → AgentResponse
+    ├── AgentEvent        — 19 typed streaming events (TextDelta, ToolCallStart, StepComplete, etc.)
+    │                       Two-level: stream deltas (real-time) + lifecycle events (semantic)
+    │                       Serialize/deserialize with type discriminator, EventEmitter helper
     ├── SessionMemory     — 13-section context management with budgets, eviction, BM25 search, persistence
     ├── ToolBridge        — wraps KaosTool → kaos-llm-core Tool for ReAct
     ├── AgentLoop         — 8-step turn: add message → assemble context → classify → dispatch → update memory
+    ├── Hooks + Providers — BaseHook with lifecycle callbacks (on_turn_start, on_tool_call_start, etc.)
+    │                       HookAction (CONTINUE/SKIP/REQUIRE_APPROVAL), LoggingHook built-in
+    │                       ProviderConfig with ModelRole (classify/respond/plan/research/evaluate)
+    │                       FAST/BALANCED/STRONG presets
+    ├── Permissions        — PermissionRule (glob pattern + allow/deny/ask) + PermissionPolicy
+    │                       Auto-allow readOnlyHint, auto-ask destructiveHint
+    │                       RunState for durable pause/resume across process restarts
+    ├── Delegation         — agent_as_tool() wraps an Agent as a callable sub-agent
+    │                       Agent.delegated_agents are auto-injected as ReAct tools
+    │                       Agent.handoffs become handoff_to_<name> tools
+    │                       ContextVar depth tracking prevents infinite recursion
+    │                       Runner.delegate() / Runner.handoff() yield Subagent/Handoff events
+    │                       Runner.resume() continues a paused run (with VFS-restored memory)
+    ├── Wire + API        — SSE, JSONL, WebSocket serializers + FastAPI REST API with streaming
+    │                       POST /v1/sessions/{id}/messages → SSE event stream
+    │                       Session CRUD, memory query/search endpoints
     ├── MCP Tools         — 6 tools (chat, plan, memory-query, memory-search, memory-clear, recipe-list)
     ├── Recipes           — 5 built-in workflow playbooks auto-loaded into PLAN_EXAMPLES
     └── Planning          — 7 primitives, 4 strategies, PlanGraph (kaos-graph backed)
@@ -48,7 +70,7 @@ No new external dependencies.
 
 ## MCP Tools
 
-6 tools registered via `register_agent_tools(runtime)`:
+9 tools registered via `register_agent_tools(runtime)`:
 
 | Tool | Name | Purpose |
 |------|------|---------|
@@ -58,6 +80,9 @@ No new external dependencies.
 | AgentMemorySearchTool | `kaos-agent-memory-search` | BM25 search across memory sections |
 | AgentMemoryClearTool | `kaos-agent-memory-clear` | Clear session memory (destructive) |
 | AgentRecipeListTool | `kaos-agent-recipe-list` | List available workflow recipes |
+| ExtractSchemaTool | `kaos-extract-schema` | WS-TR.PR-4 — schema-driven structured extraction on a single document (read-only, closed-world). Pass `schema_json` or `recipe_name` |
+| ExtractCorpusTool | `kaos-extract-corpus` | WS-TR.PR-4 — resumable corpus fan-out (composes `extract_corpus` + `batch_run`) |
+| ExtractVerifyTool | `kaos-extract-verify` | WS-TR.PR-4 — verify a `Cited[T]`-shaped claim's spans against source text (no LLM needed) |
 
 ## Recipe Library
 
@@ -72,6 +97,22 @@ No new external dependencies.
 | `summarization` | Configurable style document summarization |
 
 API: `load_builtin_recipes()`, `load_recipe(name)`, `recipe_names()`, `format_recipe_for_memory()`
+
+### Extraction recipes (WS-TR.PR-4)
+
+5 schema-bundled extraction recipes in `kaos_agents/recipes/extraction/` — mirrors Harvey's published Workflow library with recall floors as the competitive baseline:
+
+| Recipe | Schema ID | Cols | Harvey recall floor |
+|--------|-----------|------|---------------------|
+| `merger-agreement` | `merger-agreement-v1` | 27 | 99.66% |
+| `spa-deal-points` | `spa-deal-points-v1` | 32 | 98.13% |
+| `lease` | `lease-v1` | 24 | 97.20% |
+| `lpa` | `lpa-v1` | 27 | 99.14% |
+| `court-opinion` | `court-opinion-v1` | 16 | 96.49% |
+
+Each recipe JSON has `name`, `description`, `harvey_recall_floor`, `schema` (an `ExtractionSchema.from_dict` payload), `notes`, and `golden_sets` (named eval suites from Atticus/LegalBench). Consumed by `kaos-extract-schema` and `kaos-extract-corpus` MCP tools via `recipe_name="..."`.
+
+API: `load_extraction_recipes()`, `load_extraction_recipe(name)`, `extraction_recipe_names()`.
 
 ## Memory Search
 

@@ -1,0 +1,44 @@
+{
+  "name": "lpa",
+  "description": "Extract terms from a Limited Partnership Agreement (fund LPA). Mirrors Harvey's published LPA workflow (27 fields, 99.14% recall floor on matched corpus).",
+  "harvey_recall_floor": 0.9914,
+  "schema": {
+    "id": "lpa-v1",
+    "version": 1,
+    "columns": [
+      {"id": "fund_name", "column_type": "string", "description": "Full fund name."},
+      {"id": "general_partner", "column_type": "string", "description": "Named general partner entity."},
+      {"id": "investment_manager", "column_type": "string", "description": "Investment manager / management company, if separately named.", "required": false},
+      {"id": "fund_structure", "column_type": "string", "description": "Fund structure (Delaware LP, Cayman LP, master-feeder, parallel fund, etc.)."},
+      {"id": "formation_date", "column_type": "date", "description": "Fund formation / commencement date (ISO 8601).", "required": false},
+      {"id": "fund_term", "column_type": "string", "description": "Fund term length (e.g., '10 years plus 2 one-year extensions')."},
+      {"id": "fund_termination_date", "column_type": "date", "description": "Scheduled fund termination / dissolution date (ISO 8601).", "required": false},
+      {"id": "target_fund_size", "column_type": "money", "description": "Target fund size.", "required": false},
+      {"id": "hard_cap", "column_type": "money", "description": "Hard cap on commitments.", "required": false},
+      {"id": "minimum_commitment", "column_type": "money", "description": "Minimum LP commitment (typical or stated).", "required": false},
+      {"id": "investment_period", "column_type": "string", "description": "Investment / commitment period (e.g., '5 years from final closing')."},
+      {"id": "investment_strategy", "column_type": "verbatim_quote", "description": "Verbatim investment strategy / purpose clause."},
+      {"id": "investment_limits", "column_type": "list", "constraints": {"inner": "string"}, "description": "Investment concentration / diversification limits."},
+      {"id": "management_fee_rate", "column_type": "string", "description": "Management fee rate and basis (e.g., '2% of committed capital', '1.5% of invested capital post investment period')."},
+      {"id": "management_fee_step_down", "column_type": "string", "description": "Management fee step-down mechanics after investment period ends.", "required": false},
+      {"id": "carried_interest_rate", "column_type": "string", "description": "Carried interest percentage (typically 20%) and any tiers."},
+      {"id": "preferred_return_rate", "column_type": "string", "description": "Preferred return / hurdle rate (typically 8%).", "required": false},
+      {"id": "catch_up", "column_type": "string", "description": "GP catch-up provision (100% or partial).", "required": false},
+      {"id": "waterfall_type", "column_type": "enum", "constraints": {"values": ["deal_by_deal", "whole_fund", "european", "american"]}, "description": "Distribution waterfall type.", "required": false},
+      {"id": "clawback", "column_type": "boolean", "description": "Whether the agreement includes a GP clawback provision."},
+      {"id": "gp_commitment", "column_type": "money", "description": "GP's own capital commitment to the fund.", "required": false},
+      {"id": "key_person_clause", "column_type": "boolean", "description": "Whether the agreement contains a key-person provision."},
+      {"id": "key_persons", "column_type": "list", "constraints": {"inner": "string"}, "description": "Named key persons if key_person_clause is true."},
+      {"id": "no_fault_divorce", "column_type": "boolean", "description": "Whether LPs can remove the GP without cause (supermajority)."},
+      {"id": "advisory_committee", "column_type": "boolean", "description": "Whether the fund has an LP advisory committee."},
+      {"id": "transfer_restrictions", "column_type": "string", "description": "Restrictions on LP interest transfers."},
+      {"id": "governing_law", "column_type": "string", "description": "Governing law jurisdiction."}
+    ]
+  },
+  "notes": [
+    "Waterfall type materially affects timing of carried interest — deal-by-deal (American) pays carry sooner than whole-fund (European).",
+    "Key-person clauses typically suspend the investment period until the GP proposes replacement key persons acceptable to the advisory committee.",
+    "Management fee step-downs are typically after the investment period (reducing base from committed to invested capital)."
+  ],
+  "golden_sets": []
+}

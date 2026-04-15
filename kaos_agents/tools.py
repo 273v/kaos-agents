@@ -141,26 +141,25 @@ class AgentChatTool(KaosTool):
             )
 
         try:
-            from kaos_agents.patterns.chat import ChatAgent
+            from kaos_agents.config import Agent, AgentPattern
+            from kaos_agents.runner import Runner
+            from kaos_agents.settings import DEFAULT_MODEL
 
             runtime = context.runtime if context else None
-            vfs = _get_vfs(runtime)
 
             tool_filter = (
-                [t.strip() for t in tool_filter_str.split(",") if t.strip()]
+                tuple(t.strip() for t in tool_filter_str.split(",") if t.strip())
                 if tool_filter_str
-                else None
+                else ()
             )
 
-            agent = ChatAgent(
-                vfs,
-                runtime=runtime,
-                context=context,
-                model=model,
-                tool_filter=tool_filter,
+            agent_config = Agent(
+                pattern=AgentPattern.CHAT,
+                model=model or DEFAULT_MODEL,
+                tools=tool_filter,
             )
-
-            response = await agent.turn(message, session_id=session_id)
+            runner = Runner(agent_config, runtime=runtime, context=context)
+            response = await runner.turn(message, session_id=session_id)
 
             result_data = {
                 "text": response.text,
@@ -280,32 +279,26 @@ class AgentPlanTool(KaosTool):
             )
 
         try:
-            from kaos_agents.patterns.plan_execute import PlanExecuteAgent
+            from kaos_agents.config import Agent, AgentPattern
+            from kaos_agents.runner import Runner
+            from kaos_agents.settings import DEFAULT_MODEL
 
             runtime = context.runtime if context else None
-            vfs = _get_vfs(runtime)
 
             tool_filter = (
-                [t.strip() for t in tool_filter_str.split(",") if t.strip()]
+                tuple(t.strip() for t in tool_filter_str.split(",") if t.strip())
                 if tool_filter_str
-                else None
+                else ()
             )
 
-            kwargs: dict[str, Any] = {}
-            if model:
-                kwargs["model"] = model
-            if max_steps is not None:
-                kwargs["max_plan_steps"] = int(max_steps)
-
-            agent = PlanExecuteAgent(
-                vfs,
-                runtime=runtime,
-                context=context,
-                tool_filter=tool_filter,
-                **kwargs,
+            agent_config = Agent(
+                pattern=AgentPattern.PLAN,
+                model=model or DEFAULT_MODEL,
+                tools=tool_filter,
+                max_plan_steps=int(max_steps) if max_steps is not None else None,
             )
-
-            response = await agent.turn(message, session_id=session_id)
+            runner = Runner(agent_config, runtime=runtime, context=context)
+            response = await runner.turn(message, session_id=session_id)
 
             result_data = {
                 "text": response.text,
@@ -697,6 +690,12 @@ def register_agent_tools(runtime: KaosRuntime) -> int:
 
     runtime.module_settings["agents"] = KaosAgentSettings()
 
+    from kaos_agents.mcp_extract import (
+        ExtractCorpusTool,
+        ExtractSchemaTool,
+        ExtractVerifyTool,
+    )
+
     tools: list[KaosTool] = [
         AgentChatTool(),
         AgentPlanTool(),
@@ -704,6 +703,10 @@ def register_agent_tools(runtime: KaosRuntime) -> int:
         AgentMemorySearchTool(),
         AgentMemoryClearTool(),
         AgentRecipeListTool(),
+        # WS-TR.PR-4 — structured extraction.
+        ExtractSchemaTool(),
+        ExtractCorpusTool(),
+        ExtractVerifyTool(),
     ]
     for tool in tools:
         runtime.tools.register_tool(tool)

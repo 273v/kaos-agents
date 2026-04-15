@@ -1,0 +1,49 @@
+{
+  "name": "spa-deal-points",
+  "description": "Extract deal points from a Stock Purchase Agreement. Mirrors Harvey's published SPA workflow (32 fields, 98.13% recall floor on matched corpus).",
+  "harvey_recall_floor": 0.9813,
+  "schema": {
+    "id": "spa-deal-points-v1",
+    "version": 1,
+    "columns": [
+      {"id": "seller", "column_type": "string", "description": "Selling stockholder(s) or entity."},
+      {"id": "buyer", "column_type": "string", "description": "Purchasing entity."},
+      {"id": "target_company", "column_type": "string", "description": "Company whose stock is being sold."},
+      {"id": "effective_date", "column_type": "date", "description": "Execution date (ISO 8601)."},
+      {"id": "closing_date", "column_type": "date", "description": "Expected / actual closing date (ISO 8601)."},
+      {"id": "shares_sold", "column_type": "string", "description": "Number and class of shares sold."},
+      {"id": "purchase_price", "column_type": "money", "description": "Total purchase price."},
+      {"id": "price_per_share", "column_type": "money", "description": "Per-share consideration if stated.", "required": false},
+      {"id": "purchase_price_adjustment", "column_type": "string", "description": "Working capital / net debt / cash purchase price adjustment mechanism.", "required": false},
+      {"id": "escrow_amount", "column_type": "money", "description": "Indemnification escrow amount.", "required": false},
+      {"id": "escrow_duration", "column_type": "string", "description": "Escrow release schedule.", "required": false},
+      {"id": "earnout", "column_type": "boolean", "description": "Whether the agreement includes an earnout."},
+      {"id": "earnout_terms", "column_type": "verbatim_quote", "description": "Verbatim earnout clause if present.", "required": false},
+      {"id": "representations_seller", "column_type": "list", "constraints": {"inner": "string"}, "description": "Key seller representations (capitalization, ownership, authority, no-conflicts, disclosure schedule references)."},
+      {"id": "representations_company", "column_type": "list", "constraints": {"inner": "string"}, "description": "Target company representations (financials, taxes, IP, litigation, compliance)."},
+      {"id": "fundamental_reps_survival", "column_type": "string", "description": "Survival period for fundamental representations.", "required": false},
+      {"id": "general_reps_survival", "column_type": "string", "description": "Survival period for general representations.", "required": false},
+      {"id": "indemnification_cap", "column_type": "money", "description": "Indemnification cap.", "required": false},
+      {"id": "indemnification_basket", "column_type": "money", "description": "Indemnification deductible / basket.", "required": false},
+      {"id": "basket_type", "column_type": "enum", "constraints": {"values": ["tipping", "true_deductible", "none"]}, "description": "Basket type if stated.", "required": false},
+      {"id": "indemnification_exclusive_remedy", "column_type": "boolean", "description": "Whether indemnification is the exclusive remedy."},
+      {"id": "tax_treatment", "column_type": "string", "description": "Stated tax treatment (e.g., 338(h)(10) election, stock sale, taxable event)."},
+      {"id": "conditions_to_closing", "column_type": "list", "constraints": {"inner": "string"}, "description": "Material conditions to closing."},
+      {"id": "regulatory_approvals", "column_type": "list", "constraints": {"inner": "string"}, "description": "Required regulatory approvals."},
+      {"id": "termination_triggers", "column_type": "list", "constraints": {"inner": "string"}, "description": "Events that trigger termination."},
+      {"id": "termination_fee", "column_type": "money", "description": "Termination fee if any.", "required": false},
+      {"id": "non_compete", "column_type": "boolean", "description": "Whether seller is subject to non-compete."},
+      {"id": "non_compete_duration", "column_type": "string", "description": "Non-compete duration.", "required": false},
+      {"id": "non_solicit", "column_type": "boolean", "description": "Whether seller is subject to employee/customer non-solicit."},
+      {"id": "dispute_resolution", "column_type": "string", "description": "Dispute mechanism (litigation / arbitration)."},
+      {"id": "governing_law", "column_type": "string", "description": "Governing law jurisdiction."},
+      {"id": "forum_selection", "column_type": "string", "description": "Forum selection clause."}
+    ]
+  },
+  "notes": [
+    "SPA representations are frequently organized into seller-level vs company-level blocks; treat both separately.",
+    "Look for 'Exclusive Remedy' language to set indemnification_exclusive_remedy correctly.",
+    "Basket type: 'tipping' means recovery from dollar one once basket is exceeded; 'true_deductible' means only above basket."
+  ],
+  "golden_sets": []
+}

@@ -1,0 +1,41 @@
+{
+  "name": "lease",
+  "description": "Extract key terms from a commercial real-estate lease. Mirrors Harvey's published Lease workflow (24 fields, 97.20% recall floor on matched corpus).",
+  "harvey_recall_floor": 0.9720,
+  "schema": {
+    "id": "lease-v1",
+    "version": 1,
+    "columns": [
+      {"id": "landlord", "column_type": "string", "description": "Named landlord / lessor entity."},
+      {"id": "tenant", "column_type": "string", "description": "Named tenant / lessee entity."},
+      {"id": "guarantor", "column_type": "string", "description": "Guarantor of tenant's obligations, if any.", "required": false},
+      {"id": "premises_description", "column_type": "verbatim_quote", "description": "Verbatim premises description including address, suite, rentable square feet."},
+      {"id": "rentable_area_sf", "column_type": "integer", "description": "Rentable square feet.", "required": false},
+      {"id": "lease_commencement_date", "column_type": "date", "description": "Lease commencement date (ISO 8601)."},
+      {"id": "rent_commencement_date", "column_type": "date", "description": "Rent commencement date if different from lease commencement.", "required": false},
+      {"id": "lease_term", "column_type": "string", "description": "Lease term length (e.g., '10 years', '120 months')."},
+      {"id": "expiration_date", "column_type": "date", "description": "Stated expiration date (ISO 8601)."},
+      {"id": "base_rent_schedule", "column_type": "verbatim_quote", "description": "Verbatim base rent schedule including any escalations."},
+      {"id": "operating_expenses_type", "column_type": "enum", "constraints": {"values": ["gross", "modified_gross", "triple_net", "full_service", "other"]}, "description": "Lease type for operating expenses."},
+      {"id": "operating_expense_stops", "column_type": "string", "description": "Base year / expense stop amount.", "required": false},
+      {"id": "security_deposit", "column_type": "money", "description": "Security deposit amount.", "required": false},
+      {"id": "permitted_use", "column_type": "verbatim_quote", "description": "Permitted use clause (verbatim)."},
+      {"id": "exclusive_use", "column_type": "string", "description": "Any exclusive-use provisions.", "required": false},
+      {"id": "renewal_options", "column_type": "list", "constraints": {"inner": "string"}, "description": "Renewal / extension options and their terms."},
+      {"id": "termination_rights", "column_type": "list", "constraints": {"inner": "string"}, "description": "Early termination rights (kick-out, casualty, condemnation, etc.)."},
+      {"id": "assignment_restrictions", "column_type": "string", "description": "Restrictions on assignment / subletting."},
+      {"id": "landlord_consent_standard", "column_type": "enum", "constraints": {"values": ["sole_discretion", "not_unreasonably_withheld", "commercially_reasonable", "other"]}, "description": "Standard for landlord consent to assignment."},
+      {"id": "tenant_improvement_allowance", "column_type": "money", "description": "Tenant improvement allowance if any.", "required": false},
+      {"id": "free_rent_period", "column_type": "string", "description": "Free rent / abatement period if any.", "required": false},
+      {"id": "casualty_clause_type", "column_type": "string", "description": "Casualty / damage clause type (rebuild obligation, termination threshold, etc.)."},
+      {"id": "subordination_clause", "column_type": "boolean", "description": "Whether the lease is subordinate to mortgages."},
+      {"id": "estoppel_delivery_period", "column_type": "string", "description": "Time period for tenant to deliver estoppel certificates.", "required": false}
+    ]
+  },
+  "notes": [
+    "Triple-net (NNN) leases pass operating expenses, taxes, and insurance to tenant.",
+    "Landlord consent standard matters materially: 'sole discretion' is near-absolute; 'not unreasonably withheld' creates a reasonableness test.",
+    "Free-rent periods are often buried in the rent schedule itself."
+  ],
+  "golden_sets": ["atticus/cuad"]
+}
