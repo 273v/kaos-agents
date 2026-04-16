@@ -63,6 +63,11 @@ async def _run_repl(args: argparse.Namespace) -> None:
     from kaos_agents.runner import Runner
 
     runtime = KaosRuntime.default()
+
+    from kaos_agents.tools import register_agent_tools
+
+    register_agent_tools(runtime)
+
     _register_tool_modules(runtime, args)
 
     tools_tuple = tuple(t.strip() for t in args.tools.split(",")) if args.tools else ()
@@ -160,8 +165,9 @@ async def _run_repl(args: argparse.Namespace) -> None:
                         print(_c(_ANSI_DIM, f"  [tool: {event.tool_name}]"))
 
                 elif isinstance(event, ToolCallResult) and verbose:
-                    preview = (event.summary or "")[:100]
-                    print(_c(_ANSI_DIM, f"[tool:result] {preview} ({event.duration_ms:.0f}ms)"))
+                    preview = (getattr(event, "result_summary", "") or "")[:100]
+                    duration = getattr(event, "duration_ms", 0) or 0
+                    print(_c(_ANSI_DIM, f"[tool:result] {preview} ({duration:.0f}ms)"))
 
                 elif isinstance(event, ThinkingDelta) and verbose:
                     sys.stdout.write(_c(_ANSI_DIM, event.content))
