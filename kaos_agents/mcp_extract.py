@@ -97,7 +97,27 @@ def _resolve_schema(
             "Tip: pass the JSON directly, not a path. "
             'Minimal example: {"id":"x","columns":[{"id":"name","column_type":"string"}]}'
         )
+
+    # Auto-fix the most common LLM mistake: using 'name'/'type' or
+    # 'fields' instead of 'id'/'column_type'/'columns'. This saves
+    # 1-3 wasted ReAct iterations per extraction call.
+    spec = _normalize_schema_dict(spec)
     return spec, None
+
+
+def _normalize_schema_dict(spec: dict[str, Any]) -> dict[str, Any]:
+    """Fix common LLM schema format mistakes so extraction succeeds on first try."""
+    if "fields" in spec and "columns" not in spec:
+        spec["columns"] = spec.pop("fields")
+    if "id" not in spec:
+        spec["id"] = "agent-adhoc-v1"
+    cols = spec.get("columns", [])
+    for col in cols:
+        if "name" in col and "id" not in col:
+            col["id"] = col.pop("name")
+        if "type" in col and "column_type" not in col:
+            col["column_type"] = col.pop("type")
+    return spec
 
 
 class ExtractSchemaTool(KaosTool):
@@ -218,14 +238,35 @@ class ExtractSchemaTool(KaosTool):
 
         try:
             schema = ExtractionSchema.from_dict(schema_dict or {})
+        except Exception as exc:
+            logger.warning("kaos-extract-schema schema validation failed: %s", exc)
+            return ToolResult.create_error(
+                f"Invalid schema_json: {exc}\n\n"
+                "The correct schema_json format uses 'id' (not 'name') and "
+                "'column_type' (not 'type'). Example:\n"
+                '{"id": "my-schema-v1", "columns": ['
+                '{"id": "parties", "column_type": "string", '
+                '"description": "The contracting parties"}, '
+                '{"id": "governing_law", "column_type": "string", '
+                '"description": "Governing law jurisdiction"}]}\n\n'
+                "Valid column_type values: string, verbatim_quote, number, "
+                "integer, date, datetime, boolean, money, score, enum, list, "
+                "object, entity_role.\n\n"
+                "Alternative: use recipe_name='lease' (or merger-agreement, "
+                "spa-deal-points, lpa, court-opinion, privilege-classification) "
+                "instead of schema_json to use a built-in recipe."
+            )
+
+        try:
             extractor = Extract(schema, model=model, provenance=provenance)
             result = await extractor.extract(text=text, doc_id=doc_id)
         except Exception as exc:
             logger.warning("kaos-extract-schema failed: %s", exc, exc_info=True)
             return ToolResult.create_error(
                 f"Extraction failed: {exc}. "
-                "Check that the provider API key is configured and that the schema is valid. "
-                "Alternative: try kaos-llm-core-call for a simpler one-field extraction."
+                "Check that the provider API key is configured. "
+                "Alternative: try recipe_name instead of schema_json, or "
+                "use kaos-llm-core-call for a simpler one-field extraction."
             )
 
         cells_summary = [
