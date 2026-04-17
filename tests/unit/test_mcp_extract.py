@@ -31,7 +31,7 @@ from kaos_agents.recipes import (
 
 
 class TestExtractionRecipes:
-    def test_all_five_recipes_load(self) -> None:
+    def test_all_recipes_load(self) -> None:
         names = set(extraction_recipe_names())
         assert names == {
             "merger-agreement",
@@ -39,6 +39,7 @@ class TestExtractionRecipes:
             "lease",
             "lpa",
             "court-opinion",
+            "privilege-classification",
         }
 
     def test_recipe_has_expected_shape(self) -> None:
