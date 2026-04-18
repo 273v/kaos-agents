@@ -648,6 +648,87 @@ class RerankTool(KaosTool):
             )
 
 
+_CORPUS_INFO_TOP_TERMS = 20
+_CORPUS_INFO_MAX_URIS = 30
+
+
+class CorpusInfoTool(KaosTool):
+    """Inspect the document corpus — size, URIs, vocabulary, statistics."""
+
+    @property
+    def metadata(self) -> ToolMetadata:
+        return ToolMetadata(
+            name="kaos-retrieval-corpus-info",
+            display_name="Corpus Information",
+            description=(
+                "Inspect the loaded document corpus. Returns document count, total "
+                "characters, average document length, top terms by frequency, and "
+                "document URIs. Use this BEFORE searching to understand what kind of "
+                "corpus you're working with — it helps you choose the right retrieval "
+                "strategy (e.g., whether synonym expansion might help or hurt)."
+            ),
+            category=ToolCategory.DATA,
+            capability=ToolCapability.QUERY,
+            module_name=_MODULE,
+            version=_VERSION,
+            annotations=_READ_ANNOTATIONS,
+            input_schema=[
+                ParameterSchema(name="session_id", type="string", description="Session ID"),
+            ],
+        )
+
+    async def execute(self, inputs: dict[str, Any], context: Any = None) -> ToolResult:
+        memory, _store, err = _get_memory(inputs, context)
+        if err:
+            return ToolResult.create_error(err)
+
+        from collections import Counter
+
+        from kaos_agents.memory.types import MemoryType
+
+        if not memory.has_section(MemoryType.DOCUMENTS):
+            return ToolResult.create_success(
+                output={"document_count": 0, "total_chars": 0},
+                summary="No documents loaded. Use /load or kaos-agent-chat to add documents first.",
+            )
+
+        items = memory.get(MemoryType.DOCUMENTS)
+        n_docs = len(items)
+        total_chars = sum(len(item.content) for item in items)
+        avg_chars = total_chars // n_docs if n_docs else 0
+
+        # Extract URIs
+        uris = []
+        for item in items[:_CORPUS_INFO_MAX_URIS]:
+            uri = (item.metadata or {}).get("uri", item.id[:8])
+            uris.append(uri)
+
+        # Compute top terms by frequency (simple word count)
+        word_counts: Counter[str] = Counter()
+        for item in items:
+            words = item.content.lower().split()
+            word_counts.update(w for w in words if len(w) >= 3)
+        top_terms = [term for term, _ in word_counts.most_common(_CORPUS_INFO_TOP_TERMS)]
+
+        output = {
+            "document_count": n_docs,
+            "total_chars": total_chars,
+            "avg_chars_per_doc": avg_chars,
+            "top_terms": top_terms,
+            "document_uris": uris,
+            "has_more_uris": n_docs > _CORPUS_INFO_MAX_URIS,
+        }
+
+        return ToolResult.create_success(
+            output=output,
+            summary=(
+                f"{n_docs} documents, {total_chars:,} total chars "
+                f"(avg {avg_chars:,}/doc). "
+                f"Top terms: {', '.join(top_terms[:5])}"
+            ),
+        )
+
+
 def register_retrieval_tools(runtime: Any) -> int:
     """Register all retrieval tools with a KaosRuntime."""
     tools: list[KaosTool] = [
@@ -656,6 +737,7 @@ def register_retrieval_tools(runtime: Any) -> int:
         HyDESearchTool(),
         EvaluateCoverageTool(),
         RerankTool(),
+        CorpusInfoTool(),
     ]
     for tool in tools:
         runtime.tools.register_tool(tool)

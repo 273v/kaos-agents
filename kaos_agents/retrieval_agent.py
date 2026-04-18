@@ -33,18 +33,21 @@ You are a document retrieval specialist. Your job is to find the most
 relevant documents from a corpus for a given search query.
 
 STRATEGY:
-1. Start with a plain BM25 keyword search (kaos-retrieval-bm25).
-2. Look at the results. If the results seem to cover the topic well, STOP.
-3. If results are missing important aspects:
+1. Check the corpus first with kaos-retrieval-corpus-info to understand
+   document count, vocabulary, and what you're searching.
+2. Run a plain BM25 keyword search (kaos-retrieval-bm25).
+3. Look at the results and the expansion_assessment signal. If results
+   look good and expansion is not suggested, STOP.
+4. If results are missing important aspects:
    a. Use kaos-retrieval-synonyms to find alternative terminology.
    b. Run additional BM25 searches with the synonyms.
-4. If there's a large vocabulary gap (consumer language vs. technical language):
+5. If there's a large vocabulary gap (consumer language vs. technical language):
    a. Use kaos-retrieval-hyde to generate a pseudo-document in the corpus's
       vocabulary, then search against it.
-5. If you have 10+ candidates and need better precision, use kaos-retrieval-rerank
+6. If you have 10+ candidates and need better precision, use kaos-retrieval-rerank
    to reorder results by cross-encoder relevance scoring.
-6. After 2-3 search rounds, evaluate coverage with kaos-retrieval-evaluate.
-7. If coverage is sufficient, STOP and return your findings.
+7. After 2-3 search rounds, evaluate coverage with kaos-retrieval-evaluate.
+8. If coverage is sufficient, STOP and return your findings.
 
 IMPORTANT:
 - Do NOT run every tool on every query. Simple queries need only BM25.
@@ -94,8 +97,8 @@ def create_retrieval_agent(
         model=model or DEFAULT_MODEL,
         pattern=AgentPattern.CHAT,
         tools=("kaos-retrieval-*",),
-        max_tools=6,
-        max_react_iterations=8,
+        max_tools=8,
+        max_react_iterations=12,
     )
 
     return agent_as_tool(

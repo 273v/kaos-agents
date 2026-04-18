@@ -123,13 +123,38 @@ class ResearchAgent(ChatAgent):
         """
         return self._corpus
 
+    # Question words used by _classify to detect document-oriented queries
+    # when a pre-bound corpus is present.
+    _QUESTION_PREFIXES: tuple[str, ...] = (
+        "what",
+        "who",
+        "where",
+        "when",
+        "why",
+        "how",
+        "which",
+        "does",
+        "is",
+        "are",
+        "can",
+        "do",
+        "tell",
+        "explain",
+        "describe",
+        "summarize",
+        "find",
+        "list",
+        "compare",
+    )
+
     async def _classify(
         self,
         message: str,
         memory: SessionMemory,
         context_items: dict[MemoryType, list[Any]] | None = None,
     ) -> IntentResult:
-        """Force RESEARCH intent when an explicit corpus is bound.
+        """Force RESEARCH intent when an explicit corpus is bound AND the
+        message looks like a document question.
 
         Without this override, the base classifier reads ``memory.DOCUMENTS``
         and reports TOOL_USE / RESPOND when the section is empty — even
@@ -139,10 +164,15 @@ class ResearchAgent(ChatAgent):
         (observed in an early WS-3.6 live run: "$25/$50/$100" fabricated
         Delaware fees when the corpus said "$89").
 
+        The heuristic: force RESEARCH only when the message contains a ``?``
+        or starts with a common question/command word (what, who, summarize,
+        find, etc.). Greetings, off-topic chat, and non-document commands
+        fall through to the base classifier so they are handled normally.
+
         When ``self._corpus`` is ``None`` the base behavior applies — the
         memory-based routing must keep working for legacy callers.
         """
-        if self._corpus is not None:
+        if self._corpus is not None and _looks_like_question(message, self._QUESTION_PREFIXES):
             return IntentResult(
                 intent=IntentType.RESEARCH,
                 confidence=1.0,
@@ -350,11 +380,7 @@ class ResearchAgent(ChatAgent):
 
                 # Retry: use what_would_resolve to drive a second retrieval attempt
                 retried = False
-                if (
-                    refusal.what_would_resolve
-                    and isinstance(corpus, dict)
-                    and self._corpus is None
-                ):
+                if refusal.what_would_resolve and isinstance(corpus, dict) and self._corpus is None:
                     retry_query = refusal.what_would_resolve
                     logger.debug(
                         "research_agent: insufficient evidence — retrying with: %s",
@@ -398,9 +424,7 @@ class ResearchAgent(ChatAgent):
                         )
 
                         # Re-query RAG with expanded corpus
-                        retry_result = await rag.query(
-                            question=message, documents=corpus
-                        )
+                        retry_result = await rag.query(question=message, documents=corpus)
 
                         if isinstance(retry_result.grounded_answer, Answer):
                             retried = True
@@ -456,9 +480,7 @@ class ResearchAgent(ChatAgent):
                         f"Reason: {refusal.reason}"
                     )
                     if refusal.what_would_resolve:
-                        response_text += (
-                            f"\n\nWhat would help: {refusal.what_would_resolve}"
-                        )
+                        response_text += f"\n\nWhat would help: {refusal.what_would_resolve}"
 
                     yield emitter.emit(TextDelta, content=response_text)
 
@@ -515,6 +537,26 @@ class ResearchAgent(ChatAgent):
                 )
 
         return response_text, tool_calls
+
+
+def _looks_like_question(message: str, prefixes: tuple[str, ...]) -> bool:
+    """Return True if *message* looks like a document-oriented question.
+
+    Checks two lightweight signals:
+    1. The message contains a question mark (``?``).
+    2. The first word (lowercased) matches a known question/command prefix
+       such as "what", "summarize", "find", etc.
+
+    This keeps greetings ("hello", "hi there"), off-topic chat, and
+    navigation commands from being force-routed to RAG when a pre-bound
+    corpus is present.
+    """
+    if "?" in message:
+        return True
+    first_word = (
+        message.lstrip().split(maxsplit=1)[0].lower().rstrip(".,!?:;") if message.strip() else ""
+    )
+    return first_word in prefixes
 
 
 def _unwrap_corpus_arg(corpus: Any) -> Any:
