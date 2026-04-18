@@ -35,6 +35,25 @@ _FIXTURE_ROOTS = [
     "kaos-llm-core/tests/fixtures/grounding-corpus",
 ]
 
+# Ground truth overrides for the scale corpus.
+# The multiformat-questions.jsonl marks Q10/Q11/Q12 as unanswerable because
+# the 10-doc multiformat corpus doesn't contain their answers. But the scale
+# corpus includes grounding-corpus fixtures that DO contain the answers.
+_SCALE_GROUND_TRUTH_OVERRIDES: dict[str, dict] = {
+    "mf10": {
+        "answerable": True,
+        "expected_answer_hint": "right to obtain from the controller the erasure of personal data",
+    },
+    "mf11": {
+        "answerable": True,
+        "expected_answer_hint": "filing fee is $89",
+    },
+    "mf12": {
+        "answerable": True,
+        "expected_answer_hint": "criticism comment news reporting teaching scholarship research",
+    },
+}
+
 
 def _find_all_fixtures(repo_root: Path) -> list[Path]:
     """Find all parseable fixture files across the repo."""
@@ -132,6 +151,12 @@ async def run_scale_benchmark(
         question = q["question"]
         answerable = q.get("answerable", True)
         expected_hint = q.get("expected_answer_hint", "").lower()
+
+        # Apply scale-corpus ground truth overrides
+        if qid in _SCALE_GROUND_TRUTH_OVERRIDES:
+            override = _SCALE_GROUND_TRUTH_OVERRIDES[qid]
+            answerable = override.get("answerable", answerable)
+            expected_hint = override.get("expected_answer_hint", expected_hint).lower()
 
         t0 = time.perf_counter()
         text_parts: list[str] = []
