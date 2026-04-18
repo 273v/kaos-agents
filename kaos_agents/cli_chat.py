@@ -141,6 +141,8 @@ def _load_files_into_memory(
 
     loaded = 0
     for fp in file_paths:
+        # Resolve to absolute path — some parsers (docx) require it
+        fp = fp.resolve()
         if not fp.exists():
             print(_c(_ANSI_RED, f"  File not found: {fp}"))
             continue
