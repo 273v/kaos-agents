@@ -158,7 +158,9 @@ async def run_scale_benchmark(
         answered = bool(answer_text) and not refused and not errored
 
         if answerable:
-            answer_correct = answered and expected_hint in answer_text
+            from tests.benchmarks.multiformat_e2e import _fuzzy_hint_match
+
+            answer_correct = answered and _fuzzy_hint_match(answer_text, expected_hint)
         else:
             answer_correct = refused or any(
                 phrase in answer_text

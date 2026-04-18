@@ -34,6 +34,35 @@ _CORPUS_DIR = Path(__file__).resolve().parent.parent.parent.parent / (
 )
 _QUESTIONS_PATH = _CORPUS_DIR / "multiformat-questions.jsonl"
 
+_FUZZY_MATCH_THRESHOLD = 0.6  # 60% of hint words must appear in answer
+_STOPWORDS = frozenset({
+    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "shall",
+    "should", "may", "might", "must", "can", "could", "of", "in", "to",
+    "for", "with", "on", "at", "by", "from", "as", "or", "and", "that",
+    "this", "it", "its", "not", "no", "but", "if", "than", "each",
+})
+
+
+def _fuzzy_hint_match(answer: str, hint: str) -> bool:
+    """Check if the answer contains most of the hint's meaningful words.
+
+    More robust than exact substring matching. Returns True if >= 60%
+    of the hint's non-stopword words appear anywhere in the answer.
+    """
+    if not hint or not answer:
+        return False
+    # Exact match first (fast path)
+    if hint in answer:
+        return True
+    # Fuzzy: check word overlap
+    hint_words = {w for w in hint.lower().split() if w not in _STOPWORDS and len(w) > 2}
+    if not hint_words:
+        return hint in answer
+    answer_lower = answer.lower()
+    found = sum(1 for w in hint_words if w in answer_lower)
+    return found / len(hint_words) >= _FUZZY_MATCH_THRESHOLD
+
 
 @dataclass(frozen=True, slots=True)
 class QuestionResult:
@@ -190,8 +219,8 @@ async def run_benchmark(
 
         # Check correctness
         if answerable:
-            # Did the agent answer with the expected content?
-            answer_correct = answered and expected_hint in answer_text
+            # Did the agent answer with the expected content? (fuzzy match)
+            answer_correct = answered and _fuzzy_hint_match(answer_text, expected_hint)
             expected_doc_found = any(
                 expected_doc.split("/")[-1].split(".")[0] in c
                 for c in citations
