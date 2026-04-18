@@ -41,10 +41,13 @@ rerank = ["kaos-nlp-transformers[torch]>=0.1.0"]
 dev = [
   "kaos-llm-client>=0.1.0",
   "kaos-llm-core>=0.1.0",
-  "kaos-content>=0.1.0",
+  "kaos-content[markdown,html]>=0.1.0",
+  "kaos-pdf>=0.1.0",
+  "kaos-office>=0.1.0",
   "kaos-source>=0.1.0",
   "kaos-web>=0.1.0",
   "kaos-ml-core>=0.1.0",
+  "kaos-nlp-transformers[torch]>=0.1.0",
   "pytest>=8.3.5",
   "pytest-asyncio>=0.26.0",
   "pytest-cov>=6.0.0",
@@ -55,7 +58,6 @@ dev = [
   "httpx>=0.27",
   "datasets>=4.8.4",
   "transformers>=5.5.4",
-  "kaos-nlp-transformers[torch]>=0.1.0",
   "mdit-py-plugins>=0.4",
 ]
 
@@ -149,4 +151,6 @@ kaos-ml-core = { path = "../kaos-ml-core", editable = true }
 kaos-mcp = { path = "../kaos-mcp", editable = true }
 kaos-source = { path = "../kaos-source", editable = true }
 kaos-web = { path = "../kaos-web", editable = true }
+kaos-pdf = { path = "../kaos-pdf", editable = true }
+kaos-office = { path = "../kaos-office", editable = true }
 kaos-nlp-transformers = { path = "../kaos-nlp-transformers", editable = true }
