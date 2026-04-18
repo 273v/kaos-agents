@@ -90,6 +90,74 @@ def _summarize_topics(results: list, max_results: int = 5) -> str:
     return " | ".join(previews)
 
 
+_SPARSE_RESULT_THRESHOLD = 5  # Fewer results than this suggests vocabulary gap
+_LOW_SCORE_THRESHOLD = 3.0  # BM25 scores below this are weak matches
+_SCORE_DROP_RATIO = 3.0  # Top/5th score ratio above this suggests narrow match
+
+
+def _assess_expansion_need(results: list, requested_k: int) -> dict[str, Any]:
+    """Assess whether query expansion might help based on BM25 score distribution.
+
+    Returns a dict with:
+    - suggest_expansion: bool
+    - reason: str explaining the assessment
+    - recommendation: str for the agent
+    - top_score, score_p50: float for context
+    """
+    if not results:
+        return {
+            "suggest_expansion": True,
+            "reason": "No results found — likely a vocabulary mismatch",
+            "recommendation": "Try synonym search or HyDE",
+            "top_score": 0.0,
+            "score_p50": 0.0,
+        }
+
+    scores = [r.score for r in results]
+    top_score = scores[0]
+    score_p50 = scores[len(scores) // 2] if len(scores) > 1 else top_score
+    n_results = len(results)
+
+    # Few results relative to what was requested
+    if n_results < _SPARSE_RESULT_THRESHOLD:
+        return {
+            "suggest_expansion": True,
+            "reason": f"Only {n_results} results (requested {requested_k}) — sparse coverage",
+            "recommendation": "Try synonym search for alternative terminology",
+            "top_score": round(top_score, 2),
+            "score_p50": round(score_p50, 2),
+        }
+
+    # Very low scores across the board
+    if top_score < _LOW_SCORE_THRESHOLD:
+        return {
+            "suggest_expansion": True,
+            "reason": f"Top score only {top_score:.1f} — weak keyword match",
+            "recommendation": "Try HyDE to bridge vocabulary gap",
+            "top_score": round(top_score, 2),
+            "score_p50": round(score_p50, 2),
+        }
+
+    # Sharp score drop — top results match well but coverage is narrow
+    if len(scores) >= 5 and scores[0] / max(scores[4], 0.01) > _SCORE_DROP_RATIO:
+        return {
+            "suggest_expansion": False,
+            "reason": "Strong top matches with sharp score drop — focused results",
+            "recommendation": "Results look focused. Expansion not recommended unless coverage gaps are found",
+            "top_score": round(top_score, 2),
+            "score_p50": round(score_p50, 2),
+        }
+
+    # Default: good results, no expansion needed
+    return {
+        "suggest_expansion": False,
+        "reason": f"{n_results} results with top score {top_score:.1f} — good coverage",
+        "recommendation": "Results look adequate. Evaluate coverage before expanding",
+        "top_score": round(top_score, 2),
+        "score_p50": round(score_p50, 2),
+    }
+
+
 class BM25SearchTool(KaosTool):
     """Plain BM25 keyword search over session documents."""
 
@@ -141,14 +209,23 @@ class BM25SearchTool(KaosTool):
 
         formatted = _format_results(results)
         topic_summary = _summarize_topics(results)
+
+        # Compute expansion signal from score distribution
+        expansion_signal = _assess_expansion_need(results, top_k)
+
         return ToolResult.create_success(
             output={
                 "query": query,
                 "result_count": len(results),
                 "results": formatted,
                 "topic_summary": topic_summary,
+                "expansion_assessment": expansion_signal,
             },
-            summary=f"BM25 found {len(results)} documents for '{query[:50]}'. Topics: {topic_summary[:120]}",
+            summary=(
+                f"BM25 found {len(results)} documents for '{query[:50]}'. "
+                f"{expansion_signal['recommendation']}. "
+                f"Topics: {topic_summary[:100]}"
+            ),
         )
 
 
