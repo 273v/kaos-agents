@@ -62,9 +62,7 @@ async def run_scale_benchmark(
 ) -> BenchmarkResult:
     """Load 100+ docs, run 12 questions."""
     from kaos_core.registry.container import KaosRuntime
-    from kaos_core.vfs.core import VirtualFileSystem
 
-    from kaos_agents.cli_chat import _load_files_into_memory
     from kaos_agents.config import Agent
     from kaos_agents.events import (
         CitationFound,
@@ -72,9 +70,6 @@ async def run_scale_benchmark(
         RunError,
         TextDelta,
     )
-    from kaos_agents.memory.session import SessionMemory
-    from kaos_agents.memory.store import SessionStore
-    from kaos_agents.memory.types import MemoryType
     from kaos_agents.runner import Runner
     from kaos_agents.settings import DEFAULT_MODEL
     from kaos_agents.tools import register_agent_tools
@@ -84,41 +79,41 @@ async def run_scale_benchmark(
     sys.stdout.write(f"Found {len(files)} fixture files\n")
     sys.stdout.flush()
 
-    session_id = "scale-e2e"
-    memory = SessionMemory(session_id)
+    # Build ContentDocumentCorpus (passage-level retrieval, not flat text)
+    from kaos_agents.cli_chat import _load_files_to_corpus
 
     t0 = time.perf_counter()
-    n_loaded = _load_files_into_memory(files, memory, verbose=verbose)
+    corpus, uris = _load_files_to_corpus(files, verbose=verbose)
     t1 = time.perf_counter()
 
-    n_docs = memory.section_item_count(MemoryType.DOCUMENTS)
-    total_chars = sum(len(item.content) for item in memory.get(MemoryType.DOCUMENTS))
+    if corpus is None:
+        sys.stderr.write("No documents loaded.\n")
+        return BenchmarkResult()
+
+    n_docs = len(uris)
+    n_passages = corpus.size
     sys.stdout.write(
-        f"Loaded {n_loaded}/{len(files)} in {t1 - t0:.1f}s — "
-        f"{n_docs} docs, {total_chars:,} chars ({total_chars // max(n_docs, 1):,} avg)\n"
+        f"Loaded {n_docs} docs → {n_passages} passages in {t1 - t0:.1f}s\n"
     )
     sys.stdout.flush()
 
-    # Persist
-    vfs = VirtualFileSystem()
-    store = SessionStore(vfs)
-    await store.save(memory)
+    session_id = "scale-e2e"
 
-    # Build agent
+    # Build agent with corpus (passage-level RAG)
     runtime = KaosRuntime.default()
     register_agent_tools(runtime)
 
     agent = Agent.create(
         instructions=(
             f"You are a research assistant with access to {n_docs} documents "
-            f"({total_chars:,} total chars). "
+            f"({n_passages} passages). "
             "Answer questions by citing specific documents. "
             "If you cannot find sufficient evidence, say so explicitly."
         ),
         model=model or DEFAULT_MODEL,
         pattern="research",
     )
-    runner = Runner(agent, runtime=runtime, vfs=vfs)
+    runner = Runner(agent, runtime=runtime, corpus=corpus)
 
     questions = _load_questions()
     sys.stdout.write(f"\nRunning {len(questions)} questions against {n_docs} docs...\n\n")

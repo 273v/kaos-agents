@@ -53,72 +53,62 @@ def _c(code: str, text: str) -> str:
     return f"{code}{text}{_ANSI_RESET}"
 
 
-def _parse_file(file_path: Path) -> tuple[str, str]:
-    """Parse a file to plain text. Returns (text, uri).
+def _parse_file_to_document(file_path: Path) -> Any:
+    """Parse a file to a ContentDocument AST. Preserves full structure.
 
-    Dispatches by extension using kaos-pdf, kaos-office, kaos-content,
-    and kaos-web parsers. Falls back to raw text for unknown extensions.
+    Dispatches by extension using kaos-pdf, kaos-office, kaos-content parsers.
+    For plain text formats, wraps in a ContentDocument via parse_plain_text.
+    Returns the ContentDocument (not serialized text).
     """
+    from kaos_content.model.metadata import SourceRef
+    from kaos_content.parsers.plain import parse_plain_text
+
     ext = file_path.suffix.lower()
-    uri = f"file:{file_path.name}"
+
+    source = SourceRef(uri=file_path.as_uri(), path=str(file_path))
 
     # PDF → kaos-pdf
     if ext == ".pdf":
-        from kaos_content import serialize_text
         from kaos_pdf import extract_pdf
 
-        doc = extract_pdf(file_path)
-        return serialize_text(doc), uri
+        return extract_pdf(file_path)
 
     # DOCX → kaos-office
     if ext == ".docx":
-        from kaos_content import serialize_text
         from kaos_office import parse_docx
 
-        doc = parse_docx(file_path)
-        return serialize_text(doc), uri
+        return parse_docx(file_path)
 
     # PPTX → kaos-office
     if ext == ".pptx":
-        from kaos_content import serialize_text
         from kaos_office.pptx.reader import parse_pptx
 
-        doc = parse_pptx(file_path)
-        return serialize_text(doc), uri
-
-    # XLSX → kaos-office (tabular → markdown)
-    if ext == ".xlsx":
-        from kaos_office import extract_to_markdown
-
-        return extract_to_markdown(file_path), uri
+        return parse_pptx(file_path)
 
     # HTML/HTM → kaos-content html parser
     if ext in (".html", ".htm"):
-        from kaos_content import serialize_text
         from kaos_content.parsers.html import parse_html
 
         raw = file_path.read_text(encoding="utf-8", errors="replace")
-        doc = parse_html(raw)
-        return serialize_text(doc), uri
+        return parse_html(raw, source=source)
 
     # Markdown → kaos-content markdown parser
     if ext == ".md":
-        from kaos_content import serialize_text
         from kaos_content.parsers.markdown import parse_markdown
 
         raw = file_path.read_text(encoding="utf-8", errors="replace")
-        doc = parse_markdown(raw)
-        return serialize_text(doc), uri
+        return parse_markdown(raw, source=source)
 
-    # Plain text, CSV, JSON, EML — read as-is
-    if ext in (".txt", ".csv", ".json", ".eml"):
-        return file_path.read_text(encoding="utf-8", errors="replace"), uri
+    # Plain text, CSV, JSON, EML, XLSX — wrap as plain text ContentDocument
+    if ext in (".txt", ".csv", ".json", ".eml", ".xlsx"):
+        raw = file_path.read_text(encoding="utf-8", errors="replace")
+        return parse_plain_text(raw, source=source)
 
-    # Fallback: try reading as text
+    # Fallback: try reading as plain text
     try:
-        text = file_path.read_text(encoding="utf-8", errors="replace")
-        if text.strip():
-            return text, uri
+        raw = file_path.read_text(encoding="utf-8", errors="replace")
+        if raw.strip():
+            return parse_plain_text(raw, source=source)
     except Exception:
         pass
 
@@ -130,18 +120,77 @@ def _parse_file(file_path: Path) -> tuple[str, str]:
     raise ValueError(msg)
 
 
+def _parse_file(file_path: Path) -> tuple[str, str]:
+    """Parse a file to plain text. Returns (text, uri).
+
+    Convenience wrapper over _parse_file_to_document for backward compat.
+    Prefer _parse_file_to_document to preserve the AST.
+    """
+    from kaos_content import serialize_text
+
+    doc = _parse_file_to_document(file_path)
+    uri = f"file:{file_path.name}"
+    return serialize_text(doc), uri
+
+
+def _load_files_to_corpus(
+    file_paths: list[Path],
+    *,
+    verbose: bool = False,
+) -> tuple[Any, list[str]]:
+    """Parse files into ContentDocuments and build a ContentDocumentCorpus.
+
+    Returns (corpus, uris) where corpus is a ContentDocumentCorpus with
+    passage-level retrieval, and uris is the list of document URIs.
+    Returns (None, []) if no documents loaded.
+    """
+    from kaos_content.corpus import ContentDocumentCorpus
+
+    documents: list[Any] = []
+    uris: list[str] = []
+
+    for fp in file_paths:
+        fp = fp.resolve()
+        if not fp.exists():
+            print(_c(_ANSI_RED, f"  File not found: {fp}"))
+            continue
+        try:
+            doc = _parse_file_to_document(fp)
+            documents.append(doc)
+            uris.append(f"file:{fp.name}")
+            if verbose:
+                from kaos_content.units import iter_paragraph_units
+
+                n_paragraphs = len(iter_paragraph_units(doc))
+                print(_c(_ANSI_DIM, f"  Loaded {fp.name} ({n_paragraphs} paragraphs)"))
+        except ImportError as exc:
+            print(_c(_ANSI_RED, f"  Missing parser for {fp.suffix}: {exc}"))
+        except Exception as exc:
+            print(_c(_ANSI_RED, f"  Failed {fp.name}: {exc}"))
+
+    if not documents:
+        return None, []
+
+    corpus = ContentDocumentCorpus(documents, doc_uris=uris)
+    return corpus, uris
+
+
 def _load_files_into_memory(
     file_paths: list[Path],
     memory: Any,
     *,
     verbose: bool = False,
 ) -> int:
-    """Parse files and add to DOCUMENTS memory section. Returns count loaded."""
+    """Parse files and add to DOCUMENTS memory section. Returns count loaded.
+
+    .. deprecated::
+        Prefer _load_files_to_corpus which preserves the ContentDocument AST
+        for passage-level retrieval. This function flattens to text strings.
+    """
     from kaos_agents.memory.types import MemoryType
 
     loaded = 0
     for fp in file_paths:
-        # Resolve to absolute path — some parsers (docx) require it
         fp = fp.resolve()
         if not fp.exists():
             print(_c(_ANSI_RED, f"  File not found: {fp}"))
@@ -197,6 +246,7 @@ async def _run_repl(args: argparse.Namespace) -> None:
     session_id = args.session or f"cli-{uuid.uuid4().hex[:8]}"
     verbose = args.verbose
     memory = SessionMemory(session_id)
+    corpus = None  # ContentDocumentCorpus for passage-level retrieval
 
     # Pre-load files from --files flag
     if args.files:
@@ -205,16 +255,17 @@ async def _run_repl(args: argparse.Namespace) -> None:
             file_paths.extend(Path.cwd().glob(pat.strip()))
         if file_paths:
             print(f"Loading {len(file_paths)} file(s)...")
-            n_loaded = _load_files_into_memory(file_paths, memory, verbose=verbose)
-            print(f"  {n_loaded} document(s) loaded into session memory")
+            corpus, uris = _load_files_to_corpus(file_paths, verbose=verbose)
+            if corpus is not None:
+                n_passages = corpus.size
+                print(f"  {len(uris)} documents → {n_passages} passages (corpus ready)")
 
-    # Auto-select pattern: if documents are loaded, use research
+    # Auto-select pattern: if corpus loaded, use research
     pattern = args.pattern
-    n_docs = memory.section_item_count(MemoryType.DOCUMENTS)
-    if n_docs > 0 and pattern == "chat":
+    if corpus is not None and pattern == "chat":
         pattern = "research"
         if verbose:
-            print(_c(_ANSI_CYAN, f"  Auto-switched to research pattern ({n_docs} docs loaded)"))
+            print(_c(_ANSI_CYAN, f"  Auto-switched to research pattern ({corpus.size} passages)"))
 
     tools_tuple = tuple(t.strip() for t in args.tools.split(",")) if args.tools else ()
     agent = Agent.create(
@@ -223,17 +274,7 @@ async def _run_repl(args: argparse.Namespace) -> None:
         pattern=pattern,
         tools=tools_tuple,
     )
-    runner = Runner(agent, runtime=runtime)
-
-    # Persist pre-loaded documents to VFS so the runner's BaseAgent finds them
-    if n_docs > 0:
-        from kaos_core.vfs.core import VirtualFileSystem
-
-        from kaos_agents.memory.store import SessionStore
-
-        vfs = runtime.vfs if hasattr(runtime, "vfs") else VirtualFileSystem()
-        store = SessionStore(vfs)
-        await store.save(memory)
+    runner = Runner(agent, runtime=runtime, corpus=corpus)
 
     # Phase 4.2: JSONL event log
     log_file = None
@@ -249,7 +290,8 @@ async def _run_repl(args: argparse.Namespace) -> None:
 
     tool_names = sorted(runtime.list_tools().keys()) if hasattr(runtime, "list_tools") else []
     print(_c(_ANSI_BOLD, f"KAOS Agent | {args.model} | pattern={pattern}"))
-    docs_label = f" | Docs: {n_docs}" if n_docs > 0 else ""
+    corpus_size = corpus.size if corpus is not None else 0
+    docs_label = f" | Passages: {corpus_size}" if corpus_size > 0 else ""
     print(f"Session: {session_id} | Tools: {len(tool_names)} registered{docs_label}")
     if verbose and tool_names:
         for name in tool_names[:20]:
@@ -322,29 +364,22 @@ async def _run_repl(args: argparse.Namespace) -> None:
                     if not paths:
                         print(_c(_ANSI_RED, f"  No files matching: {load_arg}"))
                         continue
-                n_loaded = _load_files_into_memory(paths, memory, verbose=True)
-                n_docs = memory.section_item_count(MemoryType.DOCUMENTS)
-                print(f"  {n_loaded} loaded ({n_docs} total documents in session)")
-                # Persist to VFS so the runner finds the documents
-                from kaos_core.vfs.core import VirtualFileSystem
+                new_corpus, new_uris = _load_files_to_corpus(paths, verbose=True)
+                if new_corpus is not None:
+                    corpus = new_corpus
+                    print(f"  {len(new_uris)} docs → {corpus.size} passages")
+                    # Rebuild runner with the new corpus
+                    if agent.pattern.value == "chat":
+                        from kaos_agents.config import AgentPattern
 
-                from kaos_agents.memory.store import SessionStore
-
-                vfs = runtime.vfs if hasattr(runtime, "vfs") else VirtualFileSystem()
-                store = SessionStore(vfs)
-                await store.save(memory)
-                # Auto-upgrade pattern to research if still on chat
-                if n_docs > 0 and agent.pattern.value == "chat":
-                    from kaos_agents.config import AgentPattern
-
-                    agent = Agent.create(
-                        instructions=agent.instructions,
-                        model=agent.effective_model(),
-                        pattern=AgentPattern.RESEARCH,
-                        tools=tools_tuple,
-                    )
-                    runner = Runner(agent, runtime=runtime)
-                    print(_c(_ANSI_CYAN, "  Switched to research pattern for document Q&A"))
+                        agent = Agent.create(
+                            instructions=agent.instructions,
+                            model=agent.effective_model(),
+                            pattern=AgentPattern.RESEARCH,
+                            tools=tools_tuple,
+                        )
+                        print(_c(_ANSI_CYAN, "  Switched to research pattern for document Q&A"))
+                    runner = Runner(agent, runtime=runtime, corpus=corpus)
                 continue
             if stripped == "/load":
                 print("Usage: /load <file, glob, or folder>")

@@ -100,6 +100,7 @@ class Runner:
         vfs: VirtualFileSystem | None = None,
         hooks: tuple[BaseHook, ...] = (),
         permission_policy: PermissionPolicy | None = None,
+        corpus: Any | None = None,
     ) -> None:
         self._agent = agent
         self._runtime = runtime
@@ -108,6 +109,7 @@ class Runner:
         self._vfs = vfs or _resolve_vfs(runtime)
         self._hooks = hooks
         self._permission_policy = permission_policy
+        self._corpus = corpus
 
     @property
     def agent(self) -> Agent:
@@ -781,6 +783,7 @@ class Runner:
                 extra_llm_tools=research_extra_tools,
                 permission_policy=permission_policy,
                 instructions=self._agent.instructions,
+                corpus=self._corpus,
             )
 
         if pattern == AgentPattern.PLAN:
