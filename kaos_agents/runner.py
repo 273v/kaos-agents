@@ -105,12 +105,20 @@ class Runner:
     ) -> None:
         self._agent = agent
         self._runtime = runtime
-        self._context = context
         self._settings = agent.resolve_settings()
         self._vfs = vfs or _resolve_vfs(runtime)
         self._hooks = hooks
         self._permission_policy = permission_policy
         self._corpus = corpus
+
+        # Ensure a context exists when corpus is provided (tools need it)
+        if context is None and corpus is not None:
+            from kaos_core.base.context import KaosContext
+
+            context = KaosContext.create()
+        if context is not None and corpus is not None:
+            context._config["_corpus"] = corpus
+        self._context = context
 
     @property
     def agent(self) -> Agent:
