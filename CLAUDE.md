@@ -22,7 +22,7 @@ kaos-agents
     ├── ToolBridge        — wraps KaosTool → kaos-llm-core Tool for ReAct
     ├── AgentLoop         — 8-step turn: add message → assemble context → classify → dispatch → update memory
     ├── Hooks + Providers — BaseHook with lifecycle callbacks (on_turn_start, on_tool_call_start, etc.)
-    │                       HookAction (CONTINUE/SKIP/REQUIRE_APPROVAL), LoggingHook built-in
+    │                       HookAction (CONTINUE/SKIP/REQUIRE_APPROVAL), LoggingHook, OTelHook built-in
     │                       ProviderConfig with ModelRole (classify/respond/plan/research/evaluate)
     │                       FAST/BALANCED/STRONG presets
     ├── Permissions        — PermissionRule (glob pattern + allow/deny/ask) + PermissionPolicy
@@ -57,6 +57,13 @@ kaos-core                — runtime, VFS, artifacts, settings, tools
 - **Eviction policies per section.** FIFO, LRU, LFU, PRIORITY, REFUSE, NONE — each section declares its policy.
 - **Grounding integration.** FINDINGS section stores `Claim` instances with `Span` citations from kaos-llm-core grounding.
 - **RAG integration.** Document Q&A via `ResearchAgent` dispatches to kaos-llm-core's `RAG` program. RAG handles retrieve → reason → verify → retry. Verified claims (Answer/Claim/Span) are stored in the FINDINGS section with provenance metadata. Insufficient evidence results in explicit refusal (InsufficientEvidence).
+- **Retrieval-augmented context assembly.** `assemble_context()` replaces bare FIFO `get_sections()` in the turn loop. When any memory section has >= `retrieval_threshold` items (default 20), plain BM25 search via `search_memory(..., expand_relations=[])` selects the most relevant items instead of FIFO-oldest. Below the threshold, FIFO returns all documents. The DOCUMENTS section is unbounded (`budget_tokens=0`, `eviction_policy=NONE`) so it can hold a full deal room corpus (1000+ docs); the retrieval layer handles context window management.
+- **Plain BM25 is the production default.** `_build_corpus_bm25()` in `research.py` uses `search_memory(..., expand_relations=[])` for large corpora. The adaptive retrieval pipeline (`adaptive_retrieve()`) is deprecated — it is still importable but is **not** the default path. Cross-domain BEIR benchmarks proved it scores worse than plain BM25 (0.231 vs 0.296 NDCG@10 on NFCorpus). Lexicon expansion and pseudo-relevance feedback also hurt cross-domain performance (lexicon: -18% to -22% NDCG@10; PRF: -6% to -12% NDCG@10 across 3 BEIR datasets). These techniques should only be used when the agent identifies a specific vocabulary gap.
+- **Retrieval is a delegated sub-agent, not a pipeline function.** The `RetrievalAgent` (auto-injected by Runner for RESEARCH pattern agents) has 4 tools: `kaos-retrieval-bm25`, `kaos-retrieval-synonyms`, `kaos-retrieval-hyde`, `kaos-retrieval-evaluate`. The agent decides which retrieval strategies to use based on what it finds — synonym expansion and HyDE are available when plain BM25 is insufficient, but the agent must justify their use from observed results.
+- **Cross-domain benchmark requirement.** Any change to the retrieval pipeline must be validated on at least 3 BEIR datasets (e.g., NFCorpus, SciFact, FiQA) before shipping. Cherry-picked improvements on 1-2 queries are not evidence of correctness. See `tests/benchmarks/beir_eval.py` and `tests/benchmarks/cross_domain_benchmark.py`.
+- **Corpus triage.** `triage_corpus()` runs BM25 on the DOCUMENTS section before plan expansion to narrow a large corpus to the relevant subset. The triage summary is injected into planning context: "Selected 15 of 1000 documents — plan over these only."
+- **Query-aware planning.** `_assess_complexity()` now considers corpus size (100+ docs → decompose) and intent confidence (low confidence → more planning). Composes with the adaptive strategy's existing word-count heuristic.
+- **OpenTelemetry tracing.** `OTelHook(BaseHook)` emits spans for turns, tool calls, plan steps (optional `[otel]` extra).
 
 ## Dependencies
 
@@ -104,11 +111,11 @@ API: `load_builtin_recipes()`, `load_recipe(name)`, `recipe_names()`, `format_re
 
 | Recipe | Schema ID | Cols | Harvey recall floor |
 |--------|-----------|------|---------------------|
-| `merger-agreement` | `merger-agreement-v1` | 27 | 99.66% |
-| `spa-deal-points` | `spa-deal-points-v1` | 32 | 98.13% |
+| `merger-agreement` | `merger-agreement-v2` | 27 | 99.66% |
+| `spa-deal-points` | `spa-deal-points-v2` | 32 | 98.13% |
 | `lease` | `lease-v1` | 24 | 97.20% |
-| `lpa` | `lpa-v1` | 27 | 99.14% |
-| `court-opinion` | `court-opinion-v1` | 16 | 96.49% |
+| `lpa` | `lpa-v2` | 27 | 99.14% |
+| `court-opinion` | `court-opinion-v2` | 16 | 96.49% |
 
 Each recipe JSON has `name`, `description`, `harvey_recall_floor`, `schema` (an `ExtractionSchema.from_dict` payload), `notes`, and `golden_sets` (named eval suites from Atticus/LegalBench). Consumed by `kaos-extract-schema` and `kaos-extract-corpus` MCP tools via `recipe_name="..."`.
 
@@ -153,6 +160,7 @@ kaos-agents-serve --http --port 8000
 | `KAOS_AGENT_MAX_TOOLS` | 30 | Max tools bridged for ReAct |
 | `KAOS_AGENT_MAX_REACT_ITERATIONS` | 10 | Max ReAct loop iterations |
 | `KAOS_AGENT_TOOL_TIMEOUT_SECONDS` | 60.0 | Tool invocation timeout |
+| `KAOS_AGENT_RETRIEVAL_THRESHOLD` | 20 | Section item count that triggers BM25 retrieval vs FIFO |
 | `KAOS_AGENT_CONFIDENCE_THRESHOLD` | 0.5 | Below this, Route triggers REPLAN |
 | `KAOS_AGENT_DEEPEN_THRESHOLD` | 0.3 | Below this, Route triggers DEEPEN |
 | `KAOS_AGENT_PLAN_MAX_STEPS` | 20 | Max steps in plan execution |
