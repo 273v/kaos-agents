@@ -184,9 +184,12 @@ async def _run_extraction(args: argparse.Namespace) -> None:
         )
     t1 = time.perf_counter()
 
-    table = result.table
+    tabular_doc = result.table
+    total_rows = sum(len(t.rows) for t in tabular_doc.tables)
+    total_cols = sum(len(t.columns) for t in tabular_doc.tables)
     sys.stdout.write(
-        f"Extracted {len(table.rows)} rows x {len(table.columns)} columns in {t1 - t0:.1f}s\n"
+        f"Extracted {total_rows} rows x {total_cols} columns "
+        f"({len(tabular_doc.tables)} table(s)) in {t1 - t0:.1f}s\n"
     )
     if hasattr(result, "cost_usd") and result.cost_usd:
         sys.stdout.write(f"Cost: ${result.cost_usd:.4f}\n")
@@ -199,21 +202,21 @@ async def _run_extraction(args: argparse.Namespace) -> None:
     if ext == ".xlsx":
         from kaos_office.xlsx.writer import write_xlsx
 
-        write_xlsx(result.table, output_path)
+        write_xlsx(tabular_doc, output_path)
     elif ext == ".csv":
         from kaos_content.serializers.tabular import serialize_csv
 
-        output_path.write_text(serialize_csv(result.table))
+        output_path.write_text(serialize_csv(tabular_doc))
     elif ext == ".tsv":
         from kaos_content.serializers.tabular import serialize_tsv
 
-        output_path.write_text(serialize_tsv(result.table))
+        output_path.write_text(serialize_tsv(tabular_doc))
     else:
         # Default to XLSX
         output_path = output_path.with_suffix(".xlsx")
         from kaos_office.xlsx.writer import write_xlsx
 
-        write_xlsx(result.table, output_path)
+        write_xlsx(tabular_doc, output_path)
 
     sys.stdout.write(f"\nSaved to {output_path}\n")
     sys.stdout.flush()
