@@ -69,6 +69,8 @@ async def run_scale_benchmark(
         EvidenceInsufficient,
         RunError,
         TextDelta,
+        ToolCallResult,
+        ToolCallStart,
     )
     from kaos_agents.runner import Runner
     from kaos_agents.settings import DEFAULT_MODEL
@@ -138,6 +140,7 @@ async def run_scale_benchmark(
         errored = False
         error_msg = ""
 
+        tool_trace: list[dict] = []
         try:
             async for event in runner.run(question, session_id):
                 if isinstance(event, CitationFound):
@@ -149,6 +152,16 @@ async def run_scale_benchmark(
                 elif isinstance(event, RunError):
                     errored = True
                     error_msg = event.message[:200]
+                elif isinstance(event, ToolCallStart):
+                    tool_trace.append({
+                        "tool": event.tool_name,
+                        "args": str(event.arguments)[:200],
+                    })
+                elif isinstance(event, ToolCallResult) and tool_trace:
+                        tool_trace[-1]["summary"] = getattr(
+                            event, "result_summary", ""
+                        )[:200]
+                        tool_trace[-1]["error"] = event.is_error
         except Exception as exc:
             errored = True
             error_msg = f"{type(exc).__name__}: {exc}"[:200]
@@ -200,10 +213,18 @@ async def run_scale_benchmark(
 
         status = "CORRECT" if answer_correct else ("ERROR" if errored else "WRONG")
         marker = "A" if answerable else "R"
+        n_tools = len(tool_trace)
         sys.stdout.write(
             f"  [{i + 1}/{len(questions)}] [{marker}] {status} "
-            f"cites={len(citations)} {latency:.1f}s: {question[:60]}\n"
+            f"cites={len(citations)} tools={n_tools} {latency:.1f}s: {question[:60]}\n"
         )
+        # Log tool trace for verbose mode
+        if verbose and tool_trace:
+            for t in tool_trace:
+                err_flag = " [ERROR]" if t.get("error") else ""
+                sys.stdout.write(
+                    f"    → {t['tool']}: {t.get('summary', '')[:100]}{err_flag}\n"
+                )
         sys.stdout.flush()
 
     total_correct = result.n_correct_answers + result.n_correct_refusals

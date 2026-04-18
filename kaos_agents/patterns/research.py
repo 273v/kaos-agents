@@ -235,17 +235,17 @@ class ResearchAgent(ChatAgent):
         context_items: dict[MemoryType, list[Any]],
         emitter: EventEmitter,
     ) -> AsyncIterator[AgentEvent]:
-        """Override dispatch to route research through ReAct or one-shot RAG.
+        """Override dispatch: adaptive one-shot → ReAct escalation.
 
-        Large corpus (>=20 docs or pre-bound corpus with many passages):
-            Route to ReAct with retrieval tools. The agent searches, evaluates,
-            iterates, then calls GroundedAnswerTool. This is the kelvin pattern.
+        Strategy:
+        1. Try one-shot RAG first (fast, good refusals, cheap).
+        2. If one-shot returns InsufficientEvidence AND we have a large corpus,
+           escalate to ReAct with retrieval tools (the agent iterates).
+        3. Small corpus (<20 passages) always uses one-shot (no escalation needed).
 
-        Small corpus (<20 docs):
-            Fast path via _handle_research_streaming (one-shot RAG).
-
-        Other intents:
-            Delegate to ChatAgent (TOOL_USE) or BaseAgent.
+        This combines the strengths of both paths:
+        - One-shot: fast, reliable refusals, low cost
+        - ReAct: can iterate on hard queries, try HyDE, refine search
         """
         if intent.intent != IntentType.RESEARCH:
             async for event in super()._dispatch_streaming(
@@ -254,57 +254,62 @@ class ResearchAgent(ChatAgent):
                 yield event
             return
 
-        # Decide: ReAct (agent-driven) vs one-shot RAG
-        use_react = False
+        # Determine if we have a large corpus that could benefit from ReAct escalation
+        can_escalate = False
         if self._corpus is not None:
             corpus_size = getattr(self._corpus, "size", 0)
             if corpus_size >= self._REACT_CORPUS_THRESHOLD:
-                use_react = True
-                # Thread corpus into context so retrieval tools can access it
+                can_escalate = True
+                # Thread corpus into context for retrieval tools
                 if hasattr(self, "_context") and self._context is not None:
                     self._context._config["_corpus"] = self._corpus
-                logger.debug(
-                    "research_agent: large corpus (%d passages) → ReAct path",
-                    corpus_size,
-                )
-        elif memory.has_section(MemoryType.DOCUMENTS):
-            n_docs = memory.section_item_count(MemoryType.DOCUMENTS)
-            if n_docs >= self._REACT_CORPUS_THRESHOLD:
-                use_react = True
-                logger.debug(
-                    "research_agent: large memory corpus (%d docs) → ReAct path",
-                    n_docs,
-                )
 
-        if use_react:
-            # Inject research-specific instructions for the ReAct loop
-            saved_instructions = self._instructions
-            self._instructions = (
-                (saved_instructions + "\n\n" if saved_instructions else "")
-                + _RESEARCH_REACT_INSTRUCTION
-            )
+        # Step 1: Try one-shot RAG first (fast path)
+        got_insufficient = False
+        async for event in self._handle_research_streaming(
+            message, memory, context_items, emitter
+        ):
+            if isinstance(event, EvidenceInsufficient):
+                got_insufficient = True
+                # Don't yield the InsufficientEvidence yet — we might escalate
+                if can_escalate:
+                    logger.debug(
+                        "research_agent: one-shot insufficient, escalating to ReAct "
+                        "(corpus=%d passages)",
+                        getattr(self._corpus, "size", 0),
+                    )
+                    continue
+            yield event
 
-            # Route to ChatAgent's ReAct loop with retrieval tools
-            react_intent = IntentResult(
-                intent=IntentType.TOOL_USE,
-                confidence=intent.confidence,
-                reasoning=(
-                    f"Large corpus ({getattr(self._corpus, 'size', '?')} passages). "
-                    "Using ReAct with retrieval tools for iterative search."
-                ),
-            )
-            try:
-                async for event in super()._dispatch_streaming(
-                    react_intent, message, memory, context_items, emitter
-                ):
-                    yield event
-            finally:
-                self._instructions = saved_instructions
+        if not got_insufficient or not can_escalate:
             return
 
-        # Small corpus: fast path (one-shot RAG)
-        async for event in self._handle_research_streaming(message, memory, context_items, emitter):
-            yield event
+        # Step 2: Escalate to ReAct with retrieval tools
+        yield emitter.emit(
+            ToolCallStart,
+            call_id="react-escalation",
+            tool_name="react-escalation",
+            arguments=(("reason", "one-shot RAG returned insufficient evidence"),),
+        )
+
+        saved_instructions = self._instructions
+        self._instructions = (
+            (saved_instructions + "\n\n" if saved_instructions else "")
+            + _RESEARCH_REACT_INSTRUCTION
+        )
+
+        react_intent = IntentResult(
+            intent=IntentType.TOOL_USE,
+            confidence=intent.confidence,
+            reasoning="Escalating to ReAct after one-shot RAG returned insufficient evidence.",
+        )
+        try:
+            async for event in super()._dispatch_streaming(
+                react_intent, message, memory, context_items, emitter
+            ):
+                yield event
+        finally:
+            self._instructions = saved_instructions
 
     async def _handle_research_streaming(
         self,
