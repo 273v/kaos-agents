@@ -18,7 +18,7 @@ Slash commands inside the REPL:
     /memory   — dump memory section summaries
     /clear    — clear session memory
     /verbose  — toggle verbose event display
-    /load <path>  — load a file or glob into documents (PDF, DOCX, TXT, MD, PPTX)
+    /load <path>  — load file, glob, or folder (PDF, DOCX, PPTX, XLSX, HTML, TXT, MD, CSV, JSON, EML)
     /docs     — list loaded documents
 """
 
@@ -39,7 +39,11 @@ _ANSI_GREEN = "\033[32m"
 _ANSI_RED = "\033[31m"
 _ANSI_RESET = "\033[0m"
 
-_SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md", ".pptx"}
+_SUPPORTED_EXTENSIONS = {
+    ".pdf", ".docx", ".pptx", ".xlsx",
+    ".html", ".htm", ".txt", ".md",
+    ".json", ".csv", ".eml",
+}
 
 
 def _c(code: str, text: str) -> str:
@@ -52,14 +56,13 @@ def _c(code: str, text: str) -> str:
 def _parse_file(file_path: Path) -> tuple[str, str]:
     """Parse a file to plain text. Returns (text, uri).
 
-    Dispatches by extension:
-    - .pdf → kaos-pdf extract_pdf + serialize_text
-    - .docx/.pptx → kaos-office parse_docx/parse_pptx + serialize_text
-    - .txt/.md → read as plain text
+    Dispatches by extension using kaos-pdf, kaos-office, kaos-content,
+    and kaos-web parsers. Falls back to raw text for unknown extensions.
     """
     ext = file_path.suffix.lower()
     uri = f"file:{file_path.name}"
 
+    # PDF → kaos-pdf
     if ext == ".pdf":
         from kaos_content import serialize_text
         from kaos_pdf import extract_pdf
@@ -67,6 +70,7 @@ def _parse_file(file_path: Path) -> tuple[str, str]:
         doc = extract_pdf(file_path)
         return serialize_text(doc), uri
 
+    # DOCX → kaos-office
     if ext == ".docx":
         from kaos_content import serialize_text
         from kaos_office import parse_docx
@@ -74,6 +78,7 @@ def _parse_file(file_path: Path) -> tuple[str, str]:
         doc = parse_docx(file_path)
         return serialize_text(doc), uri
 
+    # PPTX → kaos-office
     if ext == ".pptx":
         from kaos_content import serialize_text
         from kaos_office.pptx.reader import parse_pptx
@@ -81,10 +86,47 @@ def _parse_file(file_path: Path) -> tuple[str, str]:
         doc = parse_pptx(file_path)
         return serialize_text(doc), uri
 
-    if ext in (".txt", ".md"):
+    # XLSX → kaos-office (tabular → markdown)
+    if ext == ".xlsx":
+        from kaos_office import extract_to_markdown
+
+        return extract_to_markdown(file_path), uri
+
+    # HTML/HTM → kaos-content html parser
+    if ext in (".html", ".htm"):
+        from kaos_content import serialize_text
+        from kaos_content.parsers.html import parse_html
+
+        raw = file_path.read_text(encoding="utf-8", errors="replace")
+        doc = parse_html(raw)
+        return serialize_text(doc), uri
+
+    # Markdown → kaos-content markdown parser
+    if ext == ".md":
+        from kaos_content import serialize_text
+        from kaos_content.parsers.markdown import parse_markdown
+
+        raw = file_path.read_text(encoding="utf-8", errors="replace")
+        doc = parse_markdown(raw)
+        return serialize_text(doc), uri
+
+    # Plain text, CSV, JSON, EML — read as-is
+    if ext in (".txt", ".csv", ".json", ".eml"):
         return file_path.read_text(encoding="utf-8", errors="replace"), uri
 
-    msg = f"Unsupported file type: {ext}. Supported: {', '.join(sorted(_SUPPORTED_EXTENSIONS))}"
+    # Fallback: try reading as text
+    try:
+        text = file_path.read_text(encoding="utf-8", errors="replace")
+        if text.strip():
+            return text, uri
+    except Exception:
+        pass
+
+    msg = (
+        f"Could not parse {ext} file. "
+        f"Supported formats: {', '.join(sorted(_SUPPORTED_EXTENSIONS))}. "
+        f"Alternative: convert to PDF or plain text first."
+    )
     raise ValueError(msg)
 
 
@@ -256,13 +298,26 @@ async def _run_repl(args: argparse.Namespace) -> None:
                     print("Usage: /load <file_or_glob>")
                     print(f"  Supported: {', '.join(sorted(_SUPPORTED_EXTENSIONS))}")
                     continue
-                paths = list(Path.cwd().glob(load_arg))
-                if not paths:
-                    # Try as a single file path
-                    single = Path(load_arg)
-                    if single.exists():
-                        paths = [single]
-                    else:
+                target = Path(load_arg).expanduser()
+                if not target.is_absolute():
+                    target = Path.cwd() / target
+
+                if target.is_dir():
+                    # Load all supported files from the directory
+                    paths = [
+                        f for f in sorted(target.iterdir())
+                        if f.is_file() and f.suffix.lower() in _SUPPORTED_EXTENSIONS
+                    ]
+                    if not paths:
+                        print(_c(_ANSI_YELLOW, f"  No supported files in {target}"))
+                        print(f"  Supported: {', '.join(sorted(_SUPPORTED_EXTENSIONS))}")
+                        continue
+                elif target.is_file():
+                    paths = [target]
+                else:
+                    # Try as a glob pattern
+                    paths = sorted(Path.cwd().glob(load_arg))
+                    if not paths:
                         print(_c(_ANSI_RED, f"  No files matching: {load_arg}"))
                         continue
                 n_loaded = _load_files_into_memory(paths, memory, verbose=True)
@@ -290,9 +345,10 @@ async def _run_repl(args: argparse.Namespace) -> None:
                     print(_c(_ANSI_CYAN, "  Switched to research pattern for document Q&A"))
                 continue
             if stripped == "/load":
-                print("Usage: /load <file_or_glob>")
+                print("Usage: /load <file, glob, or folder>")
                 print(f"  Supported: {', '.join(sorted(_SUPPORTED_EXTENSIONS))}")
                 print("  Examples:")
+                print("    /load ~/deal-room/           (all supported files in folder)")
                 print("    /load documents/*.pdf")
                 print("    /load report.docx")
                 print("    /load *.txt")
