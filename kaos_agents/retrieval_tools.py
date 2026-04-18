@@ -46,8 +46,8 @@ def _get_corpus_from_context(context: Any) -> Any | None:
         corpus = config.get("_corpus")
         if corpus is not None:
             logger.debug(
-                "retrieval_tools._get_corpus_from_context: corpus found in context",
-                corpus_size=getattr(corpus, "size", "unknown"),
+                "retrieval_tools._get_corpus_from_context: corpus found in context, corpus_size=%s",
+                getattr(corpus, "size", "unknown"),
             )
         else:
             logger.debug("retrieval_tools._get_corpus_from_context: no _corpus key in config")
@@ -65,14 +65,14 @@ def _get_corpus_searcher(corpus: Any) -> Any:
     corpus_id = id(corpus)
     if corpus_id in _CORPUS_SEARCHER_CACHE:
         logger.debug(
-            "retrieval_tools._get_corpus_searcher: cache hit",
-            corpus_id=corpus_id,
+            "retrieval_tools._get_corpus_searcher: cache hit, corpus_id=%s",
+            corpus_id,
         )
         return _CORPUS_SEARCHER_CACHE[corpus_id]
 
     logger.debug(
-        "retrieval_tools._get_corpus_searcher: cache miss, building searcher",
-        corpus_id=corpus_id,
+        "retrieval_tools._get_corpus_searcher: cache miss, building searcher, corpus_id=%s",
+        corpus_id,
     )
 
     from kaos_nlp_core.search import Searcher
@@ -81,17 +81,19 @@ def _get_corpus_searcher(corpus: Any) -> Any:
     passage_meta: list[dict[str, Any]] = []
     for passage in corpus.iter_passages():
         records.append({"id": len(records), "text": passage.text})
-        passage_meta.append({
-            "doc_uri": getattr(passage, "doc_uri", ""),
-            "block_ref": passage.block_ref,
-            "page": passage.page,
-            "section_title": getattr(passage, "section_title", None),
-        })
+        passage_meta.append(
+            {
+                "doc_uri": getattr(passage, "doc_uri", ""),
+                "block_ref": passage.block_ref,
+                "page": passage.page,
+                "section_title": getattr(passage, "section_title", None),
+            }
+        )
 
     logger.debug(
-        "retrieval_tools._get_corpus_searcher: built searcher",
-        corpus_id=corpus_id,
-        passage_count=len(records),
+        "retrieval_tools._get_corpus_searcher: built searcher, corpus_id=%s passage_count=%d",
+        corpus_id,
+        len(records),
     )
 
     searcher = Searcher.from_documents(records)
@@ -108,10 +110,14 @@ def _get_memory(inputs: dict[str, Any], context: Any):
     session_id = inputs.get("session_id", "")
     if not session_id:
         logger.debug("retrieval_tools._get_memory: missing session_id parameter")
-        return None, None, (
-            "Missing 'session_id' parameter. "
-            "Provide a valid session ID, e.g. {\"session_id\": \"my-session\"}. "
-            "Alternative: use kaos-agent-chat which manages sessions automatically."
+        return (
+            None,
+            None,
+            (
+                "Missing 'session_id' parameter. "
+                'Provide a valid session ID, e.g. {"session_id": "my-session"}. '
+                "Alternative: use kaos-agent-chat which manages sessions automatically."
+            ),
         )
 
     runtime = context.runtime if context else None
@@ -126,8 +132,8 @@ def _get_memory(inputs: dict[str, Any], context: Any):
         loop = None
 
     logger.debug(
-        "retrieval_tools._get_memory: loading session memory",
-        session_id=session_id,
+        "retrieval_tools._get_memory: loading session memory, session_id=%s",
+        session_id,
     )
 
     if loop and loop.is_running():
@@ -139,8 +145,8 @@ def _get_memory(inputs: dict[str, Any], context: Any):
         memory = asyncio.run(store.load_or_create(session_id))
 
     logger.debug(
-        "retrieval_tools._get_memory: session memory loaded",
-        session_id=session_id,
+        "retrieval_tools._get_memory: session memory loaded, session_id=%s",
+        session_id,
     )
     return memory, store, None
 
@@ -183,8 +189,8 @@ def _assess_expansion_need(results: list, requested_k: int) -> dict[str, Any]:
     """
     if not results:
         logger.debug(
-            "retrieval_tools._assess_expansion_need: no results, suggesting expansion",
-            requested_k=requested_k,
+            "retrieval_tools._assess_expansion_need: no results, suggesting expansion, requested_k=%d",
+            requested_k,
         )
         return {
             "suggest_expansion": True,
@@ -202,10 +208,11 @@ def _assess_expansion_need(results: list, requested_k: int) -> dict[str, Any]:
     # Few results relative to what was requested
     if n_results < _SPARSE_RESULT_THRESHOLD:
         logger.debug(
-            "retrieval_tools._assess_expansion_need: sparse results, suggesting expansion",
-            n_results=n_results,
-            requested_k=requested_k,
-            top_score=round(top_score, 2),
+            "retrieval_tools._assess_expansion_need: sparse results, suggesting expansion, "
+            "n_results=%d requested_k=%d top_score=%.2f",
+            n_results,
+            requested_k,
+            round(top_score, 2),
         )
         return {
             "suggest_expansion": True,
@@ -218,10 +225,11 @@ def _assess_expansion_need(results: list, requested_k: int) -> dict[str, Any]:
     # Very low scores across the board
     if top_score < _LOW_SCORE_THRESHOLD:
         logger.debug(
-            "retrieval_tools._assess_expansion_need: low scores, suggesting expansion",
-            top_score=round(top_score, 2),
-            score_p50=round(score_p50, 2),
-            n_results=n_results,
+            "retrieval_tools._assess_expansion_need: low scores, suggesting expansion, "
+            "top_score=%.2f score_p50=%.2f n_results=%d",
+            round(top_score, 2),
+            round(score_p50, 2),
+            n_results,
         )
         return {
             "suggest_expansion": True,
@@ -234,10 +242,11 @@ def _assess_expansion_need(results: list, requested_k: int) -> dict[str, Any]:
     # Sharp score drop — top results match well but coverage is narrow
     if len(scores) >= 5 and scores[0] / max(scores[4], 0.01) > _SCORE_DROP_RATIO:
         logger.debug(
-            "retrieval_tools._assess_expansion_need: sharp score drop, focused results",
-            top_score=round(top_score, 2),
-            score_5th=round(scores[4], 2),
-            drop_ratio=round(scores[0] / max(scores[4], 0.01), 2),
+            "retrieval_tools._assess_expansion_need: sharp score drop, focused results, "
+            "top_score=%.2f score_5th=%.2f drop_ratio=%.2f",
+            round(top_score, 2),
+            round(scores[4], 2),
+            round(scores[0] / max(scores[4], 0.01), 2),
         )
         return {
             "suggest_expansion": False,
@@ -249,10 +258,11 @@ def _assess_expansion_need(results: list, requested_k: int) -> dict[str, Any]:
 
     # Default: good results, no expansion needed
     logger.debug(
-        "retrieval_tools._assess_expansion_need: good coverage, no expansion needed",
-        n_results=n_results,
-        top_score=round(top_score, 2),
-        score_p50=round(score_p50, 2),
+        "retrieval_tools._assess_expansion_need: good coverage, no expansion needed, "
+        "n_results=%d top_score=%.2f score_p50=%.2f",
+        n_results,
+        round(top_score, 2),
+        round(score_p50, 2),
     )
     return {
         "suggest_expansion": False,
@@ -301,7 +311,7 @@ class BM25SearchTool(KaosTool):
             logger.debug("retrieval_tools.BM25SearchTool: missing query parameter")
             return ToolResult.create_error(
                 "Missing 'query' parameter. "
-                "Provide a search query string, e.g. {\"query\": \"key terms\"}. "
+                'Provide a search query string, e.g. {"query": "key terms"}. '
                 "Alternative: use kaos-retrieval-synonyms to look up terms first."
             )
 
@@ -311,23 +321,23 @@ class BM25SearchTool(KaosTool):
         corpus = _get_corpus_from_context(context)
         if corpus is not None:
             logger.debug(
-                "retrieval_tools.BM25SearchTool: using corpus path",
-                query=query[:100],
-                top_k=top_k,
+                "retrieval_tools.BM25SearchTool: using corpus path, query=%s top_k=%d",
+                query[:100],
+                top_k,
             )
             return await self._search_corpus(query, corpus, top_k)
 
         # Fall back to session memory search
         logger.debug(
-            "retrieval_tools.BM25SearchTool: using session memory path",
-            query=query[:100],
-            top_k=top_k,
+            "retrieval_tools.BM25SearchTool: using session memory path, query=%s top_k=%d",
+            query[:100],
+            top_k,
         )
         memory, _store, err = _get_memory(inputs, context)
         if err:
             logger.debug(
-                "retrieval_tools.BM25SearchTool: memory load error",
-                error=err[:200],
+                "retrieval_tools.BM25SearchTool: memory load error, error=%s",
+                err[:200],
             )
             return ToolResult.create_error(err)
 
@@ -345,11 +355,12 @@ class BM25SearchTool(KaosTool):
         expansion_signal = _assess_expansion_need(results, top_k)
 
         logger.info(
-            "retrieval_tools.BM25SearchTool: search complete (memory path)",
-            query=query[:100],
-            result_count=len(results),
-            top_score=round(results[0].score, 3) if results else 0.0,
-            suggest_expansion=expansion_signal["suggest_expansion"],
+            "retrieval_tools.BM25SearchTool: search complete (memory path), "
+            "query=%s result_count=%d top_score=%.3f suggest_expansion=%s",
+            query[:100],
+            len(results),
+            round(results[0].score, 3) if results else 0.0,
+            expansion_signal["suggest_expansion"],
         )
 
         return ToolResult.create_success(
@@ -367,16 +378,14 @@ class BM25SearchTool(KaosTool):
             ),
         )
 
-
-    async def _search_corpus(
-        self, query: str, corpus: Any, top_k: int
-    ) -> ToolResult:
+    async def _search_corpus(self, query: str, corpus: Any, top_k: int) -> ToolResult:
         """Search a ContentDocumentCorpus at passage level."""
         logger.debug(
-            "retrieval_tools.BM25SearchTool._search_corpus: starting passage search",
-            query=query[:100],
-            top_k=top_k,
-            corpus_size=corpus.size,
+            "retrieval_tools.BM25SearchTool._search_corpus: starting passage search, "
+            "query=%s top_k=%d corpus_size=%s",
+            query[:100],
+            top_k,
+            corpus.size,
         )
         searcher, passage_meta = _get_corpus_searcher(corpus)
         hits = searcher.search(query, top_k=top_k)
@@ -384,20 +393,19 @@ class BM25SearchTool(KaosTool):
         formatted = []
         for h in hits:
             meta = passage_meta[int(h.doc_id)]
-            formatted.append({
-                "doc_uri": meta["doc_uri"],
-                "block_ref": meta["block_ref"],
-                "page": meta["page"],
-                "section": meta["section_title"],
-                "score": round(h.score, 3),
-                "preview": h.text[:300] if hasattr(h, "text") and h.text else "",
-            })
+            formatted.append(
+                {
+                    "doc_uri": meta["doc_uri"],
+                    "block_ref": meta["block_ref"],
+                    "page": meta["page"],
+                    "section": meta["section_title"],
+                    "score": round(h.score, 3),
+                    "preview": h.text[:300] if hasattr(h, "text") and h.text else "",
+                }
+            )
 
         # Build topic summary from top results
-        topic_parts = [
-            f"{r['doc_uri']}:{r['block_ref']} ({r['score']})"
-            for r in formatted[:5]
-        ]
+        topic_parts = [f"{r['doc_uri']}:{r['block_ref']} ({r['score']})" for r in formatted[:5]]
         topic_summary = " | ".join(topic_parts)
 
         expansion_signal = _assess_expansion_need(
@@ -406,12 +414,13 @@ class BM25SearchTool(KaosTool):
         )
 
         logger.info(
-            "retrieval_tools.BM25SearchTool._search_corpus: search complete (corpus path)",
-            query=query[:100],
-            result_count=len(formatted),
-            corpus_size=corpus.size,
-            top_score=round(hits[0].score, 3) if hits else 0.0,
-            suggest_expansion=expansion_signal["suggest_expansion"],
+            "retrieval_tools.BM25SearchTool._search_corpus: search complete (corpus path), "
+            "query=%s result_count=%d corpus_size=%s top_score=%.3f suggest_expansion=%s",
+            query[:100],
+            len(formatted),
+            corpus.size,
+            round(hits[0].score, 3) if hits else 0.0,
+            expansion_signal["suggest_expansion"],
         )
 
         return ToolResult.create_success(
@@ -471,13 +480,13 @@ class SynonymSearchTool(KaosTool):
             logger.debug("retrieval_tools.SynonymSearchTool: missing word parameter")
             return ToolResult.create_error(
                 "Missing 'word' parameter. "
-                "Provide a term to look up synonyms for, e.g. {\"word\": \"indemnification\"}. "
+                'Provide a term to look up synonyms for, e.g. {"word": "indemnification"}. '
                 "Alternative: use kaos-retrieval-bm25 to search directly by keyword."
             )
 
         logger.debug(
-            "retrieval_tools.SynonymSearchTool: looking up synonyms",
-            word=word,
+            "retrieval_tools.SynonymSearchTool: looking up synonyms, word=%s",
+            word,
         )
 
         from kaos_agents.memory.search import _load_lexicon
@@ -500,19 +509,20 @@ class SynonymSearchTool(KaosTool):
             synonyms = synonyms or lexicon.synonyms(dehyphenated)
             hypernyms = hypernyms or lexicon.hypernyms(dehyphenated)
             logger.debug(
-                "retrieval_tools.SynonymSearchTool: dehyphenated fallback used",
-                word=word,
-                dehyphenated=dehyphenated,
+                "retrieval_tools.SynonymSearchTool: dehyphenated fallback used, word=%s dehyphenated=%s",
+                word,
+                dehyphenated,
             )
 
         found_in_dict = lexicon.contains(word) or lexicon.contains(dehyphenated)
         logger.debug(
-            "retrieval_tools.SynonymSearchTool: lexicon lookup complete",
-            word=word,
-            found=found_in_dict,
-            synonym_count=len(synonyms),
-            hypernym_count=len(hypernyms),
-            inflection_count=len(inflections),
+            "retrieval_tools.SynonymSearchTool: lexicon lookup complete, "
+            "word=%s found=%s synonym_count=%d hypernym_count=%d inflection_count=%d",
+            word,
+            found_in_dict,
+            len(synonyms),
+            len(hypernyms),
+            len(inflections),
         )
 
         output: dict[str, Any] = {
@@ -532,8 +542,8 @@ class SynonymSearchTool(KaosTool):
 
                 expanded_query = " ".join(synonyms[:5])
                 logger.debug(
-                    "retrieval_tools.SynonymSearchTool: searching with expanded query",
-                    expanded_query=expanded_query[:100],
+                    "retrieval_tools.SynonymSearchTool: searching with expanded query, expanded_query=%s",
+                    expanded_query[:100],
                 )
                 results = search_memory(
                     memory,
@@ -545,16 +555,17 @@ class SynonymSearchTool(KaosTool):
                 output["search_results"] = _format_results(results)
                 output["search_query"] = expanded_query
                 logger.info(
-                    "retrieval_tools.SynonymSearchTool: expanded search complete",
-                    word=word,
-                    expanded_query=expanded_query[:100],
-                    result_count=len(results),
-                    top_score=round(results[0].score, 3) if results else 0.0,
+                    "retrieval_tools.SynonymSearchTool: expanded search complete, "
+                    "word=%s expanded_query=%s result_count=%d top_score=%.3f",
+                    word,
+                    expanded_query[:100],
+                    len(results),
+                    round(results[0].score, 3) if results else 0.0,
                 )
             elif err:
                 logger.debug(
-                    "retrieval_tools.SynonymSearchTool: memory load error, skipping search",
-                    error=err[:200],
+                    "retrieval_tools.SynonymSearchTool: memory load error, skipping search, error=%s",
+                    err[:200],
                 )
 
         summary_parts = [f"'{word}' — {'FOUND' if found_in_dict else 'NOT FOUND'} in dictionary"]
@@ -601,13 +612,13 @@ class HyDESearchTool(KaosTool):
             return ToolResult.create_error(
                 "Missing 'query' parameter. "
                 "Provide the original search query to generate a pseudo-document from, "
-                "e.g. {\"query\": \"indemnification obligations\"}. "
+                'e.g. {"query": "indemnification obligations"}. '
                 "Alternative: use kaos-retrieval-bm25 for direct keyword search."
             )
 
         logger.debug(
-            "retrieval_tools.HyDESearchTool: generating pseudo-document",
-            query=query[:100],
+            "retrieval_tools.HyDESearchTool: generating pseudo-document, query=%s",
+            query[:100],
         )
 
         from kaos_agents.context.retrieval import _generate_pseudo_document
@@ -615,8 +626,8 @@ class HyDESearchTool(KaosTool):
         pseudo_doc = _generate_pseudo_document(query)
         if not pseudo_doc:
             logger.debug(
-                "retrieval_tools.HyDESearchTool: pseudo-document generation failed",
-                query=query[:100],
+                "retrieval_tools.HyDESearchTool: pseudo-document generation failed, query=%s",
+                query[:100],
             )
             return ToolResult.create_error(
                 "Failed to generate pseudo-document. The LLM call may have timed out. "
@@ -624,16 +635,16 @@ class HyDESearchTool(KaosTool):
             )
 
         logger.debug(
-            "retrieval_tools.HyDESearchTool: pseudo-document generated",
-            query=query[:100],
-            pseudo_doc_length=len(pseudo_doc),
+            "retrieval_tools.HyDESearchTool: pseudo-document generated, query=%s pseudo_doc_length=%d",
+            query[:100],
+            len(pseudo_doc),
         )
 
         memory, _store, err = _get_memory(inputs, context)
         if err:
             logger.debug(
-                "retrieval_tools.HyDESearchTool: memory load error",
-                error=err[:200],
+                "retrieval_tools.HyDESearchTool: memory load error, error=%s",
+                err[:200],
             )
             return ToolResult.create_error(err)
 
@@ -651,11 +662,12 @@ class HyDESearchTool(KaosTool):
         formatted = _format_results(results)
 
         logger.info(
-            "retrieval_tools.HyDESearchTool: search complete",
-            query=query[:100],
-            pseudo_doc_length=len(pseudo_doc),
-            result_count=len(results),
-            top_score=round(results[0].score, 3) if results else 0.0,
+            "retrieval_tools.HyDESearchTool: search complete, "
+            "query=%s pseudo_doc_length=%d result_count=%d top_score=%.3f",
+            query[:100],
+            len(pseudo_doc),
+            len(results),
+            round(results[0].score, 3) if results else 0.0,
         )
 
         return ToolResult.create_success(
@@ -711,11 +723,13 @@ class EvaluateCoverageTool(KaosTool):
             return ToolResult.create_error(
                 "Missing 'query' parameter. "
                 "Provide the original search query to evaluate coverage against, "
-                "e.g. {\"query\": \"termination clauses\"}. "
+                'e.g. {"query": "termination clauses"}. '
                 "Alternative: use kaos-retrieval-bm25 to run a search first."
             )
         if not summaries:
-            logger.debug("retrieval_tools.EvaluateCoverageTool: missing document_summaries parameter")
+            logger.debug(
+                "retrieval_tools.EvaluateCoverageTool: missing document_summaries parameter"
+            )
             return ToolResult.create_error(
                 "Missing 'document_summaries' parameter. "
                 "Paste the summaries from previous search results so coverage can be evaluated. "
@@ -723,9 +737,9 @@ class EvaluateCoverageTool(KaosTool):
             )
 
         logger.debug(
-            "retrieval_tools.EvaluateCoverageTool: evaluating coverage",
-            query=query[:100],
-            summaries_length=len(summaries),
+            "retrieval_tools.EvaluateCoverageTool: evaluating coverage, query=%s summaries_length=%d",
+            query[:100],
+            len(summaries),
         )
 
         from kaos_agents.context.retrieval import _reflect_on_coverage
@@ -741,10 +755,11 @@ class EvaluateCoverageTool(KaosTool):
 
         if gap_queries:
             logger.info(
-                "retrieval_tools.EvaluateCoverageTool: coverage insufficient",
-                query=query[:100],
-                gap_count=len(gap_queries),
-                gap_queries=gap_queries[:3],
+                "retrieval_tools.EvaluateCoverageTool: coverage insufficient, "
+                "query=%s gap_count=%d gap_queries=%r",
+                query[:100],
+                len(gap_queries),
+                gap_queries[:3],
             )
             return ToolResult.create_success(
                 output={
@@ -763,8 +778,8 @@ class EvaluateCoverageTool(KaosTool):
             )
 
         logger.info(
-            "retrieval_tools.EvaluateCoverageTool: coverage sufficient",
-            query=query[:100],
+            "retrieval_tools.EvaluateCoverageTool: coverage sufficient, query=%s",
+            query[:100],
         )
         return ToolResult.create_success(
             output={
@@ -805,7 +820,9 @@ class RerankTool(KaosTool):
             annotations=_READ_ANNOTATIONS,
             input_schema=[
                 ParameterSchema(name="session_id", type="string", description="Session ID"),
-                ParameterSchema(name="query", type="string", description="Search query to rerank against"),
+                ParameterSchema(
+                    name="query", type="string", description="Search query to rerank against"
+                ),
                 ParameterSchema(
                     name="top_k",
                     type="integer",
@@ -822,20 +839,20 @@ class RerankTool(KaosTool):
             logger.debug("retrieval_tools.RerankTool: missing query parameter")
             return ToolResult.create_error(
                 "Missing 'query' parameter. "
-                "Provide the search query to rerank against, e.g. {\"query\": \"liability cap\"}. "
+                'Provide the search query to rerank against, e.g. {"query": "liability cap"}. '
                 "Alternative: use kaos-retrieval-bm25 for keyword search without reranking."
             )
 
         logger.debug(
-            "retrieval_tools.RerankTool: starting rerank",
-            query=query[:100],
+            "retrieval_tools.RerankTool: starting rerank, query=%s",
+            query[:100],
         )
 
         memory, _store, err = _get_memory(inputs, context)
         if err:
             logger.debug(
-                "retrieval_tools.RerankTool: memory load error",
-                error=err[:200],
+                "retrieval_tools.RerankTool: memory load error, error=%s",
+                err[:200],
             )
             return ToolResult.create_error(err)
 
@@ -848,17 +865,18 @@ class RerankTool(KaosTool):
         )
 
         logger.debug(
-            "retrieval_tools.RerankTool: BM25 candidate retrieval complete",
-            query=query[:100],
-            candidate_count=len(candidates),
+            "retrieval_tools.RerankTool: BM25 candidate retrieval complete, query=%s candidate_count=%d",
+            query[:100],
+            len(candidates),
         )
 
         if len(candidates) < _RERANK_MIN_CANDIDATES:
             logger.info(
-                "retrieval_tools.RerankTool: too few candidates for reranking, returning BM25 order",
-                query=query[:100],
-                candidate_count=len(candidates),
-                min_required=_RERANK_MIN_CANDIDATES,
+                "retrieval_tools.RerankTool: too few candidates for reranking, returning BM25 order, "
+                "query=%s candidate_count=%d min_required=%d",
+                query[:100],
+                len(candidates),
+                _RERANK_MIN_CANDIDATES,
             )
             formatted = _format_results(candidates)
             return ToolResult.create_success(
@@ -896,20 +914,23 @@ class RerankTool(KaosTool):
 
             formatted = []
             for r in ranked:
-                formatted.append({
-                    "item_id": r.result.doc_id,
-                    "bm25_score": round(r.result.score, 3),
-                    "rerank_score": round(r.rerank_score, 3),
-                    "preview": r.result.text[:300],
-                })
+                formatted.append(
+                    {
+                        "item_id": r.result.doc_id,
+                        "bm25_score": round(r.result.score, 3),
+                        "rerank_score": round(r.rerank_score, 3),
+                        "preview": r.result.text[:300],
+                    }
+                )
 
             logger.info(
-                "retrieval_tools.RerankTool: cross-encoder reranking complete",
-                query=query[:100],
-                candidate_count=len(candidates),
-                result_count=len(ranked),
-                model=reranker.model_id,
-                top_rerank_score=round(ranked[0].rerank_score, 3) if ranked else 0.0,
+                "retrieval_tools.RerankTool: cross-encoder reranking complete, "
+                "query=%s candidate_count=%d result_count=%d model=%s top_rerank_score=%.3f",
+                query[:100],
+                len(candidates),
+                len(ranked),
+                reranker.model_id,
+                round(ranked[0].rerank_score, 3) if ranked else 0.0,
             )
 
             return ToolResult.create_success(
@@ -924,15 +945,17 @@ class RerankTool(KaosTool):
                 },
                 summary=(
                     f"Cross-encoder reranked {len(candidates)} candidates → top {len(ranked)}. "
-                    f"Top score: {ranked[0].rerank_score:.3f}" if ranked else "No results"
+                    f"Top score: {ranked[0].rerank_score:.3f}"
+                    if ranked
+                    else "No results"
                 ),
             )
 
         except ImportError:
             # Fall back to BM25 order with a note
             logger.info(
-                "retrieval_tools.RerankTool: cross-encoder not available, falling back to BM25 order",
-                query=query[:100],
+                "retrieval_tools.RerankTool: cross-encoder not available, falling back to BM25 order, query=%s",
+                query[:100],
             )
             top_k = int(inputs.get("top_k", 20))
             formatted = _format_results(candidates[:top_k])
@@ -952,9 +975,10 @@ class RerankTool(KaosTool):
 
         except Exception as exc:
             logger.warning(
-                "retrieval_tools.RerankTool: cross-encoder failed, falling back to BM25 order",
-                error=str(exc),
-                query=query[:100],
+                "retrieval_tools.RerankTool: cross-encoder failed, falling back to BM25 order, "
+                "error=%s query=%s",
+                str(exc),
+                query[:100],
             )
             top_k = int(inputs.get("top_k", 20))
             formatted = _format_results(candidates[:top_k])
@@ -1004,8 +1028,8 @@ class CorpusInfoTool(KaosTool):
         memory, _store, err = _get_memory(inputs, context)
         if err:
             logger.debug(
-                "retrieval_tools.CorpusInfoTool: memory load error",
-                error=err[:200],
+                "retrieval_tools.CorpusInfoTool: memory load error, error=%s",
+                err[:200],
             )
             return ToolResult.create_error(err)
 
@@ -1048,11 +1072,12 @@ class CorpusInfoTool(KaosTool):
         }
 
         logger.info(
-            "retrieval_tools.CorpusInfoTool: corpus stats",
-            document_count=n_docs,
-            total_chars=total_chars,
-            avg_chars_per_doc=avg_chars,
-            top_terms=top_terms[:5],
+            "retrieval_tools.CorpusInfoTool: corpus stats, "
+            "document_count=%d total_chars=%d avg_chars_per_doc=%d top_terms=%r",
+            n_docs,
+            total_chars,
+            avg_chars,
+            top_terms[:5],
         )
 
         return ToolResult.create_success(
@@ -1122,9 +1147,10 @@ class GroundedAnswerTool(KaosTool):
             )
 
         logger.debug(
-            "retrieval_tools.GroundedAnswerTool: starting RAG answer generation",
-            question=question[:100],
-            passages_length=len(passages_text),
+            "retrieval_tools.GroundedAnswerTool: starting RAG answer generation, "
+            "question=%s passages_length=%d",
+            question[:100],
+            len(passages_text),
         )
 
         try:
@@ -1167,10 +1193,11 @@ class GroundedAnswerTool(KaosTool):
                     for c in answer.claims
                 ]
                 logger.info(
-                    "retrieval_tools.GroundedAnswerTool: RAG returned Answer",
-                    question=question[:100],
-                    claim_count=len(claims),
-                    verified=result.is_verified,
+                    "retrieval_tools.GroundedAnswerTool: RAG returned Answer, "
+                    "question=%s claim_count=%d verified=%s",
+                    question[:100],
+                    len(claims),
+                    result.is_verified,
                 )
                 return ToolResult.create_success(
                     output={
@@ -1185,10 +1212,11 @@ class GroundedAnswerTool(KaosTool):
             if isinstance(result.grounded_answer, InsufficientEvidence):
                 refusal = result.grounded_answer
                 logger.info(
-                    "retrieval_tools.GroundedAnswerTool: RAG returned InsufficientEvidence",
-                    question=question[:100],
-                    reason=refusal.reason[:200],
-                    what_would_resolve=refusal.what_would_resolve or "",
+                    "retrieval_tools.GroundedAnswerTool: RAG returned InsufficientEvidence, "
+                    "question=%s reason=%s what_would_resolve=%s",
+                    question[:100],
+                    refusal.reason[:200],
+                    refusal.what_would_resolve or "",
                 )
                 return ToolResult.create_success(
                     output={
@@ -1203,9 +1231,10 @@ class GroundedAnswerTool(KaosTool):
                 )
 
             logger.info(
-                "retrieval_tools.GroundedAnswerTool: RAG returned unexpected result type",
-                question=question[:100],
-                result_type=type(result.grounded_answer).__name__,
+                "retrieval_tools.GroundedAnswerTool: RAG returned unexpected result type, "
+                "question=%s result_type=%s",
+                question[:100],
+                type(result.grounded_answer).__name__,
             )
             return ToolResult.create_success(
                 output={"answered": False, "reason": "Unexpected RAG result type"},
@@ -1223,9 +1252,9 @@ class GroundedAnswerTool(KaosTool):
             )
         except Exception as exc:
             logger.warning(
-                "retrieval_tools.GroundedAnswerTool: RAG failed",
-                error=str(exc),
-                question=question[:100],
+                "retrieval_tools.GroundedAnswerTool: RAG failed, error=%s question=%s",
+                str(exc),
+                question[:100],
             )
             return ToolResult.create_error(
                 f"Answer generation failed: {exc}. "
