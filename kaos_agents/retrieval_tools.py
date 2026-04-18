@@ -535,38 +535,50 @@ class SynonymSearchTool(KaosTool):
 
         also_search = inputs.get("also_search", True)
         if also_search and synonyms:
-            memory, _store, err = _get_memory(inputs, context)
-            if not err and memory:
-                from kaos_agents.memory.search import search_memory
-                from kaos_agents.memory.types import MemoryType
+            expanded_query = " ".join(synonyms[:5])
+            logger.debug(
+                "retrieval_tools.SynonymSearchTool: searching with expanded query, expanded_query=%s",
+                expanded_query[:100],
+            )
 
-                expanded_query = " ".join(synonyms[:5])
-                logger.debug(
-                    "retrieval_tools.SynonymSearchTool: searching with expanded query, expanded_query=%s",
-                    expanded_query[:100],
-                )
-                results = search_memory(
-                    memory,
-                    expanded_query,
-                    sections=[MemoryType.DOCUMENTS],
-                    top_k=20,
-                    expand_relations=[],
-                )
-                output["search_results"] = _format_results(results)
+            # Use corpus from context if available
+            corpus = _get_corpus_from_context(context)
+            if corpus is not None:
+                searcher, passage_meta = _get_corpus_searcher(corpus)
+                hits = searcher.search(expanded_query, top_k=20)
+                output["search_results"] = [
+                    {
+                        "doc_uri": passage_meta[int(h.doc_id)]["doc_uri"],
+                        "score": round(h.score, 3),
+                        "preview": h.text[:300] if hasattr(h, "text") and h.text else "",
+                    }
+                    for h in hits
+                ]
                 output["search_query"] = expanded_query
-                logger.info(
-                    "retrieval_tools.SynonymSearchTool: expanded search complete, "
-                    "word=%s expanded_query=%s result_count=%d top_score=%.3f",
-                    word,
-                    expanded_query[:100],
-                    len(results),
-                    round(results[0].score, 3) if results else 0.0,
-                )
-            elif err:
-                logger.debug(
-                    "retrieval_tools.SynonymSearchTool: memory load error, skipping search, error=%s",
-                    err[:200],
-                )
+            else:
+                memory, _store, err = _get_memory(inputs, context)
+                if not err and memory:
+                    from kaos_agents.memory.search import search_memory
+                    from kaos_agents.memory.types import MemoryType
+
+                    results = search_memory(
+                        memory,
+                        expanded_query,
+                        sections=[MemoryType.DOCUMENTS],
+                        top_k=20,
+                        expand_relations=[],
+                    )
+                    output["search_results"] = _format_results(results)
+                    output["search_query"] = expanded_query
+
+            search_results = output.get("search_results", [])
+            logger.info(
+                "retrieval_tools.SynonymSearchTool: expanded search complete, "
+                "word=%s expanded_query=%s result_count=%d",
+                word,
+                expanded_query[:100],
+                len(search_results),
+            )
 
         summary_parts = [f"'{word}' — {'FOUND' if found_in_dict else 'NOT FOUND'} in dictionary"]
         if synonyms:
@@ -640,26 +652,44 @@ class HyDESearchTool(KaosTool):
             len(pseudo_doc),
         )
 
-        memory, _store, err = _get_memory(inputs, context)
-        if err:
+        # Search corpus from context if available, else session memory
+        corpus = _get_corpus_from_context(context)
+        if corpus is not None:
             logger.debug(
-                "retrieval_tools.HyDESearchTool: memory load error, error=%s",
-                err[:200],
+                "retrieval_tools.HyDESearchTool: searching corpus with pseudo-doc, corpus_size=%d",
+                corpus.size,
             )
-            return ToolResult.create_error(err)
+            searcher, passage_meta = _get_corpus_searcher(corpus)
+            hits = searcher.search(pseudo_doc, top_k=20)
+            formatted = []
+            for h in hits:
+                meta = passage_meta[int(h.doc_id)]
+                formatted.append({
+                    "doc_uri": meta["doc_uri"],
+                    "block_ref": meta["block_ref"],
+                    "score": round(h.score, 3),
+                    "preview": h.text[:300] if hasattr(h, "text") and h.text else "",
+                })
+        else:
+            memory, _store, err = _get_memory(inputs, context)
+            if err:
+                logger.debug(
+                    "retrieval_tools.HyDESearchTool: memory load error, error=%s",
+                    err[:200],
+                )
+                return ToolResult.create_error(err)
 
-        from kaos_agents.memory.search import search_memory
-        from kaos_agents.memory.types import MemoryType
+            from kaos_agents.memory.search import search_memory
+            from kaos_agents.memory.types import MemoryType
 
-        results = search_memory(
-            memory,
-            pseudo_doc,
-            sections=[MemoryType.DOCUMENTS],
-            top_k=20,
-            expand_relations=[],
-        )
-
-        formatted = _format_results(results)
+            results = search_memory(
+                memory,
+                pseudo_doc,
+                sections=[MemoryType.DOCUMENTS],
+                top_k=20,
+                expand_relations=[],
+            )
+            formatted = _format_results(results)
 
         logger.info(
             "retrieval_tools.HyDESearchTool: search complete, "
