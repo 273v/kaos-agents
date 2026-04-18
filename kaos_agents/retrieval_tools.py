@@ -691,13 +691,13 @@ class HyDESearchTool(KaosTool):
             )
             formatted = _format_results(results)
 
+        n_results = len(formatted)
         logger.info(
             "retrieval_tools.HyDESearchTool: search complete, "
-            "query=%s pseudo_doc_length=%d result_count=%d top_score=%.3f",
+            "query=%s pseudo_doc_length=%d result_count=%d",
             query[:100],
             len(pseudo_doc),
-            len(results),
-            round(results[0].score, 3) if results else 0.0,
+            n_results,
         )
 
         return ToolResult.create_success(
@@ -705,12 +705,12 @@ class HyDESearchTool(KaosTool):
                 "query": query,
                 "pseudo_document": pseudo_doc,
                 "pseudo_document_length": len(pseudo_doc),
-                "result_count": len(results),
+                "result_count": n_results,
                 "results": formatted,
             },
             summary=(
                 f"HyDE generated {len(pseudo_doc)}-char pseudo-document, "
-                f"found {len(results)} docs. "
+                f"found {n_results} docs. "
                 f"Pseudo-doc preview: {pseudo_doc[:150]}"
             ),
         )

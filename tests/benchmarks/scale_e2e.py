@@ -50,7 +50,7 @@ _SCALE_GROUND_TRUTH_OVERRIDES: dict[str, dict] = {
     },
     "mf12": {
         "answerable": True,
-        "expected_answer_hint": "criticism comment news reporting teaching scholarship research",
+        "expected_answer_hint": "purpose character nature copyrighted work amount market effect",
     },
 }
 
