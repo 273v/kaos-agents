@@ -169,9 +169,12 @@ class KaosAgentSettings(ModuleSettings):
 
     # RAG (Research pattern)
     rag_top_k: int = Field(
-        default=10,
+        default=25,
         ge=1,
-        description="Number of passages retrieved by RAG for document Q&A.",
+        description="Number of passages retrieved by RAG for document Q&A. "
+        "Higher values improve recall on large corpora (60K+ passages) at the cost of "
+        "more context tokens. Validated: top_k=25 scored 75% vs top_k=10 at 67% on "
+        "116-doc multiformat benchmark.",
     )
     rag_max_retries: int = Field(
         default=2,
