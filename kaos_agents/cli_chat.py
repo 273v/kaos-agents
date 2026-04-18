@@ -6,6 +6,10 @@ Usage::
     kaos-agent chat --session my-session --verbose
     kaos-agent chat --tools "kaos-source-*,kaos-pdf-*" --model anthropic:claude-sonnet-4-6
 
+    # Load documents at startup for RAG Q&A
+    kaos-agent chat --files "contracts/*.pdf,memos/*.docx" --verbose
+    kaos-agent chat --files "*.pdf" --pattern research
+
 Slash commands inside the REPL:
 
     /quit     — exit
@@ -14,6 +18,8 @@ Slash commands inside the REPL:
     /memory   — dump memory section summaries
     /clear    — clear session memory
     /verbose  — toggle verbose event display
+    /load <path>  — load a file or glob into documents (PDF, DOCX, TXT, MD, PPTX)
+    /docs     — list loaded documents
 """
 
 from __future__ import annotations
@@ -22,6 +28,7 @@ import argparse
 import asyncio
 import sys
 import uuid
+from pathlib import Path
 from typing import Any
 
 _ANSI_BOLD = "\033[1m"
@@ -32,12 +39,83 @@ _ANSI_GREEN = "\033[32m"
 _ANSI_RED = "\033[31m"
 _ANSI_RESET = "\033[0m"
 
+_SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md", ".pptx"}
+
 
 def _c(code: str, text: str) -> str:
     """Colorize text if stdout is a TTY."""
     if not sys.stdout.isatty():
         return text
     return f"{code}{text}{_ANSI_RESET}"
+
+
+def _parse_file(file_path: Path) -> tuple[str, str]:
+    """Parse a file to plain text. Returns (text, uri).
+
+    Dispatches by extension:
+    - .pdf → kaos-pdf extract_pdf + serialize_text
+    - .docx/.pptx → kaos-office parse_docx/parse_pptx + serialize_text
+    - .txt/.md → read as plain text
+    """
+    ext = file_path.suffix.lower()
+    uri = f"file:{file_path.name}"
+
+    if ext == ".pdf":
+        from kaos_content import serialize_text
+        from kaos_pdf import extract_pdf
+
+        doc = extract_pdf(file_path)
+        return serialize_text(doc), uri
+
+    if ext == ".docx":
+        from kaos_content import serialize_text
+        from kaos_office import parse_docx
+
+        doc = parse_docx(file_path)
+        return serialize_text(doc), uri
+
+    if ext == ".pptx":
+        from kaos_content import serialize_text
+        from kaos_office.pptx.reader import parse_pptx
+
+        doc = parse_pptx(file_path)
+        return serialize_text(doc), uri
+
+    if ext in (".txt", ".md"):
+        return file_path.read_text(encoding="utf-8", errors="replace"), uri
+
+    msg = f"Unsupported file type: {ext}. Supported: {', '.join(sorted(_SUPPORTED_EXTENSIONS))}"
+    raise ValueError(msg)
+
+
+def _load_files_into_memory(
+    file_paths: list[Path],
+    memory: Any,
+    *,
+    verbose: bool = False,
+) -> int:
+    """Parse files and add to DOCUMENTS memory section. Returns count loaded."""
+    from kaos_agents.memory.types import MemoryType
+
+    loaded = 0
+    for fp in file_paths:
+        if not fp.exists():
+            print(_c(_ANSI_RED, f"  File not found: {fp}"))
+            continue
+        try:
+            text, uri = _parse_file(fp)
+            if not text.strip():
+                print(_c(_ANSI_YELLOW, f"  Empty: {fp.name}"))
+                continue
+            memory.add(MemoryType.DOCUMENTS, text, metadata={"uri": uri, "source": str(fp)})
+            loaded += 1
+            if verbose:
+                print(_c(_ANSI_DIM, f"  Loaded {fp.name} ({len(text):,} chars)"))
+        except ImportError as exc:
+            print(_c(_ANSI_RED, f"  Missing parser for {fp.suffix}: {exc}"))
+        except Exception as exc:
+            print(_c(_ANSI_RED, f"  Failed {fp.name}: {exc}"))
+    return loaded
 
 
 async def _run_repl(args: argparse.Namespace) -> None:
@@ -64,28 +142,58 @@ async def _run_repl(args: argparse.Namespace) -> None:
 
     runtime = KaosRuntime.default()
 
+    from kaos_agents.memory.session import SessionMemory
+    from kaos_agents.memory.types import MemoryType
     from kaos_agents.tools import register_agent_tools
 
     register_agent_tools(runtime)
 
     _register_tool_modules(runtime, args)
 
+    session_id = args.session or f"cli-{uuid.uuid4().hex[:8]}"
+    verbose = args.verbose
+    memory = SessionMemory(session_id)
+
+    # Pre-load files from --files flag
+    if args.files:
+        file_paths: list[Path] = []
+        for pat in args.files.split(","):
+            file_paths.extend(Path.cwd().glob(pat.strip()))
+        if file_paths:
+            print(f"Loading {len(file_paths)} file(s)...")
+            n_loaded = _load_files_into_memory(file_paths, memory, verbose=verbose)
+            print(f"  {n_loaded} document(s) loaded into session memory")
+
+    # Auto-select pattern: if documents are loaded, use research
+    pattern = args.pattern
+    n_docs = memory.section_item_count(MemoryType.DOCUMENTS)
+    if n_docs > 0 and pattern == "chat":
+        pattern = "research"
+        if verbose:
+            print(_c(_ANSI_CYAN, f"  Auto-switched to research pattern ({n_docs} docs loaded)"))
+
     tools_tuple = tuple(t.strip() for t in args.tools.split(",")) if args.tools else ()
     agent = Agent.create(
         instructions=args.instructions or "You are a helpful assistant.",
         model=args.model,
-        pattern=args.pattern,
+        pattern=pattern,
         tools=tools_tuple,
     )
     runner = Runner(agent, runtime=runtime)
-    session_id = args.session or f"cli-{uuid.uuid4().hex[:8]}"
-    verbose = args.verbose
+
+    # Persist pre-loaded documents to VFS so the runner's BaseAgent finds them
+    if n_docs > 0:
+        from kaos_core.vfs.core import VirtualFileSystem
+
+        from kaos_agents.memory.store import SessionStore
+
+        vfs = runtime.vfs if hasattr(runtime, "vfs") else VirtualFileSystem()
+        store = SessionStore(vfs)
+        await store.save(memory)
 
     # Phase 4.2: JSONL event log
     log_file = None
     if args.log:
-        from pathlib import Path
-
         log_path = Path(args.log)
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_file = log_path.open("a")
@@ -96,8 +204,9 @@ async def _run_repl(args: argparse.Namespace) -> None:
     session_turns = 0
 
     tool_names = sorted(runtime.list_tools().keys()) if hasattr(runtime, "list_tools") else []
-    print(_c(_ANSI_BOLD, f"KAOS Agent | {args.model} | pattern={args.pattern}"))
-    print(f"Session: {session_id} | Tools: {len(tool_names)} registered")
+    print(_c(_ANSI_BOLD, f"KAOS Agent | {args.model} | pattern={pattern}"))
+    docs_label = f" | Docs: {n_docs}" if n_docs > 0 else ""
+    print(f"Session: {session_id} | Tools: {len(tool_names)} registered{docs_label}")
     if verbose and tool_names:
         for name in tool_names[:20]:
             print(f"  {_c(_ANSI_DIM, name)}")
@@ -140,6 +249,67 @@ async def _run_repl(args: argparse.Namespace) -> None:
                 continue
             if stripped == "/memory":
                 print("(memory dump not yet implemented)")
+                continue
+            if stripped.startswith("/load "):
+                load_arg = stripped[6:].strip()
+                if not load_arg:
+                    print("Usage: /load <file_or_glob>")
+                    print(f"  Supported: {', '.join(sorted(_SUPPORTED_EXTENSIONS))}")
+                    continue
+                paths = list(Path.cwd().glob(load_arg))
+                if not paths:
+                    # Try as a single file path
+                    single = Path(load_arg)
+                    if single.exists():
+                        paths = [single]
+                    else:
+                        print(_c(_ANSI_RED, f"  No files matching: {load_arg}"))
+                        continue
+                n_loaded = _load_files_into_memory(paths, memory, verbose=True)
+                n_docs = memory.section_item_count(MemoryType.DOCUMENTS)
+                print(f"  {n_loaded} loaded ({n_docs} total documents in session)")
+                # Persist to VFS so the runner finds the documents
+                from kaos_core.vfs.core import VirtualFileSystem
+
+                from kaos_agents.memory.store import SessionStore
+
+                vfs = runtime.vfs if hasattr(runtime, "vfs") else VirtualFileSystem()
+                store = SessionStore(vfs)
+                await store.save(memory)
+                # Auto-upgrade pattern to research if still on chat
+                if n_docs > 0 and agent.pattern.value == "chat":
+                    from kaos_agents.config import AgentPattern
+
+                    agent = Agent.create(
+                        instructions=agent.instructions,
+                        model=agent.effective_model(),
+                        pattern=AgentPattern.RESEARCH,
+                        tools=tools_tuple,
+                    )
+                    runner = Runner(agent, runtime=runtime)
+                    print(_c(_ANSI_CYAN, "  Switched to research pattern for document Q&A"))
+                continue
+            if stripped == "/load":
+                print("Usage: /load <file_or_glob>")
+                print(f"  Supported: {', '.join(sorted(_SUPPORTED_EXTENSIONS))}")
+                print("  Examples:")
+                print("    /load documents/*.pdf")
+                print("    /load report.docx")
+                print("    /load *.txt")
+                continue
+            if stripped == "/docs":
+                n_docs = memory.section_item_count(MemoryType.DOCUMENTS)
+                if n_docs == 0:
+                    print("  No documents loaded. Use /load <path> to add files.")
+                else:
+                    print(f"  {n_docs} document(s) in session memory")
+                    items = memory.get(MemoryType.DOCUMENTS)
+                    for item in items[:20]:
+                        uri = (item.metadata or {}).get("uri", item.id[:8])
+                        chars = len(item.content)
+                        print(f"    {uri} ({chars:,} chars)")
+                    if len(items) > 20:
+                        print(f"    ... and {len(items) - 20} more")
                 continue
             print(f"Unknown command: {stripped}")
             continue
@@ -268,6 +438,8 @@ def _register_tool_modules(runtime: Any, args: argparse.Namespace) -> None:
         modules.append(("kaos_source.tools", "register_source_tools"))
     if getattr(args, "with_pdf", False) or getattr(args, "with_all", False):
         modules.append(("kaos_pdf.tools", "register_pdf_tools"))
+    if getattr(args, "with_office", False) or getattr(args, "with_all", False):
+        modules.append(("kaos_office.tools", "register_office_tools"))
     if getattr(args, "with_web", False) or getattr(args, "with_all", False):
         modules.append(("kaos_web.tools", "register_web_tools"))
     if getattr(args, "with_citations", False) or getattr(args, "with_all", False):
@@ -301,8 +473,14 @@ def main(argv: list[str] | None = None) -> None:
     chat.add_argument("--instructions", help="System prompt override")
     chat.add_argument("--verbose", "-v", action="store_true", help="Show all events")
     chat.add_argument("--log", help="Write all events to JSONL file")
+    chat.add_argument(
+        "--files",
+        default="",
+        help="Comma-separated file paths or globs to pre-load (e.g. 'docs/*.pdf,*.docx')",
+    )
     chat.add_argument("--with-source", action="store_true")
     chat.add_argument("--with-pdf", action="store_true")
+    chat.add_argument("--with-office", action="store_true")
     chat.add_argument("--with-web", action="store_true")
     chat.add_argument("--with-citations", action="store_true")
     chat.add_argument("--with-all", action="store_true", help="Register all tool modules")
