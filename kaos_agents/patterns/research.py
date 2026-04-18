@@ -336,30 +336,138 @@ class ResearchAgent(ChatAgent):
                     result.is_verified,
                 )
 
+                # Write success to REFLECTION for cross-turn learning
+                n_sources = len({s.source_uri for c in answer.claims for s in c.supporting_spans})
+                memory.add(
+                    MemoryType.REFLECTION,
+                    f"RAG answered '{message[:60]}' with {len(answer.claims)} claims "
+                    f"from {n_sources} source(s), verified={result.is_verified}. "
+                    f"Used plain BM25 on {n_docs_label} docs.",
+                )
+
             elif isinstance(result.grounded_answer, InsufficientEvidence):
                 refusal = result.grounded_answer
-                yield emitter.emit(
-                    EvidenceInsufficient,
-                    reason=refusal.reason,
-                    what_would_resolve=refusal.what_would_resolve or "",
-                )
-                yield emitter.emit(
-                    ToolCallResult,
-                    call_id="rag-query",
-                    tool_name="rag-query",
-                    result_summary=f"Insufficient evidence: {refusal.reason[:100]}",
-                    is_error=False,
-                    duration_ms=0.0,
-                )
 
-                response_text = (
-                    f"I don't have sufficient evidence to answer this question.\n\n"
-                    f"Reason: {refusal.reason}"
-                )
-                if refusal.what_would_resolve:
-                    response_text += f"\n\nWhat would help: {refusal.what_would_resolve}"
+                # Retry: use what_would_resolve to drive a second retrieval attempt
+                retried = False
+                if (
+                    refusal.what_would_resolve
+                    and isinstance(corpus, dict)
+                    and self._corpus is None
+                ):
+                    retry_query = refusal.what_would_resolve
+                    logger.debug(
+                        "research_agent: insufficient evidence — retrying with: %s",
+                        retry_query[:80],
+                    )
+                    yield emitter.emit(
+                        ToolCallStart,
+                        call_id="rag-retry",
+                        tool_name="rag-retry",
+                        arguments=(
+                            ("retry_query", retry_query),
+                            ("reason", refusal.reason[:100]),
+                        ),
+                    )
 
-                yield emitter.emit(TextDelta, content=response_text)
+                    # Search for additional documents using the hint
+                    from kaos_agents.memory.search import search_memory
+
+                    retry_results = search_memory(
+                        memory,
+                        retry_query,
+                        sections=[MemoryType.DOCUMENTS],
+                        top_k=self._settings.retrieval_top_k,
+                        expand_relations=[],
+                    )
+                    if retry_results:
+                        # Merge new documents into the corpus
+                        new_items = memory.get_by_ids(
+                            MemoryType.DOCUMENTS,
+                            {r.item_id for r in retry_results},
+                        )
+                        for item in new_items:
+                            uri, content = _extract_uri_and_content(item)
+                            if uri not in corpus:
+                                corpus[uri] = content
+
+                        logger.debug(
+                            "research_agent: retry found %d new docs, corpus now %d",
+                            len(new_items),
+                            len(corpus),
+                        )
+
+                        # Re-query RAG with expanded corpus
+                        retry_result = await rag.query(
+                            question=message, documents=corpus
+                        )
+
+                        if isinstance(retry_result.grounded_answer, Answer):
+                            retried = True
+                            answer = retry_result.grounded_answer
+                            response_text = str(answer.value)
+                            for claim in answer.claims:
+                                for span in claim.supporting_spans:
+                                    yield emitter.emit(
+                                        CitationFound,
+                                        claim=claim.statement,
+                                        source_uri=span.source_uri,
+                                        confidence=claim.confidence,
+                                        verified=retry_result.is_verified,
+                                    )
+                            response_text += (
+                                f"\n\n[Retry succeeded: {len(answer.claims)} claim(s) "
+                                f"after expanding search with: {retry_query[:60]}]"
+                            )
+                            yield emitter.emit(
+                                ToolCallResult,
+                                call_id="rag-retry",
+                                tool_name="rag-retry",
+                                result_summary=f"Retry succeeded: {len(answer.claims)} claims",
+                                is_error=False,
+                                duration_ms=0.0,
+                            )
+                            yield emitter.emit(TextDelta, content=response_text)
+
+                            # Write success to REFLECTION for cross-turn learning
+                            memory.add(
+                                MemoryType.REFLECTION,
+                                f"RAG retry succeeded on '{message[:60]}' by searching for "
+                                f"'{retry_query[:60]}'. Found {len(new_items)} additional docs.",
+                            )
+
+                if not retried:
+                    yield emitter.emit(
+                        EvidenceInsufficient,
+                        reason=refusal.reason,
+                        what_would_resolve=refusal.what_would_resolve or "",
+                    )
+                    yield emitter.emit(
+                        ToolCallResult,
+                        call_id="rag-query",
+                        tool_name="rag-query",
+                        result_summary=f"Insufficient evidence: {refusal.reason[:100]}",
+                        is_error=False,
+                        duration_ms=0.0,
+                    )
+
+                    response_text = (
+                        f"I don't have sufficient evidence to answer this question.\n\n"
+                        f"Reason: {refusal.reason}"
+                    )
+                    if refusal.what_would_resolve:
+                        response_text += (
+                            f"\n\nWhat would help: {refusal.what_would_resolve}"
+                        )
+
+                    yield emitter.emit(TextDelta, content=response_text)
+
+                    # Write failure to REFLECTION for cross-turn learning
+                    memory.add(
+                        MemoryType.REFLECTION,
+                        f"RAG insufficient evidence on '{message[:60]}': {refusal.reason[:80]}. "
+                        f"Would resolve: {(refusal.what_would_resolve or 'unknown')[:80]}",
+                    )
 
             else:
                 yield emitter.emit(TextDelta, content=str(result.grounded_answer))
