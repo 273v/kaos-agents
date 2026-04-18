@@ -1,0 +1,20 @@
+{
+  "timestamp": "2026-04-17T18:03:48",
+  "dataset": "scifact",
+  "corpus_size": 5183,
+  "num_queries": 300,
+  "published_baseline": {
+    "ndcg_at_10": 0.665
+  },
+  "results": {
+    "bm25": {
+      "ndcg_at_10": 0.531413248993414,
+      "map_at_100": 0.49450000541186606,
+      "recall_at_10": 0.6563888888888889,
+      "recall_at_50": 0.7666666666666667,
+      "recall_at_100": 0.7946666666666666,
+      "num_queries": 300,
+      "avg_latency_s": 0.2562483146428713
+    }
+  }
+}

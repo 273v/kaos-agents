@@ -1,0 +1,20 @@
+{
+  "timestamp": "2026-04-17T18:02:04",
+  "dataset": "nfcorpus",
+  "corpus_size": 3633,
+  "num_queries": 323,
+  "published_baseline": {
+    "ndcg_at_10": 0.325
+  },
+  "results": {
+    "bm25": {
+      "ndcg_at_10": 0.23094581935112438,
+      "map_at_100": 0.09756563371600509,
+      "recall_at_10": 0.11271930398701105,
+      "recall_at_50": 0.16602800845568882,
+      "recall_at_100": 0.19529176659452732,
+      "num_queries": 323,
+      "avg_latency_s": 0.17967014446944335
+    }
+  }
+}
