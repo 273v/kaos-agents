@@ -28,12 +28,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 import time
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+from tests.benchmarks.metrics import compute_ap, compute_ndcg, compute_recall
 
 _BEIR_DATASETS = ("nfcorpus", "scifact", "fiqa")
 _EVAL_KS = (10, 50, 100)
@@ -71,36 +72,6 @@ class EvalResult:
     corpus_size: int = 0
     metrics: Metrics | None = None
     per_query: list[dict] = field(default_factory=list)
-
-
-def _compute_ndcg(ranked_ids: list[str], qrel_scores: dict[str, int], k: int) -> float:
-    """Compute NDCG@k."""
-    dcg = 0.0
-    for i, doc_id in enumerate(ranked_ids[:k]):
-        rel = qrel_scores.get(doc_id, 0)
-        dcg += (2**rel - 1) / math.log2(i + 2)
-
-    ideal_rels = sorted(qrel_scores.values(), reverse=True)[:k]
-    idcg = sum((2**r - 1) / math.log2(i + 2) for i, r in enumerate(ideal_rels))
-
-    return dcg / idcg if idcg > 0 else 0.0
-
-
-def _compute_ap(ranked_ids: list[str], relevant: set[str], k: int) -> float:
-    """Compute Average Precision@k."""
-    hits = 0
-    sum_precision = 0.0
-    for i, doc_id in enumerate(ranked_ids[:k]):
-        if doc_id in relevant:
-            hits += 1
-            sum_precision += hits / (i + 1)
-    return sum_precision / len(relevant) if relevant else 0.0
-
-
-def _compute_recall(ranked_ids: list[str], relevant: set[str], k: int) -> float:
-    """Compute Recall@k."""
-    found = sum(1 for doc_id in ranked_ids[:k] if doc_id in relevant)
-    return found / len(relevant) if relevant else 0.0
 
 
 def load_beir_dataset(dataset_name: str) -> tuple:
@@ -225,16 +196,16 @@ def evaluate(
         qrel_scores = qrels.get(qid, {})
         relevant = {did for did, score in qrel_scores.items() if score > 0}
 
-        q_ndcg = _compute_ndcg(ranked, qrel_scores, 10)
-        q_ap = _compute_ap(ranked, relevant, 100)
-        q_recall_10 = _compute_recall(ranked, relevant, 10)
+        q_ndcg = compute_ndcg(ranked, qrel_scores, 10)
+        q_ap = compute_ap(ranked, relevant, 100)
+        q_recall_10 = compute_recall(ranked, relevant, 10)
 
         ndcg_scores.append(q_ndcg)
         ap_scores.append(q_ap)
         recall_at[10].append(q_recall_10)
         for k in _EVAL_KS:
             if k != 10:
-                recall_at[k].append(_compute_recall(ranked, relevant, k))
+                recall_at[k].append(compute_recall(ranked, relevant, k))
 
         per_query.append(
             QueryMetrics(

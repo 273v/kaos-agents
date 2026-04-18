@@ -44,7 +44,11 @@ def _get_memory(inputs: dict[str, Any], context: Any):
 
     session_id = inputs.get("session_id", "")
     if not session_id:
-        return None, None, "Missing 'session_id'"
+        return None, None, (
+            "Missing 'session_id' parameter. "
+            "Provide a valid session ID, e.g. {\"session_id\": \"my-session\"}. "
+            "Alternative: use kaos-agent-chat which manages sessions automatically."
+        )
 
     runtime = context.runtime if context else None
     vfs = runtime.vfs if runtime and hasattr(runtime, "vfs") else VirtualFileSystem()
@@ -193,7 +197,11 @@ class BM25SearchTool(KaosTool):
     async def execute(self, inputs: dict[str, Any], context: Any = None) -> ToolResult:
         query = inputs.get("query", "")
         if not query:
-            return ToolResult.create_error("Missing 'query'. Provide a search query string.")
+            return ToolResult.create_error(
+                "Missing 'query' parameter. "
+                "Provide a search query string, e.g. {\"query\": \"key terms\"}. "
+                "Alternative: use kaos-retrieval-synonyms to look up terms first."
+            )
 
         memory, _store, err = _get_memory(inputs, context)
         if err:
@@ -265,7 +273,11 @@ class SynonymSearchTool(KaosTool):
     async def execute(self, inputs: dict[str, Any], context: Any = None) -> ToolResult:
         word = inputs.get("word", "").strip()
         if not word:
-            return ToolResult.create_error("Missing 'word'. Provide a term to look up.")
+            return ToolResult.create_error(
+                "Missing 'word' parameter. "
+                "Provide a term to look up synonyms for, e.g. {\"word\": \"indemnification\"}. "
+                "Alternative: use kaos-retrieval-bm25 to search directly by keyword."
+            )
 
         from kaos_agents.memory.search import _load_lexicon
 
@@ -353,7 +365,12 @@ class HyDESearchTool(KaosTool):
     async def execute(self, inputs: dict[str, Any], context: Any = None) -> ToolResult:
         query = inputs.get("query", "")
         if not query:
-            return ToolResult.create_error("Missing 'query'.")
+            return ToolResult.create_error(
+                "Missing 'query' parameter. "
+                "Provide the original search query to generate a pseudo-document from, "
+                "e.g. {\"query\": \"indemnification obligations\"}. "
+                "Alternative: use kaos-retrieval-bm25 for direct keyword search."
+            )
 
         from kaos_agents.context.retrieval import _generate_pseudo_document
 
@@ -429,9 +446,18 @@ class EvaluateCoverageTool(KaosTool):
         query = inputs.get("query", "")
         summaries = inputs.get("document_summaries", "")
         if not query:
-            return ToolResult.create_error("Missing 'query'.")
+            return ToolResult.create_error(
+                "Missing 'query' parameter. "
+                "Provide the original search query to evaluate coverage against, "
+                "e.g. {\"query\": \"termination clauses\"}. "
+                "Alternative: use kaos-retrieval-bm25 to run a search first."
+            )
         if not summaries:
-            return ToolResult.create_error("Missing 'document_summaries'.")
+            return ToolResult.create_error(
+                "Missing 'document_summaries' parameter. "
+                "Paste the summaries from previous search results so coverage can be evaluated. "
+                "Alternative: run kaos-retrieval-bm25 first, then pass its topic_summary here."
+            )
 
         from kaos_agents.context.retrieval import _reflect_on_coverage
         from kaos_agents.memory.search import MemorySearchResult
@@ -513,7 +539,11 @@ class RerankTool(KaosTool):
     async def execute(self, inputs: dict[str, Any], context: Any = None) -> ToolResult:
         query = inputs.get("query", "")
         if not query:
-            return ToolResult.create_error("Missing 'query'. Provide the search query to rerank against.")
+            return ToolResult.create_error(
+                "Missing 'query' parameter. "
+                "Provide the search query to rerank against, e.g. {\"query\": \"liability cap\"}. "
+                "Alternative: use kaos-retrieval-bm25 for keyword search without reranking."
+            )
 
         memory, _store, err = _get_memory(inputs, context)
         if err:

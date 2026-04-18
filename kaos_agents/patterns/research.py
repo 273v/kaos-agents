@@ -480,23 +480,7 @@ def _build_corpus_bm25(
         len(items),
     )
 
-    corpus: dict[str, str] = {}
-    for item in items:
-        content = item.content
-        uri = item.metadata.get("uri", "")
-        if not uri and content.startswith("URI: "):
-            first_line, _, rest = content.partition("\n")
-            uri = first_line.removeprefix("URI: ").strip()
-            content = rest
-        elif content.startswith("URI: "):
-            _, _, content = content.partition("\n")
-
-        if uri:
-            corpus[uri] = content
-        else:
-            corpus[f"mem:{item.id}"] = content
-
-    return corpus
+    return dict(_extract_uri_and_content(item) for item in items)
 
 
 def _build_corpus_triaged(
@@ -525,23 +509,27 @@ def _build_corpus_triaged(
     else:
         items = memory.get(MemoryType.DOCUMENTS) if memory.has_section(MemoryType.DOCUMENTS) else []
 
-    corpus: dict[str, str] = {}
-    for item in items:
-        content = item.content
-        uri = item.metadata.get("uri", "")
-        if not uri and content.startswith("URI: "):
-            first_line, _, rest = content.partition("\n")
-            uri = first_line.removeprefix("URI: ").strip()
-            content = rest
-        elif content.startswith("URI: "):
-            _, _, content = content.partition("\n")
+    return dict(_extract_uri_and_content(item) for item in items)
 
-        if uri:
-            corpus[uri] = content
-        else:
-            corpus[f"mem:{item.id}"] = content
 
-    return corpus
+def _extract_uri_and_content(item: Any) -> tuple[str, str]:
+    """Extract URI and content text from a memory item.
+
+    Parses URI from metadata first, then falls back to "URI: <uri>\\n<text>"
+    prefix format. Returns (uri, content) where uri may be "mem:<item_id>"
+    if no URI is found.
+    """
+    content = item.content
+    uri = (item.metadata or {}).get("uri", "")
+    if not uri and content.startswith("URI: "):
+        first_line, _, rest = content.partition("\n")
+        uri = first_line.removeprefix("URI: ").strip()
+        content = rest
+    elif content.startswith("URI: "):
+        _, _, content = content.partition("\n")
+    if not uri:
+        uri = f"mem:{item.id}"
+    return uri, content
 
 
 def _build_corpus(memory: SessionMemory) -> dict[str, str]:
@@ -549,26 +537,7 @@ def _build_corpus(memory: SessionMemory) -> dict[str, str]:
 
     Parses "URI: <uri>\\n<text>" items into {uri: text} pairs.
     """
-    corpus: dict[str, str] = {}
     if not memory.has_section(MemoryType.DOCUMENTS):
-        return corpus
+        return {}
 
-    items = memory.get(MemoryType.DOCUMENTS)
-    for item in items:
-        content = item.content
-        # Parse URI from metadata or from the content prefix
-        uri = item.metadata.get("uri", "")
-        if not uri and content.startswith("URI: "):
-            first_line, _, rest = content.partition("\n")
-            uri = first_line.removeprefix("URI: ").strip()
-            content = rest
-        elif content.startswith("URI: "):
-            _, _, content = content.partition("\n")
-
-        if uri:
-            corpus[uri] = content
-        else:
-            # Fall back to item ID as URI
-            corpus[f"mem:{item.id}"] = content
-
-    return corpus
+    return dict(_extract_uri_and_content(item) for item in memory.get(MemoryType.DOCUMENTS))

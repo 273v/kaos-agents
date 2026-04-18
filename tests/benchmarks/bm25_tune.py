@@ -23,11 +23,13 @@ from __future__ import annotations
 import argparse
 import itertools
 import json
-import math
 import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
+from tests.benchmarks.beir_eval import load_beir_dataset
+from tests.benchmarks.metrics import compute_ap, compute_ndcg
 
 _DEFAULT_K1_GRID = [0.5, 0.9, 1.2, 1.5, 2.0]
 _DEFAULT_B_GRID = [0.3, 0.5, 0.75, 0.9]
@@ -45,49 +47,6 @@ class TuneResult:
     map_at_100: float
     avg_latency_s: float
     num_queries: int
-
-
-def _compute_ndcg(ranked_ids: list[str], qrel_scores: dict[str, int], k: int) -> float:
-    """Compute NDCG@k."""
-    dcg = 0.0
-    for i, doc_id in enumerate(ranked_ids[:k]):
-        rel = qrel_scores.get(doc_id, 0)
-        dcg += (2**rel - 1) / math.log2(i + 2)
-    ideal_rels = sorted(qrel_scores.values(), reverse=True)[:k]
-    idcg = sum((2**r - 1) / math.log2(i + 2) for i, r in enumerate(ideal_rels))
-    return dcg / idcg if idcg > 0 else 0.0
-
-
-def _compute_ap(ranked_ids: list[str], relevant: set[str], k: int) -> float:
-    """Compute Average Precision@k."""
-    hits = 0
-    sum_precision = 0.0
-    for i, doc_id in enumerate(ranked_ids[:k]):
-        if doc_id in relevant:
-            hits += 1
-            sum_precision += hits / (i + 1)
-    return sum_precision / len(relevant) if relevant else 0.0
-
-
-def load_beir_dataset(dataset_name: str) -> tuple:
-    """Load a BEIR dataset."""
-    from collections import defaultdict
-
-    from datasets import load_dataset
-
-    corpus_ds = load_dataset(f"BeIR/{dataset_name}", "corpus", split="corpus")
-    queries_ds = load_dataset(f"BeIR/{dataset_name}", "queries", split="queries")
-    qrels_ds = load_dataset(f"BeIR/{dataset_name}-qrels", split="test")
-
-    corpus = {doc["_id"]: f"{doc['title']}. {doc['text']}" for doc in corpus_ds}
-    queries = {q["_id"]: q["text"] for q in queries_ds}
-
-    qrels: dict[str, dict[str, int]] = defaultdict(dict)
-    for qr in qrels_ds:
-        qrels[str(qr["query-id"])][str(qr["corpus-id"])] = qr["score"]
-
-    test_qids = [qid for qid in qrels if qid in queries]
-    return corpus, queries, dict(qrels), test_qids
 
 
 def run_bm25_with_params(
@@ -124,8 +83,8 @@ def run_bm25_with_params(
 
         ranked = [id_to_uri[int(h.doc_id)] for h in hits if int(h.doc_id) in id_to_uri]
 
-        ndcg_scores.append(_compute_ndcg(ranked, qrel_scores, 10))
-        ap_scores.append(_compute_ap(ranked, relevant, 100))
+        ndcg_scores.append(compute_ndcg(ranked, qrel_scores, 10))
+        ap_scores.append(compute_ap(ranked, relevant, 100))
         latencies.append(t1 - t0)
 
     n = len(ndcg_scores) or 1

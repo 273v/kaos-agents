@@ -34,12 +34,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import math
 import sys
 import time
-from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+from tests.benchmarks.beir_eval import load_beir_dataset
+from tests.benchmarks.metrics import compute_ndcg, compute_recall
 
 _BEIR_DATASETS = ("nfcorpus", "scifact", "fiqa")
 _LATENCY_WARN_THRESHOLD_S = 30.0
@@ -84,45 +85,6 @@ class AgentEvalResult:
     recall_at_10: float = 0.0
     recall_at_50: float = 0.0
     queries: list[AgentQueryResult] = field(default_factory=list)
-
-
-def _compute_ndcg(ranked_ids: list[str], qrel_scores: dict[str, int], k: int) -> float:
-    """Compute NDCG@k."""
-    dcg = 0.0
-    for i, doc_id in enumerate(ranked_ids[:k]):
-        rel = qrel_scores.get(doc_id, 0)
-        dcg += (2**rel - 1) / math.log2(i + 2)
-
-    ideal_rels = sorted(qrel_scores.values(), reverse=True)[:k]
-    idcg = sum((2**r - 1) / math.log2(i + 2) for i, r in enumerate(ideal_rels))
-
-    return dcg / idcg if idcg > 0 else 0.0
-
-
-def _compute_recall(ranked_ids: list[str], relevant: set[str], k: int) -> float:
-    """Compute Recall@k."""
-    found = sum(1 for doc_id in ranked_ids[:k] if doc_id in relevant)
-    return found / len(relevant) if relevant else 0.0
-
-
-def load_beir_dataset(dataset_name: str) -> tuple[dict, dict, dict, list]:
-    """Load a BEIR dataset."""
-    from datasets import load_dataset
-
-    corpus_ds = load_dataset(f"BeIR/{dataset_name}", "corpus", split="corpus")
-    queries_ds = load_dataset(f"BeIR/{dataset_name}", "queries", split="queries")
-    qrels_ds = load_dataset(f"BeIR/{dataset_name}-qrels", split="test")
-
-    corpus = {doc["_id"]: f"{doc['title']}. {doc['text']}" for doc in corpus_ds}
-    queries = {q["_id"]: q["text"] for q in queries_ds}
-
-    qrels: dict[str, dict[str, int]] = defaultdict(dict)
-    for qr in qrels_ds:
-        if qr["score"] > 0:
-            qrels[str(qr["query-id"])][str(qr["corpus-id"])] = qr["score"]
-
-    test_qids = [qid for qid in qrels if qid in queries]
-    return corpus, queries, dict(qrels), test_qids
 
 
 async def run_agent_eval(
@@ -228,9 +190,9 @@ async def run_agent_eval(
         answered = bool(answer_text) and not refused and not errored
 
         # Compute IR metrics from cited documents against qrels
-        q_ndcg = _compute_ndcg(cited_doc_ids, qrel_scores, 10)
-        q_recall_10 = _compute_recall(cited_doc_ids, relevant, 10)
-        q_recall_50 = _compute_recall(cited_doc_ids, relevant, 50)
+        q_ndcg = compute_ndcg(cited_doc_ids, qrel_scores, 10)
+        q_recall_10 = compute_recall(cited_doc_ids, relevant, 10)
+        q_recall_50 = compute_recall(cited_doc_ids, relevant, 50)
 
         qr = AgentQueryResult(
             query_id=qid,

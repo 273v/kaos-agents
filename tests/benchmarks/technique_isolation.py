@@ -30,12 +30,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 import time
 from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
+from tests.benchmarks.metrics import compute_ap, compute_ndcg, compute_recall
 
 _BEIR_DATASETS = ("nfcorpus", "scifact", "fiqa")
 _CHEAP_TECHNIQUES = ("bm25", "lexicon", "prf")
@@ -57,30 +58,6 @@ class TechniqueResult:
     num_queries: int
 
 
-def _compute_ndcg(ranked_ids: list[str], qrel_scores: dict[str, int], k: int) -> float:
-    dcg = 0.0
-    for i, doc_id in enumerate(ranked_ids[:k]):
-        rel = qrel_scores.get(doc_id, 0)
-        dcg += (2**rel - 1) / math.log2(i + 2)
-    ideal_rels = sorted(qrel_scores.values(), reverse=True)[:k]
-    idcg = sum((2**r - 1) / math.log2(i + 2) for i, r in enumerate(ideal_rels))
-    return dcg / idcg if idcg > 0 else 0.0
-
-
-def _compute_ap(ranked_ids: list[str], relevant: set[str], k: int) -> float:
-    hits = 0
-    sum_precision = 0.0
-    for i, doc_id in enumerate(ranked_ids[:k]):
-        if doc_id in relevant:
-            hits += 1
-            sum_precision += hits / (i + 1)
-    return sum_precision / len(relevant) if relevant else 0.0
-
-
-def _compute_recall(ranked_ids: list[str], relevant: set[str], k: int) -> float:
-    found = sum(1 for doc_id in ranked_ids[:k] if doc_id in relevant)
-    return found / len(relevant) if relevant else 0.0
-
 
 def _evaluate_ranked(
     all_ranked: dict[str, list[str]],
@@ -96,10 +73,10 @@ def _evaluate_ranked(
         ranked = all_ranked[qid]
         qrel_scores = qrels.get(qid, {})
         relevant = {did for did, s in qrel_scores.items() if s > 0}
-        ndcg_scores.append(_compute_ndcg(ranked, qrel_scores, 10))
-        ap_scores.append(_compute_ap(ranked, relevant, 100))
-        r10_scores.append(_compute_recall(ranked, relevant, 10))
-        r100_scores.append(_compute_recall(ranked, relevant, 100))
+        ndcg_scores.append(compute_ndcg(ranked, qrel_scores, 10))
+        ap_scores.append(compute_ap(ranked, relevant, 100))
+        r10_scores.append(compute_recall(ranked, relevant, 10))
+        r100_scores.append(compute_recall(ranked, relevant, 100))
     n = len(ndcg_scores) or 1
     avg_lat = sum(latencies.values()) / len(latencies) if latencies else 0.0
     return (
