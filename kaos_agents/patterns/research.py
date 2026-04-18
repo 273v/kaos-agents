@@ -47,6 +47,28 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+_RESEARCH_REACT_INSTRUCTION = """\
+You are answering a question about a document corpus using retrieval tools.
+
+STRATEGY:
+1. Search with kaos-retrieval-bm25 using key terms from the question.
+2. Look at the results. Check the expansion_assessment signal.
+3. If results look relevant and cover the question:
+   → Call kaos-retrieval-answer with the question and the relevant passage texts.
+4. If results are noisy or miss the topic:
+   → Try more specific terms, or use kaos-retrieval-hyde for vocabulary bridging.
+5. If kaos-retrieval-answer says "insufficient evidence":
+   → Use the what_would_resolve hint to search again with different terms.
+6. After 2-3 search attempts, if you still can't find evidence:
+   → State clearly that the corpus doesn't contain the answer.
+
+IMPORTANT:
+- Always search BEFORE answering. Never answer from your training data.
+- Include passage previews when calling kaos-retrieval-answer.
+- If the question references a specific document (e.g., "RFC 2119"), search for that name.
+- Do NOT hallucinate. If the passages don't support the answer, refuse.
+"""
+
 
 class ResearchAgent(ChatAgent):
     """Agent with RAG-backed document Q&A for RESEARCH intent.
@@ -202,6 +224,9 @@ class ResearchAgent(ChatAgent):
             metadata={"uri": uri, "type": "document"},
         )
 
+    # Threshold for using ReAct (agent-driven) vs one-shot RAG
+    _REACT_CORPUS_THRESHOLD = 20
+
     async def _dispatch_streaming(
         self,
         intent: IntentResult,
@@ -210,10 +235,17 @@ class ResearchAgent(ChatAgent):
         context_items: dict[MemoryType, list[Any]],
         emitter: EventEmitter,
     ) -> AsyncIterator[AgentEvent]:
-        """Override dispatch to stream RAG citation events.
+        """Override dispatch to route research through ReAct or one-shot RAG.
 
-        For RESEARCH intent, yields CitationFound/EvidenceInsufficient.
-        For other intents, delegates to ChatAgent (TOOL_USE) or BaseAgent.
+        Large corpus (>=20 docs or pre-bound corpus with many passages):
+            Route to ReAct with retrieval tools. The agent searches, evaluates,
+            iterates, then calls GroundedAnswerTool. This is the kelvin pattern.
+
+        Small corpus (<20 docs):
+            Fast path via _handle_research_streaming (one-shot RAG).
+
+        Other intents:
+            Delegate to ChatAgent (TOOL_USE) or BaseAgent.
         """
         if intent.intent != IntentType.RESEARCH:
             async for event in super()._dispatch_streaming(
@@ -222,6 +254,55 @@ class ResearchAgent(ChatAgent):
                 yield event
             return
 
+        # Decide: ReAct (agent-driven) vs one-shot RAG
+        use_react = False
+        if self._corpus is not None:
+            corpus_size = getattr(self._corpus, "size", 0)
+            if corpus_size >= self._REACT_CORPUS_THRESHOLD:
+                use_react = True
+                # Thread corpus into context so retrieval tools can access it
+                if hasattr(self, "_context") and self._context is not None:
+                    self._context._config["_corpus"] = self._corpus
+                logger.debug(
+                    "research_agent: large corpus (%d passages) → ReAct path",
+                    corpus_size,
+                )
+        elif memory.has_section(MemoryType.DOCUMENTS):
+            n_docs = memory.section_item_count(MemoryType.DOCUMENTS)
+            if n_docs >= self._REACT_CORPUS_THRESHOLD:
+                use_react = True
+                logger.debug(
+                    "research_agent: large memory corpus (%d docs) → ReAct path",
+                    n_docs,
+                )
+
+        if use_react:
+            # Inject research-specific instructions for the ReAct loop
+            saved_instructions = self._instructions
+            self._instructions = (
+                (saved_instructions + "\n\n" if saved_instructions else "")
+                + _RESEARCH_REACT_INSTRUCTION
+            )
+
+            # Route to ChatAgent's ReAct loop with retrieval tools
+            react_intent = IntentResult(
+                intent=IntentType.TOOL_USE,
+                confidence=intent.confidence,
+                reasoning=(
+                    f"Large corpus ({getattr(self._corpus, 'size', '?')} passages). "
+                    "Using ReAct with retrieval tools for iterative search."
+                ),
+            )
+            try:
+                async for event in super()._dispatch_streaming(
+                    react_intent, message, memory, context_items, emitter
+                ):
+                    yield event
+            finally:
+                self._instructions = saved_instructions
+            return
+
+        # Small corpus: fast path (one-shot RAG)
         async for event in self._handle_research_streaming(message, memory, context_items, emitter):
             yield event
 
