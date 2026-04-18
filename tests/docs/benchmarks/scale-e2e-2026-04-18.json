@@ -1,13 +1,13 @@
 {
-  "timestamp": "2026-04-18T10:47:21",
+  "timestamp": "2026-04-18T11:06:16",
   "n_documents": 116,
   "summary": {
     "accuracy": 0.6666666666666666,
-    "correct_answers": 4,
-    "correct_refusals": 4,
+    "correct_answers": 5,
+    "correct_refusals": 3,
     "wrong": 4,
     "errors": 0,
-    "avg_latency_s": 11.293702142497446
+    "avg_latency_s": 18.881696214763604
   },
   "questions": [
     {
@@ -20,8 +20,8 @@
       "answer_correct": true,
       "expected_doc_found": false,
       "citations_count": 0,
-      "answer_length": 246,
-      "latency_s": 17.877029165974818,
+      "answer_length": 427,
+      "latency_s": 17.726530187006574,
       "error_message": ""
     },
     {
@@ -34,8 +34,8 @@
       "answer_correct": true,
       "expected_doc_found": false,
       "citations_count": 0,
-      "answer_length": 231,
-      "latency_s": 2.5670645439531654,
+      "answer_length": 264,
+      "latency_s": 15.717569479020312,
       "error_message": ""
     },
     {
@@ -48,8 +48,8 @@
       "answer_correct": false,
       "expected_doc_found": false,
       "citations_count": 0,
-      "answer_length": 504,
-      "latency_s": 14.7695669910172,
+      "answer_length": 715,
+      "latency_s": 33.29869454802247,
       "error_message": ""
     },
     {
@@ -59,11 +59,11 @@
       "agent_answered": true,
       "agent_refused": false,
       "agent_errored": false,
-      "answer_correct": false,
+      "answer_correct": true,
       "expected_doc_found": false,
       "citations_count": 0,
-      "answer_length": 506,
-      "latency_s": 13.0949472989887,
+      "answer_length": 424,
+      "latency_s": 26.711692979035433,
       "error_message": ""
     },
     {
@@ -76,8 +76,8 @@
       "answer_correct": true,
       "expected_doc_found": false,
       "citations_count": 0,
-      "answer_length": 281,
-      "latency_s": 7.959210698027164,
+      "answer_length": 325,
+      "latency_s": 9.275894953985699,
       "error_message": ""
     },
     {
@@ -90,8 +90,8 @@
       "answer_correct": false,
       "expected_doc_found": false,
       "citations_count": 0,
-      "answer_length": 647,
-      "latency_s": 16.51857212401228,
+      "answer_length": 581,
+      "latency_s": 24.422316444979515,
       "error_message": ""
     },
     {
@@ -104,8 +104,8 @@
       "answer_correct": true,
       "expected_doc_found": false,
       "citations_count": 0,
-      "answer_length": 348,
-      "latency_s": 12.250768282974605,
+      "answer_length": 395,
+      "latency_s": 13.885143575025722,
       "error_message": ""
     },
     {
@@ -118,8 +118,8 @@
       "answer_correct": true,
       "expected_doc_found": true,
       "citations_count": 0,
-      "answer_length": 491,
-      "latency_s": 10.153731914004311,
+      "answer_length": 616,
+      "latency_s": 25.235538958047982,
       "error_message": ""
     },
     {
@@ -132,8 +132,8 @@
       "answer_correct": true,
       "expected_doc_found": true,
       "citations_count": 0,
-      "answer_length": 297,
-      "latency_s": 7.5883209590101615,
+      "answer_length": 534,
+      "latency_s": 18.117787213996053,
       "error_message": ""
     },
     {
@@ -146,8 +146,8 @@
       "answer_correct": true,
       "expected_doc_found": true,
       "citations_count": 0,
-      "answer_length": 477,
-      "latency_s": 17.1438570189639,
+      "answer_length": 643,
+      "latency_s": 14.680228662036825,
       "error_message": ""
     },
     {
@@ -157,11 +157,11 @@
       "agent_answered": true,
       "agent_refused": false,
       "agent_errored": false,
-      "answer_correct": true,
+      "answer_correct": false,
       "expected_doc_found": true,
       "citations_count": 0,
-      "answer_length": 488,
-      "latency_s": 9.05264803400496,
+      "answer_length": 108,
+      "latency_s": 15.343880133004859,
       "error_message": ""
     },
     {
@@ -174,8 +174,8 @@
       "answer_correct": false,
       "expected_doc_found": true,
       "citations_count": 0,
-      "answer_length": 541,
-      "latency_s": 6.5487086790381,
+      "answer_length": 644,
+      "latency_s": 12.165077443001792,
       "error_message": ""
     }
   ]
