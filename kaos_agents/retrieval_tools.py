@@ -878,21 +878,35 @@ class RerankTool(KaosTool):
             query[:100],
         )
 
-        memory, _store, err = _get_memory(inputs, context)
-        if err:
-            logger.debug(
-                "retrieval_tools.RerankTool: memory load error, error=%s",
-                err[:200],
+        # Get BM25 candidates — check corpus from context first
+        corpus = _get_corpus_from_context(context)
+        if corpus is not None:
+            searcher, _meta = _get_corpus_searcher(corpus)
+            raw_hits = searcher.search(query, top_k=100)
+            # Convert to a list with .score, .content, .item_id for compatibility
+            candidates = [
+                type("Hit", (), {
+                    "score": h.score,
+                    "content": h.text if hasattr(h, "text") else "",
+                    "item_id": str(h.doc_id),
+                })()
+                for h in raw_hits
+            ]
+        else:
+            memory, _store, err = _get_memory(inputs, context)
+            if err:
+                logger.debug(
+                    "retrieval_tools.RerankTool: memory load error, error=%s",
+                    err[:200],
+                )
+                return ToolResult.create_error(err)
+
+            from kaos_agents.memory.search import search_memory
+            from kaos_agents.memory.types import MemoryType
+
+            candidates = search_memory(
+                memory, query, sections=[MemoryType.DOCUMENTS], top_k=100, expand_relations=[]
             )
-            return ToolResult.create_error(err)
-
-        # First run BM25 to get candidates (wide net: 100 results)
-        from kaos_agents.memory.search import search_memory
-        from kaos_agents.memory.types import MemoryType
-
-        candidates = search_memory(
-            memory, query, sections=[MemoryType.DOCUMENTS], top_k=100, expand_relations=[]
-        )
 
         logger.debug(
             "retrieval_tools.RerankTool: BM25 candidate retrieval complete, query=%s candidate_count=%d",
