@@ -195,12 +195,30 @@ class ResearchAgent(ChatAgent):
         memory-based routing must keep working for legacy callers.
         """
         if self._corpus is not None and _looks_like_question(message, self._QUESTION_PREFIXES):
+            has_question_mark = "?" in message
+            first_word = (
+                message.lstrip().split(maxsplit=1)[0].lower().rstrip(".,!?:;")
+                if message.strip()
+                else ""
+            )
+            logger.debug(
+                "research_agent._classify: forcing RESEARCH — corpus bound, "
+                "question_mark=%s, first_word=%r",
+                has_question_mark,
+                first_word,
+            )
             return IntentResult(
                 intent=IntentType.RESEARCH,
                 confidence=1.0,
                 reasoning="ResearchAgent has a pre-bound corpus; routing directly to RAG.",
             )
-        return await super()._classify(message, memory, context_items)
+        result = await super()._classify(message, memory, context_items)
+        logger.debug(
+            "research_agent._classify: base classifier returned intent=%s confidence=%.2f",
+            result.intent.value,
+            result.confidence,
+        )
+        return result
 
     def load_document(
         self,
@@ -248,6 +266,10 @@ class ResearchAgent(ChatAgent):
         - ReAct: can iterate on hard queries, try HyDE, refine search
         """
         if intent.intent != IntentType.RESEARCH:
+            logger.debug(
+                "research_agent._dispatch_streaming: non-RESEARCH intent=%s, delegating to super",
+                intent.intent.value,
+            )
             async for event in super()._dispatch_streaming(
                 intent, message, memory, context_items, emitter
             ):
@@ -256,6 +278,7 @@ class ResearchAgent(ChatAgent):
 
         # Determine if we have a large corpus that could benefit from ReAct escalation
         can_escalate = False
+        corpus_size = 0
         if self._corpus is not None:
             corpus_size = getattr(self._corpus, "size", 0)
             if corpus_size >= self._REACT_CORPUS_THRESHOLD:
@@ -264,11 +287,18 @@ class ResearchAgent(ChatAgent):
                 if hasattr(self, "_context") and self._context is not None:
                     self._context._config["_corpus"] = self._corpus
 
+        logger.debug(
+            "research_agent._dispatch_streaming: path=%s, corpus_size=%d, "
+            "can_escalate=%s, threshold=%d",
+            "one-shot-first" if can_escalate else "one-shot-only",
+            corpus_size,
+            can_escalate,
+            self._REACT_CORPUS_THRESHOLD,
+        )
+
         # Step 1: Try one-shot RAG first (fast path)
         got_insufficient = False
-        async for event in self._handle_research_streaming(
-            message, memory, context_items, emitter
-        ):
+        async for event in self._handle_research_streaming(message, memory, context_items, emitter):
             if isinstance(event, EvidenceInsufficient):
                 got_insufficient = True
                 # Don't yield the InsufficientEvidence yet — we might escalate
@@ -282,9 +312,18 @@ class ResearchAgent(ChatAgent):
             yield event
 
         if not got_insufficient or not can_escalate:
+            if not got_insufficient:
+                logger.debug(
+                    "research_agent._dispatch_streaming: one-shot succeeded, no escalation needed"
+                )
             return
 
         # Step 2: Escalate to ReAct with retrieval tools
+        logger.info(
+            "research_agent._dispatch_streaming: escalating to ReAct — "
+            "one-shot returned insufficient evidence, corpus_size=%d",
+            corpus_size,
+        )
         yield emitter.emit(
             ToolCallStart,
             call_id="react-escalation",
@@ -294,9 +333,8 @@ class ResearchAgent(ChatAgent):
 
         saved_instructions = self._instructions
         self._instructions = (
-            (saved_instructions + "\n\n" if saved_instructions else "")
-            + _RESEARCH_REACT_INSTRUCTION
-        )
+            saved_instructions + "\n\n" if saved_instructions else ""
+        ) + _RESEARCH_REACT_INSTRUCTION
 
         react_intent = IntentResult(
             intent=IntentType.TOOL_USE,
@@ -332,9 +370,17 @@ class ResearchAgent(ChatAgent):
             n_docs_label = getattr(self._corpus, "size", None)
             if n_docs_label is None:
                 n_docs_label = len(getattr(self._corpus, "_passages", ()) or [])
+            logger.debug(
+                "research_agent._handle_research: using pre-bound corpus, n_docs=%s",
+                n_docs_label,
+            )
         else:
             corpus = _build_corpus_bm25(memory, message, self._settings)
             n_docs_label = len(corpus) if isinstance(corpus, dict) else 0
+            logger.debug(
+                "research_agent._handle_research: built corpus from memory, n_docs=%d",
+                n_docs_label,
+            )
 
         if not corpus:
             logger.warning("research_agent: no documents loaded — falling back to simple response")
@@ -386,6 +432,13 @@ class ResearchAgent(ChatAgent):
             if isinstance(result.grounded_answer, Answer):
                 answer = result.grounded_answer
                 response_text = str(answer.value)
+                logger.debug(
+                    "research_agent._handle_research: one-shot succeeded — "
+                    "claims=%d, spans=%d, verified=%s",
+                    len(answer.claims),
+                    len(answer.spans),
+                    result.is_verified,
+                )
 
                 # Emit citation events for each verified claim
                 for claim in answer.claims:
@@ -454,23 +507,34 @@ class ResearchAgent(ChatAgent):
 
                 # Write success to REFLECTION for cross-turn learning
                 n_sources = len({s.source_uri for c in answer.claims for s in c.supporting_spans})
-                memory.add(
-                    MemoryType.REFLECTION,
+                reflection_text = (
                     f"RAG answered '{message[:60]}' with {len(answer.claims)} claims "
                     f"from {n_sources} source(s), verified={result.is_verified}. "
-                    f"Used plain BM25 on {n_docs_label} docs.",
+                    f"Used plain BM25 on {n_docs_label} docs."
+                )
+                memory.add(MemoryType.REFLECTION, reflection_text)
+                logger.debug(
+                    "research_agent._handle_research: wrote REFLECTION: %s",
+                    reflection_text[:120],
                 )
 
             elif isinstance(result.grounded_answer, InsufficientEvidence):
                 refusal = result.grounded_answer
+                logger.debug(
+                    "research_agent._handle_research: one-shot insufficient — "
+                    "reason=%r, what_would_resolve=%r",
+                    refusal.reason[:100],
+                    (refusal.what_would_resolve or "")[:100],
+                )
 
                 # Retry: use what_would_resolve to drive a second retrieval attempt
                 retried = False
                 if refusal.what_would_resolve and isinstance(corpus, dict) and self._corpus is None:
                     retry_query = refusal.what_would_resolve
                     logger.debug(
-                        "research_agent: insufficient evidence — retrying with: %s",
+                        "research_agent.retry: retrying with query=%r, current_corpus_size=%d",
                         retry_query[:80],
+                        len(corpus),
                     )
                     yield emitter.emit(
                         ToolCallStart,
@@ -515,6 +579,11 @@ class ResearchAgent(ChatAgent):
                         if isinstance(retry_result.grounded_answer, Answer):
                             retried = True
                             answer = retry_result.grounded_answer
+                            logger.debug(
+                                "research_agent.retry: succeeded — claims=%d, verified=%s",
+                                len(answer.claims),
+                                retry_result.is_verified,
+                            )
                             response_text = str(answer.value)
                             for claim in answer.claims:
                                 for span in claim.supporting_spans:
@@ -540,13 +609,26 @@ class ResearchAgent(ChatAgent):
                             yield emitter.emit(TextDelta, content=response_text)
 
                             # Write success to REFLECTION for cross-turn learning
-                            memory.add(
-                                MemoryType.REFLECTION,
+                            retry_reflection = (
                                 f"RAG retry succeeded on '{message[:60]}' by searching for "
-                                f"'{retry_query[:60]}'. Found {len(new_items)} additional docs.",
+                                f"'{retry_query[:60]}'. Found {len(new_items)} additional docs."
+                            )
+                            memory.add(MemoryType.REFLECTION, retry_reflection)
+                            logger.debug(
+                                "research_agent.retry: wrote REFLECTION: %s",
+                                retry_reflection[:120],
                             )
 
                 if not retried:
+                    logger.debug(
+                        "research_agent._handle_research: final insufficient evidence "
+                        "(retry_attempted=%s)",
+                        bool(
+                            refusal.what_would_resolve
+                            and isinstance(corpus, dict)
+                            and self._corpus is None
+                        ),
+                    )
                     yield emitter.emit(
                         EvidenceInsufficient,
                         reason=refusal.reason,
@@ -571,10 +653,14 @@ class ResearchAgent(ChatAgent):
                     yield emitter.emit(TextDelta, content=response_text)
 
                     # Write failure to REFLECTION for cross-turn learning
-                    memory.add(
-                        MemoryType.REFLECTION,
+                    failure_reflection = (
                         f"RAG insufficient evidence on '{message[:60]}': {refusal.reason[:80]}. "
-                        f"Would resolve: {(refusal.what_would_resolve or 'unknown')[:80]}",
+                        f"Would resolve: {(refusal.what_would_resolve or 'unknown')[:80]}"
+                    )
+                    memory.add(MemoryType.REFLECTION, failure_reflection)
+                    logger.debug(
+                        "research_agent._handle_research: wrote REFLECTION: %s",
+                        failure_reflection[:120],
                     )
 
             else:
@@ -691,6 +777,11 @@ def _build_corpus_bm25(
     )
 
     if n_docs < settings.retrieval_threshold:
+        logger.debug(
+            "research_agent._build_corpus_bm25: small corpus (%d < %d), returning all docs",
+            n_docs,
+            settings.retrieval_threshold,
+        )
         return _build_corpus(memory)
 
     from kaos_agents.memory.search import search_memory
@@ -704,6 +795,12 @@ def _build_corpus_bm25(
     )
 
     if not results:
+        logger.debug(
+            "research_agent._build_corpus_bm25: BM25 returned no results for query=%r, "
+            "falling back to all %d docs",
+            query[:50],
+            n_docs,
+        )
         return _build_corpus(memory)
 
     selected_ids = {r.item_id for r in results}

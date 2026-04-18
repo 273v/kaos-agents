@@ -171,6 +171,15 @@ class ChatAgent(BaseAgent):
         # Append extra tools (delegation / handoff) injected by the Runner
         tools.extend(self._extra_llm_tools)
 
+        logger.debug(
+            "chat_agent._handle_tool_use_streaming: tools_available=%d "
+            "(runtime=%d, extra=%d), model=%s",
+            len(tools),
+            len(tools) - len(self._extra_llm_tools),
+            len(self._extra_llm_tools),
+            self._model_for_role("respond"),
+        )
+
         if not tools:
             logger.warning("chat_agent: no tools available — falling back to simple response")
             response = await self._simple_respond(message, memory)
@@ -214,8 +223,17 @@ class ChatAgent(BaseAgent):
             t_total = (time.monotonic() - t_start) * 1000
 
             # Emit tool call events from the trajectory
+            total_tool_calls = 0
             for iteration in result.trajectory:
                 for obs in iteration.tool_results:
+                    total_tool_calls += 1
+                    result_preview = str(obs.result)[:200] if obs.result else ""
+                    logger.debug(
+                        "chat_agent.tool_call: tool=%s, is_error=%s, result_preview=%r",
+                        obs.tool_name,
+                        obs.is_error,
+                        result_preview[:80],
+                    )
                     yield emitter.emit(
                         ToolCallStart,
                         call_id=obs.tool_call_id or obs.tool_name,
@@ -226,7 +244,7 @@ class ChatAgent(BaseAgent):
                         ToolCallResult,
                         call_id=obs.tool_call_id or obs.tool_name,
                         tool_name=obs.tool_name,
-                        result_summary=str(obs.result)[:200] if obs.result else "",
+                        result_summary=result_preview,
                         is_error=obs.is_error,
                         duration_ms=0.0,  # Per-tool timing not available from trajectory
                     )
@@ -240,8 +258,9 @@ class ChatAgent(BaseAgent):
                 yield emitter.emit(TextDelta, content=response_text)
 
             logger.debug(
-                "chat_agent: ReAct completed — %d iterations, stop=%s, %.0fms",
+                "chat_agent.react_complete: iterations=%d, tool_calls=%d, stop=%s, latency_ms=%.0f",
                 result.iterations_used,
+                total_tool_calls,
                 result.stop_reason,
                 t_total,
             )
