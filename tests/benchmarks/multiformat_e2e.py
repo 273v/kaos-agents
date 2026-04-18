@@ -111,8 +111,9 @@ async def run_benchmark(
 
     corpus_files = sorted(
         f for f in _CORPUS_DIR.iterdir()
-        if f.is_file() and f.suffix.lower() not in (".jsonl", ".md")
-        and f.name != "README.md"
+        if f.is_file()
+        and f.suffix.lower() != ".jsonl"
+        and f.name not in ("README.md", "extraction-golden.jsonl")
     )
 
     session_id = "multiformat-e2e"
