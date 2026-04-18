@@ -84,6 +84,7 @@ class Runner:
     __slots__ = (
         "_agent",
         "_context",
+        "_corpus",
         "_hooks",
         "_permission_policy",
         "_runtime",

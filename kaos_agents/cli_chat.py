@@ -90,7 +90,7 @@ def _parse_file_to_document(file_path: Path) -> Any:
         from kaos_content.parsers.html import parse_html
 
         raw = file_path.read_text(encoding="utf-8", errors="replace")
-        return parse_html(raw, source=source)
+        return parse_html(raw, url=file_path.as_uri())
 
     # Markdown → kaos-content markdown parser
     if ext == ".md":
