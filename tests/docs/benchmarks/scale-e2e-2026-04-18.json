@@ -1,13 +1,13 @@
 {
-  "timestamp": "2026-04-18T08:46:32",
+  "timestamp": "2026-04-18T09:45:06",
   "n_documents": 116,
   "summary": {
-    "accuracy": 0.5,
-    "correct_answers": 2,
+    "accuracy": 0.6666666666666666,
+    "correct_answers": 4,
     "correct_refusals": 4,
-    "wrong": 6,
+    "wrong": 4,
     "errors": 0,
-    "avg_latency_s": 5.435490483922574
+    "avg_latency_s": 4.880962395419677
   },
   "questions": [
     {
@@ -20,8 +20,8 @@
       "answer_correct": false,
       "expected_doc_found": false,
       "citations_count": 0,
-      "answer_length": 466,
-      "latency_s": 5.762558986025397,
+      "answer_length": 480,
+      "latency_s": 6.316687469021417,
       "error_message": ""
     },
     {
@@ -31,11 +31,11 @@
       "agent_answered": true,
       "agent_refused": false,
       "agent_errored": false,
-      "answer_correct": false,
+      "answer_correct": true,
       "expected_doc_found": true,
       "citations_count": 1,
       "answer_length": 144,
-      "latency_s": 3.6672798710060306,
+      "latency_s": 4.217796957993414,
       "error_message": ""
     },
     {
@@ -48,8 +48,8 @@
       "answer_correct": false,
       "expected_doc_found": false,
       "citations_count": 0,
-      "answer_length": 559,
-      "latency_s": 4.989340503001586,
+      "answer_length": 622,
+      "latency_s": 5.54423403297551,
       "error_message": ""
     },
     {
@@ -59,11 +59,11 @@
       "agent_answered": true,
       "agent_refused": false,
       "agent_errored": false,
-      "answer_correct": false,
+      "answer_correct": true,
       "expected_doc_found": true,
-      "citations_count": 4,
-      "answer_length": 408,
-      "latency_s": 5.979826835973654,
+      "citations_count": 3,
+      "answer_length": 328,
+      "latency_s": 5.026865870051552,
       "error_message": ""
     },
     {
@@ -77,7 +77,7 @@
       "expected_doc_found": true,
       "citations_count": 2,
       "answer_length": 146,
-      "latency_s": 4.886562909989152,
+      "latency_s": 4.810647039033938,
       "error_message": ""
     },
     {
@@ -90,8 +90,8 @@
       "answer_correct": false,
       "expected_doc_found": false,
       "citations_count": 0,
-      "answer_length": 526,
-      "latency_s": 5.0417820190195926,
+      "answer_length": 460,
+      "latency_s": 4.5951432309811935,
       "error_message": ""
     },
     {
@@ -105,7 +105,7 @@
       "expected_doc_found": true,
       "citations_count": 1,
       "answer_length": 209,
-      "latency_s": 7.34049898001831,
+      "latency_s": 3.851060280983802,
       "error_message": ""
     },
     {
@@ -118,8 +118,8 @@
       "answer_correct": true,
       "expected_doc_found": true,
       "citations_count": 0,
-      "answer_length": 547,
-      "latency_s": 4.783302024996374,
+      "answer_length": 565,
+      "latency_s": 5.3260141629725695,
       "error_message": ""
     },
     {
@@ -132,8 +132,8 @@
       "answer_correct": true,
       "expected_doc_found": true,
       "citations_count": 0,
-      "answer_length": 533,
-      "latency_s": 6.869356147013605,
+      "answer_length": 495,
+      "latency_s": 4.275031315977685,
       "error_message": ""
     },
     {
@@ -146,8 +146,8 @@
       "answer_correct": true,
       "expected_doc_found": true,
       "citations_count": 0,
-      "answer_length": 477,
-      "latency_s": 4.997878677037079,
+      "answer_length": 560,
+      "latency_s": 5.457741911988705,
       "error_message": ""
     },
     {
@@ -161,7 +161,7 @@
       "expected_doc_found": true,
       "citations_count": 1,
       "answer_length": 105,
-      "latency_s": 4.826916039979551,
+      "latency_s": 3.676049118046649,
       "error_message": ""
     },
     {
@@ -174,8 +174,8 @@
       "answer_correct": true,
       "expected_doc_found": true,
       "citations_count": 0,
-      "answer_length": 602,
-      "latency_s": 6.080582813010551,
+      "answer_length": 624,
+      "latency_s": 5.47427735500969,
       "error_message": ""
     }
   ]
