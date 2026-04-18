@@ -72,7 +72,7 @@ async def _run_repl(args: argparse.Namespace) -> None:
 
     tools_tuple = tuple(t.strip() for t in args.tools.split(",")) if args.tools else ()
     agent = Agent.create(
-        instructions=args.instructions or "You are a helpful legal research assistant.",
+        instructions=args.instructions or "You are a helpful assistant.",
         model=args.model,
         pattern=args.pattern,
         tools=tools_tuple,
@@ -80,6 +80,20 @@ async def _run_repl(args: argparse.Namespace) -> None:
     runner = Runner(agent, runtime=runtime)
     session_id = args.session or f"cli-{uuid.uuid4().hex[:8]}"
     verbose = args.verbose
+
+    # Phase 4.2: JSONL event log
+    log_file = None
+    if args.log:
+        from pathlib import Path
+
+        log_path = Path(args.log)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_file = log_path.open("a")
+
+    # Phase 4.4: Session-level cost tracking
+    session_tokens = 0
+    session_cost = 0.0
+    session_turns = 0
 
     tool_names = sorted(runtime.list_tools().keys()) if hasattr(runtime, "list_tools") else []
     print(_c(_ANSI_BOLD, f"KAOS Agent | {args.model} | pattern={args.pattern}"))
@@ -133,6 +147,14 @@ async def _run_repl(args: argparse.Namespace) -> None:
         try:
             text_parts: list[str] = []
             async for event in runner.run(stripped, session_id):
+                # Phase 4.2: Write every event to JSONL log
+                if log_file is not None:
+                    from kaos_agents.events import serialize_event_json
+
+                    log_file.write(serialize_event_json(event))
+                    log_file.write("\n")
+                    log_file.flush()
+
                 if isinstance(event, TurnStart) and verbose:
                     print(_c(_ANSI_DIM, f"[turn:{event.turn_number}]"))
 
@@ -204,12 +226,25 @@ async def _run_repl(args: argparse.Namespace) -> None:
                 elif isinstance(event, TurnComplete):
                     if text_parts:
                         print()
+                    # Phase 4.4: Accumulate session cost
+                    session_tokens += event.tokens_used
+                    session_cost += event.cost_usd
+                    session_turns += 1
+                    n_tools = len(event.tool_calls)
                     if verbose:
-                        n_tools = len(event.tool_calls)
                         print(
                             _c(
                                 _ANSI_DIM,
-                                f"[done] {n_tools} tool call(s), {event.tokens_used} tokens",
+                                f"[done] {n_tools} tool(s), {event.tokens_used} tokens, "
+                                f"${event.cost_usd:.4f} | session: {session_tokens} tokens, "
+                                f"${session_cost:.4f}, {session_turns} turn(s)",
+                            )
+                        )
+                    elif event.cost_usd > 0:
+                        print(
+                            _c(
+                                _ANSI_DIM,
+                                f"  [{event.tokens_used} tokens, ${event.cost_usd:.4f}]",
                             )
                         )
                     print()
@@ -220,6 +255,10 @@ async def _run_repl(args: argparse.Namespace) -> None:
                 import traceback
 
                 traceback.print_exc()
+
+    if log_file is not None:
+        log_file.close()
+        print(f"Event log written to: {args.log}")
 
 
 def _register_tool_modules(runtime: Any, args: argparse.Namespace) -> None:
@@ -254,11 +293,14 @@ def main(argv: list[str] | None = None) -> None:
     sub = parser.add_subparsers(dest="command")
     chat = sub.add_parser("chat", help="Start an interactive chat session")
     chat.add_argument("--session", help="Session ID (default: auto-generated)")
-    chat.add_argument("--model", default="anthropic:claude-haiku-4-5")
+    from kaos_agents.settings import DEFAULT_MODEL
+
+    chat.add_argument("--model", default=DEFAULT_MODEL)
     chat.add_argument("--pattern", default="chat", choices=["chat", "plan", "research"])
     chat.add_argument("--tools", default="", help="Comma-separated tool name globs")
     chat.add_argument("--instructions", help="System prompt override")
     chat.add_argument("--verbose", "-v", action="store_true", help="Show all events")
+    chat.add_argument("--log", help="Write all events to JSONL file")
     chat.add_argument("--with-source", action="store_true")
     chat.add_argument("--with-pdf", action="store_true")
     chat.add_argument("--with-web", action="store_true")

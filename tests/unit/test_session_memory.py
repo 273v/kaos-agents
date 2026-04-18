@@ -188,15 +188,28 @@ class TestSerialization:
 
 
 class TestEvictionUnderPressure:
-    def test_messages_evict_when_over_budget(self):
+    def test_messages_over_budget_waits_for_summarize(self):
+        """Post-WS-0.7: the default MESSAGES section has
+        ``SummarizationPolicy.ON_OVERFLOW`` — so ``add()`` deliberately
+        allows transient overflow. Compression happens in
+        ``summarize_turn()``, not in ``add()``. Pre-WS-0.7 this test
+        expected eviction-at-add-time because ``add()`` always evicted;
+        that silently made ``ON_OVERFLOW`` summarization unreachable."""
         mem = SessionMemory("test")
-        # Default MESSAGES budget is 3000 tokens
-        # Add enough to exceed
         for i in range(200):
             mem.add(MemoryType.MESSAGES, f"Message {i}: " + "x" * 100)
 
-        # Should have evicted to stay under budget
-        assert mem.section_token_count(MemoryType.MESSAGES) <= 3000
+        # Section is now transiently over budget (ON_OVERFLOW policy).
+        # Eviction does NOT happen at add() time for this policy.
+        assert mem.section_token_count(MemoryType.MESSAGES) > 3000, (
+            "ON_OVERFLOW section is expected to exceed budget until "
+            "summarize_turn() fires. If this assertion flips back, the "
+            "WS-0.7 fix has been reverted and summarize_turn will be "
+            "unreachable again."
+        )
+        # But all 200 items are retained — summarization will compress
+        # them into a single summary item on the next summarize_turn.
+        assert mem.section_item_count(MemoryType.MESSAGES) == 200
 
     def test_ten_turn_conversation(self):
         """Simulate 10 turns of conversation."""

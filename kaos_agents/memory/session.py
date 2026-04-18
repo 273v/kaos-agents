@@ -106,11 +106,11 @@ class SessionMemory:
 
             memory = SessionMemory("session-1")
             memory.load_explicit(MemoryType.ROLE, [
-                "You are a legal research assistant."
+                "You are a research assistant."
             ])
             memory.load_explicit(MemoryType.PLAYBOOKS, [
-                "Privilege review: 1) Parse emails 2) Resolve roles 3) Classify",
-                "Contract extraction: 1) Parse document 2) Extract clauses 3) Verify",
+                "Data analysis: 1) Parse dataset 2) Compute metrics 3) Visualize",
+                "Document extraction: 1) Parse document 2) Extract fields 3) Verify",
             ])
         """
         sec = self._get_section(section)
@@ -174,6 +174,10 @@ class SessionMemory:
         """Item count for a single section."""
         return self._get_section(section).item_count
 
+    def get_by_ids(self, section: MemoryType, item_ids: set[str]) -> list[MemoryItem]:
+        """Retrieve specific items by ID from a section, preserving insertion order."""
+        return self._get_section(section).get_by_ids(item_ids)
+
     def has_section(self, section: MemoryType) -> bool:
         """Check if a section type is configured."""
         return section in self._sections
@@ -233,8 +237,17 @@ class SessionMemory:
             if excess <= 0:
                 break
             items = raw[mt]
+            # WS-0.7: ``sec.get()`` returns items oldest-first, so
+            # ``items.pop()`` (previously used) removed the NEWEST first —
+            # discarding the most recent conversation context, which is
+            # almost always wrong. Pop from the front (index 0) to evict
+            # oldest-first, which matches the default FIFO expectation
+            # for trimming excess context. Sections with more specific
+            # eviction policies (LRU / LFU / PRIORITY) enforce them at
+            # Section.add() time; this trim loop is a post-hoc assembly
+            # trim that should preserve recency.
             while items and excess > 0:
-                removed = items.pop()  # Remove from end (most recent)
+                removed = items.pop(0)  # Remove from front (oldest)
                 freed = removed.token_count
                 section_tokens[mt] -= freed
                 excess -= freed

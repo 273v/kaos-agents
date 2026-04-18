@@ -1,0 +1,407 @@
+"""Retrieval tools for the RetrievalAgent sub-agent.
+
+Each tool is a KaosTool that operates on the session's DOCUMENTS memory
+section. The RetrievalAgent uses these via ReAct to dynamically choose
+retrieval strategies based on the query and corpus.
+
+Tools:
+- kaos-retrieval-bm25: Plain BM25 keyword search
+- kaos-retrieval-synonyms: Look up synonyms via OpenGloss Lexicon
+- kaos-retrieval-hyde: Generate pseudo-document, then BM25 search
+- kaos-retrieval-evaluate: Judge whether results cover the query
+
+All tools return JSON with a consistent schema so the RetrievalAgent
+can reason about results across multiple calls.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from kaos_core.base.tool import KaosTool
+from kaos_core.logging import get_logger
+from kaos_core.types.metadata import ToolAnnotations, ToolCapability, ToolCategory, ToolMetadata
+from kaos_core.types.parameters import ParameterSchema
+from kaos_core.types.results import ToolResult
+
+logger = get_logger(__name__)
+
+_MODULE = "kaos-agents"
+_VERSION = "0.1.0"
+_READ_ANNOTATIONS = ToolAnnotations(
+    readOnlyHint=True,
+    destructiveHint=False,
+    idempotentHint=True,
+    openWorldHint=False,
+)
+
+
+def _get_memory(inputs: dict[str, Any], context: Any):
+    """Load session memory from context."""
+    from kaos_core.vfs.core import VirtualFileSystem
+
+    from kaos_agents.memory.store import SessionStore
+
+    session_id = inputs.get("session_id", "")
+    if not session_id:
+        return None, None, "Missing 'session_id'"
+
+    runtime = context.runtime if context else None
+    vfs = runtime.vfs if runtime and hasattr(runtime, "vfs") else VirtualFileSystem()
+    store = SessionStore(vfs)
+
+    import asyncio
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            memory = pool.submit(asyncio.run, store.load_or_create(session_id)).result(timeout=10)
+    else:
+        memory = asyncio.run(store.load_or_create(session_id))
+
+    return memory, store, None
+
+
+def _format_results(results: list, max_results: int = 10) -> list[dict]:
+    """Format search results for tool output."""
+    formatted = []
+    for r in results[:max_results]:
+        formatted.append(
+            {
+                "item_id": r.item_id,
+                "score": round(r.score, 3),
+                "preview": r.content[:300],
+            }
+        )
+    return formatted
+
+
+def _summarize_topics(results: list, max_results: int = 5) -> str:
+    """Summarize the dominant topics across top results for self-assessment."""
+    if not results:
+        return "No results found."
+    previews = [r.content[:150] for r in results[:max_results]]
+    return " | ".join(previews)
+
+
+class BM25SearchTool(KaosTool):
+    """Plain BM25 keyword search over session documents."""
+
+    @property
+    def metadata(self) -> ToolMetadata:
+        return ToolMetadata(
+            name="kaos-retrieval-bm25",
+            display_name="BM25 Document Search",
+            description=(
+                "Search documents using BM25 keyword matching. Returns the top-K "
+                "most relevant documents for the query. Use this as the first search "
+                "step, then evaluate results and decide if you need synonym expansion "
+                "or other strategies."
+            ),
+            category=ToolCategory.DATA,
+            capability=ToolCapability.QUERY,
+            module_name=_MODULE,
+            version=_VERSION,
+            annotations=_READ_ANNOTATIONS,
+            input_schema=[
+                ParameterSchema(name="session_id", type="string", description="Session ID"),
+                ParameterSchema(name="query", type="string", description="Search query"),
+                ParameterSchema(
+                    name="top_k",
+                    type="integer",
+                    description="Max results (default 20)",
+                    required=False,
+                    constraints={"min": 1, "max": 100},
+                ),
+            ],
+        )
+
+    async def execute(self, inputs: dict[str, Any], context: Any = None) -> ToolResult:
+        query = inputs.get("query", "")
+        if not query:
+            return ToolResult.create_error("Missing 'query'. Provide a search query string.")
+
+        memory, _store, err = _get_memory(inputs, context)
+        if err:
+            return ToolResult.create_error(err)
+
+        from kaos_agents.memory.search import search_memory
+        from kaos_agents.memory.types import MemoryType
+
+        top_k = int(inputs.get("top_k", 20))
+        results = search_memory(
+            memory, query, sections=[MemoryType.DOCUMENTS], top_k=top_k, expand_relations=[]
+        )
+
+        formatted = _format_results(results)
+        topic_summary = _summarize_topics(results)
+        return ToolResult.create_success(
+            output={
+                "query": query,
+                "result_count": len(results),
+                "results": formatted,
+                "topic_summary": topic_summary,
+            },
+            summary=f"BM25 found {len(results)} documents for '{query[:50]}'. Topics: {topic_summary[:120]}",
+        )
+
+
+class SynonymSearchTool(KaosTool):
+    """Look up synonyms via OpenGloss Lexicon and search with expanded terms."""
+
+    @property
+    def metadata(self) -> ToolMetadata:
+        return ToolMetadata(
+            name="kaos-retrieval-synonyms",
+            display_name="Synonym-Expanded Search",
+            description=(
+                "Look up synonyms, hypernyms, and inflections for query terms using "
+                "the OpenGloss dictionary (205K entries), then search with expanded "
+                "terms. Use this when BM25 misses documents that use different "
+                "terminology for the same concept."
+            ),
+            category=ToolCategory.DATA,
+            capability=ToolCapability.QUERY,
+            module_name=_MODULE,
+            version=_VERSION,
+            annotations=_READ_ANNOTATIONS,
+            input_schema=[
+                ParameterSchema(name="session_id", type="string", description="Session ID"),
+                ParameterSchema(
+                    name="word", type="string", description="Word to look up synonyms for"
+                ),
+                ParameterSchema(
+                    name="also_search",
+                    type="boolean",
+                    description="Also run BM25 search with the synonyms (default true)",
+                    required=False,
+                ),
+            ],
+        )
+
+    async def execute(self, inputs: dict[str, Any], context: Any = None) -> ToolResult:
+        word = inputs.get("word", "").strip()
+        if not word:
+            return ToolResult.create_error("Missing 'word'. Provide a term to look up.")
+
+        from kaos_agents.memory.search import _load_lexicon
+
+        lexicon = _load_lexicon()
+        if lexicon is None:
+            return ToolResult.create_error(
+                "OpenGloss Lexicon not available. "
+                "Fix: run scripts/build_opengloss_lexicon.py to build it."
+            )
+
+        synonyms = lexicon.synonyms(word) if lexicon.contains(word) else []
+        hypernyms = lexicon.hypernyms(word) if lexicon.contains(word) else []
+        inflections = lexicon.inflections(word) if lexicon.contains(word) else []
+
+        # Also try without hyphens
+        dehyphenated = word.replace("-", "")
+        if dehyphenated != word and lexicon.contains(dehyphenated):
+            synonyms = synonyms or lexicon.synonyms(dehyphenated)
+            hypernyms = hypernyms or lexicon.hypernyms(dehyphenated)
+
+        output: dict[str, Any] = {
+            "word": word,
+            "synonyms": synonyms[:10],
+            "hypernyms": hypernyms[:5],
+            "inflections": inflections[:5],
+            "found": lexicon.contains(word) or lexicon.contains(dehyphenated),
+        }
+
+        also_search = inputs.get("also_search", True)
+        if also_search and synonyms:
+            memory, _store, err = _get_memory(inputs, context)
+            if not err and memory:
+                from kaos_agents.memory.search import search_memory
+                from kaos_agents.memory.types import MemoryType
+
+                expanded_query = " ".join(synonyms[:5])
+                results = search_memory(
+                    memory,
+                    expanded_query,
+                    sections=[MemoryType.DOCUMENTS],
+                    top_k=20,
+                    expand_relations=[],
+                )
+                output["search_results"] = _format_results(results)
+                output["search_query"] = expanded_query
+
+        found_in_dict = lexicon.contains(word) or lexicon.contains(dehyphenated)
+        summary_parts = [f"'{word}' — {'FOUND' if found_in_dict else 'NOT FOUND'} in dictionary"]
+        if synonyms:
+            summary_parts.append(f"synonyms: {', '.join(synonyms[:5])}")
+        if hypernyms:
+            summary_parts.append(f"hypernyms: {', '.join(hypernyms[:3])}")
+        if not found_in_dict:
+            summary_parts.append(
+                "Try breaking compound terms into parts, or use kaos-retrieval-hyde instead"
+            )
+        return ToolResult.create_success(output=output, summary=" — ".join(summary_parts))
+
+
+class HyDESearchTool(KaosTool):
+    """Generate a hypothetical document passage, then BM25 search against it."""
+
+    @property
+    def metadata(self) -> ToolMetadata:
+        return ToolMetadata(
+            name="kaos-retrieval-hyde",
+            display_name="HyDE Pseudo-Document Search",
+            description=(
+                "Generate a hypothetical document passage that would answer the query "
+                "using domain-specific vocabulary, then search for real documents that "
+                "match. Use this when the query uses different terminology than the "
+                "documents (e.g., consumer language vs. technical language)."
+            ),
+            category=ToolCategory.DATA,
+            capability=ToolCapability.QUERY,
+            module_name=_MODULE,
+            version=_VERSION,
+            annotations=_READ_ANNOTATIONS,
+            input_schema=[
+                ParameterSchema(name="session_id", type="string", description="Session ID"),
+                ParameterSchema(name="query", type="string", description="Original search query"),
+            ],
+        )
+
+    async def execute(self, inputs: dict[str, Any], context: Any = None) -> ToolResult:
+        query = inputs.get("query", "")
+        if not query:
+            return ToolResult.create_error("Missing 'query'.")
+
+        from kaos_agents.context.retrieval import _generate_pseudo_document
+
+        pseudo_doc = _generate_pseudo_document(query)
+        if not pseudo_doc:
+            return ToolResult.create_error(
+                "Failed to generate pseudo-document. The LLM call may have timed out. "
+                "Alternative: use kaos-retrieval-bm25 with manually expanded query terms."
+            )
+
+        memory, _store, err = _get_memory(inputs, context)
+        if err:
+            return ToolResult.create_error(err)
+
+        from kaos_agents.memory.search import search_memory
+        from kaos_agents.memory.types import MemoryType
+
+        results = search_memory(
+            memory,
+            pseudo_doc,
+            sections=[MemoryType.DOCUMENTS],
+            top_k=20,
+            expand_relations=[],
+        )
+
+        formatted = _format_results(results)
+        return ToolResult.create_success(
+            output={
+                "query": query,
+                "pseudo_document": pseudo_doc,
+                "pseudo_document_length": len(pseudo_doc),
+                "result_count": len(results),
+                "results": formatted,
+            },
+            summary=(
+                f"HyDE generated {len(pseudo_doc)}-char pseudo-document, "
+                f"found {len(results)} docs. "
+                f"Pseudo-doc preview: {pseudo_doc[:150]}"
+            ),
+        )
+
+
+class EvaluateCoverageTool(KaosTool):
+    """Judge whether accumulated results cover the query. Suggest gaps."""
+
+    @property
+    def metadata(self) -> ToolMetadata:
+        return ToolMetadata(
+            name="kaos-retrieval-evaluate",
+            display_name="Evaluate Retrieval Coverage",
+            description=(
+                "Evaluate whether the documents found so far adequately cover all "
+                "aspects of the search query. Returns a coverage assessment and "
+                "suggests specific follow-up queries for any gaps. Use this after "
+                "each search round to decide whether to continue searching."
+            ),
+            category=ToolCategory.DATA,
+            capability=ToolCapability.QUERY,
+            module_name=_MODULE,
+            version=_VERSION,
+            annotations=_READ_ANNOTATIONS,
+            input_schema=[
+                ParameterSchema(name="query", type="string", description="Original search query"),
+                ParameterSchema(
+                    name="document_summaries",
+                    type="string",
+                    description="Summaries of documents found so far (paste from previous search results)",
+                ),
+            ],
+        )
+
+    async def execute(self, inputs: dict[str, Any], context: Any = None) -> ToolResult:
+        query = inputs.get("query", "")
+        summaries = inputs.get("document_summaries", "")
+        if not query:
+            return ToolResult.create_error("Missing 'query'.")
+        if not summaries:
+            return ToolResult.create_error("Missing 'document_summaries'.")
+
+        from kaos_agents.context.retrieval import _reflect_on_coverage
+        from kaos_agents.memory.search import MemorySearchResult
+        from kaos_agents.memory.types import MemoryType
+
+        fake_results = [
+            MemorySearchResult(
+                content=summaries, section=MemoryType.DOCUMENTS, score=1.0, item_id="eval"
+            )
+        ]
+        gap_queries = _reflect_on_coverage(query, fake_results)
+
+        if gap_queries:
+            return ToolResult.create_success(
+                output={
+                    "sufficient": False,
+                    "gap_count": len(gap_queries),
+                    "gap_queries": gap_queries,
+                    "recommendation": (
+                        "Try BM25 search with the suggested queries. "
+                        "If vocabulary mismatch is the issue, try HyDE."
+                    ),
+                },
+                summary=(
+                    f"INSUFFICIENT: {len(gap_queries)} gap(s) found. "
+                    f"Suggested queries: {', '.join(gap_queries[:3])}"
+                ),
+            )
+        return ToolResult.create_success(
+            output={
+                "sufficient": True,
+                "gap_count": 0,
+                "gap_queries": [],
+                "recommendation": "Coverage is sufficient. Proceed with the documents found.",
+            },
+            summary="SUFFICIENT: Coverage appears adequate. You can stop searching.",
+        )
+
+
+def register_retrieval_tools(runtime: Any) -> int:
+    """Register all retrieval tools with a KaosRuntime."""
+    tools: list[KaosTool] = [
+        BM25SearchTool(),
+        SynonymSearchTool(),
+        HyDESearchTool(),
+        EvaluateCoverageTool(),
+    ]
+    for tool in tools:
+        runtime.tools.register_tool(tool)
+    return len(tools)

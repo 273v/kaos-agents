@@ -40,13 +40,13 @@ class Agent:
     Pass to ``Runner`` to execute::
 
         agent = Agent(
-            instructions="You are a legal research assistant.",
+            instructions="You are a research assistant.",
             model="anthropic:claude-sonnet-4-6",
             tools=("kaos-source-*", "kaos-web-*"),
             pattern=AgentPattern.PLAN,
         )
         runner = Runner(agent, runtime=runtime)
-        async for event in runner.run("Find EPA enforcement actions", "session-1"):
+        async for event in runner.run("Find recent policy changes", "session-1"):
             ...
 
     All fields are immutable. Pattern-specific parameters (max_plan_steps,

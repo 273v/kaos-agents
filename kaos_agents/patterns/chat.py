@@ -4,17 +4,29 @@ Extends BaseAgent with:
 - Tool-using responses via ReAct (inner loop)
 - Runtime tool bridge (KaosTool → ReAct Tool)
 - Tool call recording for memory
+- Streaming tool call events (ToolCallStart/ToolCallResult) from ReAct trajectory
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import time
+from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING, Any
 
 from kaos_core.logging import get_logger
 
+from kaos_agents._constants import FALLBACK_RECENT_MESSAGES
 from kaos_agents.actions.tool_bridge import bridge_runtime_tools
 from kaos_agents.agent import BaseAgent
-from kaos_agents.models import ToolCallRecord
+from kaos_agents.events import (
+    AgentEvent,
+    EventEmitter,
+    TextDelta,
+    ToolCallResult,
+    ToolCallStart,
+)
+from kaos_agents.memory.types import MemoryType
+from kaos_agents.models import IntentResult, IntentType, ToolCallRecord
 
 _REACT_INSTRUCTION = (
     "Complete the user's request using the available tools. Be thorough and cite your sources."
@@ -26,7 +38,8 @@ if TYPE_CHECKING:
     from kaos_core.vfs.core import VirtualFileSystem
 
     from kaos_agents.memory.session import SessionMemory
-    from kaos_agents.memory.types import MemoryItem, MemoryType
+    from kaos_agents.memory.types import MemoryItem
+    from kaos_agents.providers import ProviderConfig
     from kaos_agents.settings import KaosAgentSettings
 
 logger = get_logger(__name__)
@@ -45,7 +58,7 @@ class ChatAgent(BaseAgent):
             context=context,
             model="anthropic:claude-sonnet-4-6",
         )
-        response = await agent.turn("Extract dates from contract.pdf", session_id="abc")
+        response = await agent.turn("Extract dates from report.pdf", session_id="abc")
     """
 
     def __init__(
@@ -59,25 +72,77 @@ class ChatAgent(BaseAgent):
         max_tools: int | None = None,
         max_react_iterations: int | None = None,
         settings: KaosAgentSettings | None = None,
+        provider: ProviderConfig | None = None,
+        extra_llm_tools: tuple[Any, ...] = (),
+        permission_policy: Any = None,
+        instructions: str | None = None,
     ) -> None:
-        super().__init__(vfs, model=model, settings=settings)
+        super().__init__(
+            vfs,
+            model=model,
+            settings=settings,
+            provider=provider,
+            instructions=instructions,
+        )
         self._runtime = runtime
         self._context = context
         self._tool_filter = tool_filter
         self._max_tools = max_tools or self._settings.max_tools
         self._max_react_iterations = max_react_iterations or self._settings.max_react_iterations
+        # Extra kaos-llm-core Tool instances to append to the bridged runtime tools.
+        # Used by Runner to inject delegation (agent_as_tool) and handoff tools.
+        self._extra_llm_tools: tuple[Any, ...] = extra_llm_tools
+        # WS-0.1 pre-execution permission gate. Threaded into bridge_runtime_tools
+        # so DENY / ASK decisions stop the underlying tool from running rather
+        # than just annotating it after the fact.
+        self._permission_policy = permission_policy
 
-    async def _handle_tool_use(
+    async def _dispatch_streaming(
+        self,
+        intent: IntentResult,
+        message: str,
+        memory: SessionMemory,
+        context_items: dict[MemoryType, list[Any]],
+        emitter: EventEmitter,
+    ) -> AsyncIterator[AgentEvent]:
+        """Override dispatch to stream tool call events from ReAct.
+
+        For TOOL_USE intent, yields ToolCallStart/ToolCallResult for each
+        tool in the ReAct trajectory. For other intents, falls back to
+        the BaseAgent default (which wraps _dispatch).
+        """
+        if intent.intent != IntentType.TOOL_USE:
+            # Delegate non-tool intents to BaseAgent default
+            async for event in super()._dispatch_streaming(
+                intent, message, memory, context_items, emitter
+            ):
+                yield event
+            return
+
+        # TOOL_USE: stream tool call events from ReAct
+        async for event in self._handle_tool_use_streaming(message, memory, context_items, emitter):
+            yield event
+
+    async def _handle_tool_use_streaming(
         self,
         message: str,
         memory: SessionMemory,
         context_items: dict[MemoryType, list[MemoryItem]],
-    ) -> tuple[str, list[ToolCallRecord]]:
-        """Handle tool-using request via ReAct loop."""
-        if self._runtime is None:
-            logger.warning("chat_agent: no runtime — falling back to simple response")
+        emitter: EventEmitter,
+    ) -> AsyncIterator[AgentEvent]:
+        """Handle tool-using request via ReAct, yielding events per tool call."""
+        # If neither a runtime nor extra delegation tools are available,
+        # fall back to a simple LLM response. Extra tools alone (delegation/
+        # handoff) are enough to drive a tool-using ReAct loop even when
+        # no KaosRuntime is attached.
+        if self._runtime is None and not self._extra_llm_tools:
+            logger.warning(
+                "chat_agent: no runtime and no extra tools — falling back to simple response"
+            )
             response = await self._simple_respond(message, memory)
-            return response, []
+            if response:
+                yield emitter.emit(TextDelta, content=response)
+            return
 
         from kaos_agents._llm_imports import require_llm_core
 
@@ -92,36 +157,95 @@ class ChatAgent(BaseAgent):
             context: str = InputField(description="Conversation context")
             answer: str = OutputField(description="Your final answer to the user")
 
-        # Bridge runtime tools
-        tools = bridge_runtime_tools(
-            self._runtime,
-            self._context,
-            filter_names=self._tool_filter,
-            max_tools=self._max_tools,
-        )
+        tools: list[Any] = []
+        if self._runtime is not None:
+            tools.extend(
+                bridge_runtime_tools(
+                    self._runtime,
+                    self._context,
+                    filter_names=self._tool_filter,
+                    max_tools=self._max_tools,
+                    permission_policy=self._permission_policy,
+                )
+            )
+        # Append extra tools (delegation / handoff) injected by the Runner
+        tools.extend(self._extra_llm_tools)
 
         if not tools:
             logger.warning("chat_agent: no tools available — falling back to simple response")
             response = await self._simple_respond(message, memory)
-            return response, []
+            if response:
+                yield emitter.emit(TextDelta, content=response)
+            return
 
-        # Build conversation context
-        from kaos_agents.memory.types import MemoryType
+        if context_items:
+            parts = []
+            for mt, items in context_items.items():
+                if items:
+                    parts.append(
+                        f"=== {mt.value.upper()} ===\n" + "\n".join(i.content for i in items)
+                    )
+            context_text = "\n\n".join(parts) if parts else ""
+        else:
+            recent = memory.get_recent(MemoryType.MESSAGES, FALLBACK_RECENT_MESSAGES)
+            context_text = "\n".join(item.content for item in recent) if recent else ""
 
-        recent = memory.get_recent(MemoryType.MESSAGES, 10)
-        context_text = "\n".join(item.content for item in recent) if recent else ""
-
-        # Run ReAct
+        # WS-0.4: compose the caller's instructions (if any) with the
+        # pattern-specific default so user-supplied identity survives
+        # into the ReAct prompt. Caller instructions first — they are
+        # the "core identity"; the default appends task-specific
+        # guidance ("be thorough, cite sources") without clobbering.
+        react_instructions = (
+            f"{self._instructions}\n\n{_REACT_INSTRUCTION}"
+            if self._instructions
+            else _REACT_INSTRUCTION
+        )
         react = ReAct(
             ToolTask,
             tools=tools,
-            model=self._model,
+            model=self._model_for_role("respond"),
             max_iterations=self._max_react_iterations,
-            instructions=_REACT_INSTRUCTION,
+            instructions=react_instructions,
         )
 
         try:
+            t_start = time.monotonic()
             result = await react(question=message, context=context_text)
+            t_total = (time.monotonic() - t_start) * 1000
+
+            # Emit tool call events from the trajectory
+            for iteration in result.trajectory:
+                for obs in iteration.tool_results:
+                    yield emitter.emit(
+                        ToolCallStart,
+                        call_id=obs.tool_call_id or obs.tool_name,
+                        tool_name=obs.tool_name,
+                        arguments=tuple(sorted(obs.arguments.items())) if obs.arguments else (),
+                    )
+                    yield emitter.emit(
+                        ToolCallResult,
+                        call_id=obs.tool_call_id or obs.tool_name,
+                        tool_name=obs.tool_name,
+                        result_summary=str(obs.result)[:200] if obs.result else "",
+                        is_error=obs.is_error,
+                        duration_ms=0.0,  # Per-tool timing not available from trajectory
+                    )
+
+            # Emit the final response
+            response_text = str(result.answer) if result.outputs and result.answer else ""
+            if not response_text and result.trajectory:
+                response_text = result.trajectory[-1].text
+
+            if response_text:
+                yield emitter.emit(TextDelta, content=response_text)
+
+            logger.debug(
+                "chat_agent: ReAct completed — %d iterations, stop=%s, %.0fms",
+                result.iterations_used,
+                result.stop_reason,
+                t_total,
+            )
+
         except Exception as exc:
             logger.warning("chat_agent: ReAct failed: %s", exc)
             response = await self._simple_respond(
@@ -130,32 +254,35 @@ class ChatAgent(BaseAgent):
                 extra_instruction=f"A tool-calling attempt failed: {exc}. "
                 "Respond helpfully without tools.",
             )
-            return response, []
+            if response:
+                yield emitter.emit(TextDelta, content=response)
 
-        # Extract tool calls from trajectory
+    async def _handle_tool_use(
+        self,
+        message: str,
+        memory: SessionMemory,
+        context_items: dict[MemoryType, list[MemoryItem]],
+    ) -> tuple[str, list[ToolCallRecord]]:
+        """Handle tool-using request (non-streaming, backward compat).
+
+        Delegates to _handle_tool_use_streaming and collects events,
+        avoiding logic duplication.
+        """
+        emitter = EventEmitter(session_id="internal", run_id="internal")
+
+        response_text = ""
         tool_calls: list[ToolCallRecord] = []
-        for iteration in result.trajectory:
-            for obs in iteration.tool_results:
-                result_text = str(obs.result)[:200] if obs.result else ""
+        async for event in self._handle_tool_use_streaming(message, memory, context_items, emitter):
+            if isinstance(event, TextDelta):
+                response_text += event.content
+            elif isinstance(event, ToolCallResult):
                 tool_calls.append(
                     ToolCallRecord.from_dict_args(
-                        tool_name=obs.tool_name,
-                        arguments=obs.arguments or {},
-                        result_summary=result_text,
-                        is_error=obs.is_error,
+                        tool_name=event.tool_name,
+                        arguments={},
+                        result_summary=event.result_summary,
+                        is_error=event.is_error,
                     )
                 )
-
-        response_text = str(result.answer) if result.outputs and result.answer else ""
-        if not response_text and result.trajectory:
-            # Fallback: use the last iteration's text
-            response_text = result.trajectory[-1].text
-
-        logger.debug(
-            "chat_agent: ReAct completed — %d iterations, %d tool calls, stop=%s",
-            result.iterations_used,
-            len(tool_calls),
-            result.stop_reason,
-        )
 
         return response_text, tool_calls
