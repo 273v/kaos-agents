@@ -1024,6 +1024,11 @@ class CorpusInfoTool(KaosTool):
         )
 
     async def execute(self, inputs: dict[str, Any], context: Any = None) -> ToolResult:
+        # Check for ContentDocumentCorpus in context first
+        corpus = _get_corpus_from_context(context)
+        if corpus is not None:
+            return self._corpus_info(corpus)
+
         logger.debug("retrieval_tools.CorpusInfoTool: loading memory")
         memory, _store, err = _get_memory(inputs, context)
         if err:
@@ -1085,6 +1090,52 @@ class CorpusInfoTool(KaosTool):
             summary=(
                 f"{n_docs} documents, {total_chars:,} total chars "
                 f"(avg {avg_chars:,}/doc). "
+                f"Top terms: {', '.join(top_terms[:5])}"
+            ),
+        )
+
+
+    def _corpus_info(self, corpus: Any) -> ToolResult:
+        """Return info about a ContentDocumentCorpus from context."""
+        from collections import Counter
+
+        n_passages = corpus.size
+        total_chars = 0
+        doc_uris: set[str] = set()
+        word_counts: Counter[str] = Counter()
+
+        for passage in corpus.iter_passages():
+            total_chars += len(passage.text)
+            doc_uri = getattr(passage, "doc_uri", "")
+            if doc_uri:
+                doc_uris.add(doc_uri)
+            words = passage.text.lower().split()
+            word_counts.update(w for w in words if len(w) >= 3)
+
+        n_docs = len(doc_uris)
+        avg_chars = total_chars // n_passages if n_passages else 0
+        top_terms = [term for term, _ in word_counts.most_common(_CORPUS_INFO_TOP_TERMS)]
+        uri_list = sorted(doc_uris)[:_CORPUS_INFO_MAX_URIS]
+
+        logger.info(
+            "retrieval_tools.CorpusInfoTool: corpus stats (from context), "
+            "document_count=%d passage_count=%d total_chars=%d avg_chars=%d",
+            n_docs, n_passages, total_chars, avg_chars,
+        )
+
+        return ToolResult.create_success(
+            output={
+                "document_count": n_docs,
+                "passage_count": n_passages,
+                "total_chars": total_chars,
+                "avg_chars_per_passage": avg_chars,
+                "top_terms": top_terms,
+                "document_uris": uri_list,
+                "has_more_uris": n_docs > _CORPUS_INFO_MAX_URIS,
+            },
+            summary=(
+                f"{n_docs} documents, {n_passages} passages, {total_chars:,} total chars "
+                f"(avg {avg_chars:,}/passage). "
                 f"Top terms: {', '.join(top_terms[:5])}"
             ),
         )
