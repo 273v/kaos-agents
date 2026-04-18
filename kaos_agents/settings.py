@@ -97,6 +97,11 @@ class KaosAgentSettings(ModuleSettings):
         ge=0,
         description="Maximum replan attempts before STOP_FAILURE (circuit breaker).",
     )
+    plan_max_tokens: int = Field(
+        default=100_000,
+        ge=1,
+        description="Maximum tokens across all steps in a plan execution.",
+    )
     plan_max_cost_usd: float = Field(
         default=1.0,
         gt=0,
@@ -106,6 +111,72 @@ class KaosAgentSettings(ModuleSettings):
         default=120.0,
         gt=0,
         description="Maximum wall-clock time for a single plan execution.",
+    )
+
+    # Context retrieval
+    retrieval_threshold: int = Field(
+        default=20,
+        ge=1,
+        description="When a memory section has >= this many items, use BM25 "
+        "retrieval instead of FIFO for context assembly.",
+    )
+
+    # Retrieval: adaptive multi-round
+    retrieval_top_k: int = Field(
+        default=50,
+        ge=1,
+        description="Maximum items retrieved per BM25/hybrid round.",
+    )
+    retrieval_max_rounds: int = Field(
+        default=3,
+        ge=1,
+        description="Maximum retrieval rounds (raw + lexicon + PRF + LLM).",
+    )
+    retrieval_confidence: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Retrieval judge confidence threshold for stopping.",
+    )
+    retrieval_prf_top_terms: int = Field(
+        default=15,
+        ge=1,
+        description="Number of top TF terms to extract for PRF/Rocchio expansion.",
+    )
+    retrieval_prf_docs: int = Field(
+        default=10,
+        ge=1,
+        description="Number of top documents to use for PRF term extraction.",
+    )
+    retrieval_max_synonym_queries: int = Field(
+        default=3,
+        ge=1,
+        description="Maximum alternative queries from Lexicon synonym expansion.",
+    )
+    retrieval_llm_timeout_seconds: float = Field(
+        default=15.0,
+        gt=0,
+        description="Timeout for LLM calls in retrieval (HyDE, query expansion).",
+    )
+
+    # Doc2Query (document expansion at index time)
+    doc2query_enabled: bool = Field(
+        default=False,
+        description="When true, documents loaded into memory are expanded "
+        "with LLM-predicted queries for better BM25 recall. "
+        "One-time cost per document (~$0.001 on Haiku).",
+    )
+
+    # RAG (Research pattern)
+    rag_top_k: int = Field(
+        default=10,
+        ge=1,
+        description="Number of passages retrieved by RAG for document Q&A.",
+    )
+    rag_max_retries: int = Field(
+        default=2,
+        ge=0,
+        description="Maximum RAG verification retries before accepting best result.",
     )
 
     # Planning: adaptive strategy

@@ -3,47 +3,195 @@
   "description": "Extract deal points from a Stock Purchase Agreement. Mirrors Harvey's published SPA workflow (32 fields, 98.13% recall floor on matched corpus).",
   "harvey_recall_floor": 0.9813,
   "schema": {
-    "id": "spa-deal-points-v1",
-    "version": 1,
+    "id": "spa-deal-points-v2",
+    "version": 2,
     "columns": [
-      {"id": "seller", "column_type": "string", "description": "Selling stockholder(s) or entity."},
-      {"id": "buyer", "column_type": "string", "description": "Purchasing entity."},
-      {"id": "target_company", "column_type": "string", "description": "Company whose stock is being sold."},
-      {"id": "effective_date", "column_type": "date", "description": "Execution date (ISO 8601)."},
-      {"id": "closing_date", "column_type": "date", "description": "Expected / actual closing date (ISO 8601)."},
-      {"id": "shares_sold", "column_type": "string", "description": "Number and class of shares sold."},
-      {"id": "purchase_price", "column_type": "money", "description": "Total purchase price."},
-      {"id": "price_per_share", "column_type": "money", "description": "Per-share consideration if stated.", "required": false},
-      {"id": "purchase_price_adjustment", "column_type": "string", "description": "Working capital / net debt / cash purchase price adjustment mechanism.", "required": false},
-      {"id": "escrow_amount", "column_type": "money", "description": "Indemnification escrow amount.", "required": false},
-      {"id": "escrow_duration", "column_type": "string", "description": "Escrow release schedule.", "required": false},
-      {"id": "earnout", "column_type": "boolean", "description": "Whether the agreement includes an earnout."},
-      {"id": "earnout_terms", "column_type": "verbatim_quote", "description": "Verbatim earnout clause if present.", "required": false},
-      {"id": "representations_seller", "column_type": "list", "constraints": {"inner": "string"}, "description": "Key seller representations (capitalization, ownership, authority, no-conflicts, disclosure schedule references)."},
-      {"id": "representations_company", "column_type": "list", "constraints": {"inner": "string"}, "description": "Target company representations (financials, taxes, IP, litigation, compliance)."},
-      {"id": "fundamental_reps_survival", "column_type": "string", "description": "Survival period for fundamental representations.", "required": false},
-      {"id": "general_reps_survival", "column_type": "string", "description": "Survival period for general representations.", "required": false},
-      {"id": "indemnification_cap", "column_type": "money", "description": "Indemnification cap.", "required": false},
-      {"id": "indemnification_basket", "column_type": "money", "description": "Indemnification deductible / basket.", "required": false},
-      {"id": "basket_type", "column_type": "enum", "constraints": {"values": ["tipping", "true_deductible", "none"]}, "description": "Basket type if stated.", "required": false},
-      {"id": "indemnification_exclusive_remedy", "column_type": "boolean", "description": "Whether indemnification is the exclusive remedy."},
-      {"id": "tax_treatment", "column_type": "string", "description": "Stated tax treatment (e.g., 338(h)(10) election, stock sale, taxable event)."},
-      {"id": "conditions_to_closing", "column_type": "list", "constraints": {"inner": "string"}, "description": "Material conditions to closing."},
-      {"id": "regulatory_approvals", "column_type": "list", "constraints": {"inner": "string"}, "description": "Required regulatory approvals."},
-      {"id": "termination_triggers", "column_type": "list", "constraints": {"inner": "string"}, "description": "Events that trigger termination."},
-      {"id": "termination_fee", "column_type": "money", "description": "Termination fee if any.", "required": false},
-      {"id": "non_compete", "column_type": "boolean", "description": "Whether seller is subject to non-compete."},
-      {"id": "non_compete_duration", "column_type": "string", "description": "Non-compete duration.", "required": false},
-      {"id": "non_solicit", "column_type": "boolean", "description": "Whether seller is subject to employee/customer non-solicit."},
-      {"id": "dispute_resolution", "column_type": "string", "description": "Dispute mechanism (litigation / arbitration)."},
-      {"id": "governing_law", "column_type": "string", "description": "Governing law jurisdiction."},
-      {"id": "forum_selection", "column_type": "string", "description": "Forum selection clause."}
+      {
+        "id": "seller",
+        "column_type": "string",
+        "description": "Act as an SPA reviewer looking for the selling party. Look in the preamble ('by and between...') and the signature blocks. Return the full legal name of the seller — the stockholder(s) or entity transferring shares. For multi-seller SPAs, return all sellers separated by semicolons. Do NOT include the buyer or the target company."
+      },
+      {
+        "id": "buyer",
+        "column_type": "string",
+        "description": "Act as an SPA reviewer looking for the purchasing party. Look in the preamble and signature blocks. Return the full legal name. If an acquisition vehicle (SPV) is the buyer, return both the SPV name and its parent/sponsor. Do NOT include the seller or the target."
+      },
+      {
+        "id": "target_company",
+        "column_type": "string",
+        "description": "Act as an SPA reviewer looking for the company whose stock is being sold. Look in the preamble and recitals ('WHEREAS, Seller owns [X] shares of [Company]...'). Return the full legal name and jurisdiction of organization if stated. Do NOT confuse with the buyer's entity or a parent company."
+      },
+      {
+        "id": "effective_date",
+        "column_type": "date",
+        "description": "Act as an SPA reviewer looking for the execution date. Look in the preamble ('This Stock Purchase Agreement is dated as of...') or the signature page. Return ISO 8601 (YYYY-MM-DD). Do NOT return the closing date or the date of a pre-existing LOI."
+      },
+      {
+        "id": "closing_date",
+        "column_type": "date",
+        "description": "Act as an SPA reviewer looking for the closing date. Look in the 'Closing' section for a specific date or a formula ('3 business days after satisfaction of all conditions'). Return ISO 8601 if a specific date is given, otherwise return the formula text. Do NOT return the effective/execution date."
+      },
+      {
+        "id": "shares_sold",
+        "column_type": "string",
+        "description": "Act as an SPA reviewer extracting the number and class of shares being sold. Look in the recitals and the 'Sale and Purchase' section. Return the number of shares, the class (common, preferred, Series A, etc.), and whether it represents 100% of the outstanding shares or a partial interest. Example: '1,000,000 shares of Common Stock, representing 100% of the issued and outstanding shares.'"
+      },
+      {
+        "id": "purchase_price",
+        "column_type": "money",
+        "description": "Act as an SPA reviewer extracting the total purchase price. Look in the 'Purchase Price' section. Return the aggregate dollar amount. If subject to adjustment (working capital, net debt), return the base amount and note 'subject to adjustment.' Do NOT include earnout payments in the base purchase price."
+      },
+      {
+        "id": "price_per_share",
+        "column_type": "money",
+        "description": "Act as an SPA reviewer extracting the per-share consideration. Look in the 'Purchase Price' section. If the price is stated only as an aggregate, compute per-share if the share count is known. If unstated or inapplicable (e.g., single-share transactions), omit.",
+        "required": false
+      },
+      {
+        "id": "purchase_price_adjustment",
+        "column_type": "string",
+        "description": "Act as an SPA reviewer extracting the purchase price adjustment mechanism. Look in the 'Purchase Price Adjustment' or 'Closing Adjustment' section. Describe: (1) the adjustment metric (working capital, net debt, cash, indebtedness, transaction expenses), (2) the target/peg amount, (3) the dispute resolution mechanism for disagreements (typically independent accountant). Do NOT include earnout adjustments here.",
+        "required": false
+      },
+      {
+        "id": "escrow_amount",
+        "column_type": "money",
+        "description": "Act as an SPA reviewer extracting the escrow holdback. Look in the 'Escrow' section or the payment mechanics of the closing. Return the dollar amount or percentage withheld from closing proceeds. State whether it secures indemnification, working capital adjustment, or both. If no escrow, omit.",
+        "required": false
+      },
+      {
+        "id": "escrow_duration",
+        "column_type": "string",
+        "description": "Act as an SPA reviewer extracting the escrow release schedule. Look in the 'Escrow' section or the escrow agreement exhibits. Return the release date(s) and conditions (e.g., '50% released 12 months post-closing, 50% released 18 months post-closing, net of pending claims'). If no escrow, omit.",
+        "required": false
+      },
+      {
+        "id": "earnout",
+        "column_type": "boolean",
+        "description": "Act as an SPA reviewer determining whether the agreement includes contingent consideration (earnout). Look for 'Earnout', 'Contingent Consideration', 'Additional Purchase Price', or 'Milestone Payments' sections. Return true if any portion of the consideration depends on post-closing performance metrics. Return false if there is no contingent payment."
+      },
+      {
+        "id": "earnout_terms",
+        "column_type": "verbatim_quote",
+        "description": "Act as an SPA reviewer extracting the verbatim earnout clause. Return the full operative text describing: the performance metrics (revenue, EBITDA, customer retention), the measurement period, the payment formula, and any cap on earnout payments. Do NOT paraphrase. If earnout is false, omit.",
+        "required": false
+      },
+      {
+        "id": "representations_seller",
+        "column_type": "list",
+        "constraints": {"inner": "string"},
+        "description": "Act as an SPA reviewer listing the key seller-level representations. Look in the 'Representations and Warranties of Seller' section (distinct from company-level reps). List each representation topic (e.g., 'authority and enforceability', 'ownership of shares', 'no conflicts', 'no brokers', 'tax status', 'litigation'). Return only the section headings or topics, not the full text. Do NOT include company-level representations here."
+      },
+      {
+        "id": "representations_company",
+        "column_type": "list",
+        "constraints": {"inner": "string"},
+        "description": "Act as an SPA reviewer listing the key company-level representations. Look in the 'Representations and Warranties of the Company' or 'Representations Regarding the Business' section. List each topic (e.g., 'organization and authority', 'financial statements', 'absence of undisclosed liabilities', 'taxes', 'intellectual property', 'material contracts', 'employees and benefits', 'environmental', 'compliance with laws', 'litigation'). Return topics only. Do NOT include seller-level reps here."
+      },
+      {
+        "id": "fundamental_reps_survival",
+        "column_type": "string",
+        "description": "Act as an SPA reviewer extracting the survival period for fundamental representations. Look in the 'Survival' section (often near indemnification) for extended survival periods applying to 'Fundamental Representations' — typically organization, authority, capitalization, ownership, taxes, and brokers. Return the duration (e.g., 'statute of limitations', '6 years', 'indefinite'). If not separately stated, omit.",
+        "required": false
+      },
+      {
+        "id": "general_reps_survival",
+        "column_type": "string",
+        "description": "Act as an SPA reviewer extracting the survival period for general (non-fundamental) representations. Look in the 'Survival' section. Return the duration (e.g., '18 months from closing', '2 years'). If all representations have the same survival period, state that and omit fundamental_reps_survival.",
+        "required": false
+      },
+      {
+        "id": "indemnification_cap",
+        "column_type": "money",
+        "description": "Act as an SPA reviewer extracting the indemnification cap. Look in the 'Indemnification' section for 'aggregate liability', 'maximum amount', or 'cap'. Return the dollar amount or percentage of purchase price. If there are separate caps for general reps vs. fundamental reps vs. special indemnities, return each. If no cap, omit.",
+        "required": false
+      },
+      {
+        "id": "indemnification_basket",
+        "column_type": "money",
+        "description": "Act as an SPA reviewer extracting the indemnification basket. Look in the 'Indemnification' section for 'basket', 'deductible', 'threshold', or 'mini-basket'. Return the dollar amount and whether it applies per-claim or in aggregate. Do NOT conflate the basket type (tipping vs. deductible) — that goes in basket_type.",
+        "required": false
+      },
+      {
+        "id": "basket_type",
+        "column_type": "enum",
+        "constraints": {"values": ["tipping", "true_deductible", "none"]},
+        "description": "Act as an SPA reviewer classifying the indemnification basket type. 'tipping' means once losses exceed the basket, the indemnifying party is liable from dollar one (first-dollar recovery). 'true_deductible' means the indemnifying party is only liable for losses exceeding the basket. Look for 'from the first dollar' or 'only to the extent exceeding' language. Return 'none' if there is no basket.",
+        "required": false
+      },
+      {
+        "id": "indemnification_exclusive_remedy",
+        "column_type": "boolean",
+        "description": "Act as an SPA reviewer determining whether indemnification is the exclusive post-closing remedy. Look for 'Exclusive Remedy' language in the 'Indemnification' section — typically 'the indemnification provisions of this Article shall be the sole and exclusive remedy of the parties with respect to any claims arising under this Agreement.' Return true if exclusive remedy language exists. Return false if other remedies are preserved."
+      },
+      {
+        "id": "tax_treatment",
+        "column_type": "string",
+        "description": "Act as an SPA reviewer extracting the tax treatment. Look in the 'Tax Matters' section for elections (Section 338(h)(10), Section 336(e)), characterization (stock sale treated as asset sale), or explicit statements about tax consequences. Return the stated treatment. If the agreement is silent on tax characterization, state 'not specified — default stock sale treatment.'"
+      },
+      {
+        "id": "conditions_to_closing",
+        "column_type": "list",
+        "constraints": {"inner": "string"},
+        "description": "Act as an SPA reviewer listing the material conditions to closing. Look in the 'Conditions to Closing' article. List each condition: accuracy of representations (what standard — 'in all material respects', 'in all respects'), compliance with covenants, no MAE, regulatory approvals, third-party consents, key employee retention, absence of litigation, landlord estoppels, etc. Do NOT include procedural conditions like delivery of certificates."
+      },
+      {
+        "id": "regulatory_approvals",
+        "column_type": "list",
+        "constraints": {"inner": "string"},
+        "description": "Act as an SPA reviewer listing required regulatory approvals. Look in the 'Conditions to Closing' and 'Efforts' sections. List each: HSR Act, state insurance commissioner, banking regulator, FCC, environmental permits, liquor licenses, etc. If no regulatory approvals are required, return an empty list. Do NOT include shareholder approval here."
+      },
+      {
+        "id": "termination_triggers",
+        "column_type": "list",
+        "constraints": {"inner": "string"},
+        "description": "Act as an SPA reviewer listing all events that trigger termination. Look in the 'Termination' section. List each trigger: mutual consent, breach of representations, breach of covenants, failure to close by outside date (state the date), failure of conditions, material adverse effect, regulatory prohibition. Return each as a separate list item."
+      },
+      {
+        "id": "termination_fee",
+        "column_type": "money",
+        "description": "Act as an SPA reviewer extracting any termination fee or break-up fee. Look in the 'Termination' section. Return the dollar amount and the trigger events. If no termination fee exists (common in private SPAs), omit.",
+        "required": false
+      },
+      {
+        "id": "non_compete",
+        "column_type": "boolean",
+        "description": "Act as an SPA reviewer determining whether the seller is subject to a non-compete. Look for 'Non-Competition', 'Restrictive Covenants', or a separate non-compete agreement referenced in the closing deliverables. Return true if any non-compete obligation exists."
+      },
+      {
+        "id": "non_compete_duration",
+        "column_type": "string",
+        "description": "Act as an SPA reviewer extracting the non-compete duration and scope. Return the time period, geographic scope, and restricted activities. If there are different restrictions for different sellers (e.g., founder vs. financial investor), describe each. If non_compete is false, omit.",
+        "required": false
+      },
+      {
+        "id": "non_solicit",
+        "column_type": "boolean",
+        "description": "Act as an SPA reviewer determining whether the seller is subject to employee and/or customer non-solicitation. Look in the 'Restrictive Covenants' section or a separate agreement. Return true if any non-solicitation restriction exists — whether for employees, customers, or both."
+      },
+      {
+        "id": "dispute_resolution",
+        "column_type": "string",
+        "description": "Act as an SPA reviewer extracting the dispute resolution mechanism. Look in the 'Miscellaneous' or 'General Provisions' section. State whether disputes are resolved by litigation, binding arbitration (and rules — AAA, JAMS, ICC), or mediation-then-arbitration. If working capital disputes use a separate mechanism (independent accountant), note that separately."
+      },
+      {
+        "id": "governing_law",
+        "column_type": "string",
+        "description": "Act as an SPA reviewer extracting the governing law. Look in the 'Miscellaneous' or 'General Provisions' section for 'governed by and construed in accordance with the laws of...' Return only the jurisdiction name (e.g., 'Delaware', 'New York'). Do NOT include the dispute resolution forum here."
+      },
+      {
+        "id": "forum_selection",
+        "column_type": "string",
+        "description": "Act as an SPA reviewer extracting the forum selection clause. Look in the 'Miscellaneous' section for 'exclusive jurisdiction', 'consent to jurisdiction', or 'venue' clauses. Return the specific court(s) (e.g., 'state and federal courts located in New York County, New York'). Do NOT confuse with the governing law jurisdiction."
+      }
     ]
   },
   "notes": [
     "SPA representations are frequently organized into seller-level vs company-level blocks; treat both separately.",
     "Look for 'Exclusive Remedy' language to set indemnification_exclusive_remedy correctly.",
-    "Basket type: 'tipping' means recovery from dollar one once basket is exceeded; 'true_deductible' means only above basket."
+    "Basket type: 'tipping' means recovery from dollar one once basket is exceeded; 'true_deductible' means only amounts above the basket.",
+    "Private SPAs typically have robust indemnification mechanics (cap, basket, escrow), unlike public company mergers.",
+    "Use provenance='cited' for grounded extraction with source spans."
   ],
   "golden_sets": []
 }

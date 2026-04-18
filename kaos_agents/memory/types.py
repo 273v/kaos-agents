@@ -215,8 +215,8 @@ DEFAULT_SECTIONS: tuple[SectionConfig, ...] = (
     ),
     SectionConfig(
         memory_type=MemoryType.DOCUMENTS,
-        budget_tokens=2_000,
-        eviction_policy=EvictionPolicy.LFU,
+        budget_tokens=0,
+        eviction_policy=EvictionPolicy.NONE,
         persistence_mode=PersistenceMode.SNAPSHOT,
         searchable=True,
     ),

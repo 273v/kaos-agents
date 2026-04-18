@@ -3,42 +3,166 @@
   "description": "Extract terms from a Limited Partnership Agreement (fund LPA). Mirrors Harvey's published LPA workflow (27 fields, 99.14% recall floor on matched corpus).",
   "harvey_recall_floor": 0.9914,
   "schema": {
-    "id": "lpa-v1",
-    "version": 1,
+    "id": "lpa-v2",
+    "version": 2,
     "columns": [
-      {"id": "fund_name", "column_type": "string", "description": "Full fund name."},
-      {"id": "general_partner", "column_type": "string", "description": "Named general partner entity."},
-      {"id": "investment_manager", "column_type": "string", "description": "Investment manager / management company, if separately named.", "required": false},
-      {"id": "fund_structure", "column_type": "string", "description": "Fund structure (Delaware LP, Cayman LP, master-feeder, parallel fund, etc.)."},
-      {"id": "formation_date", "column_type": "date", "description": "Fund formation / commencement date (ISO 8601).", "required": false},
-      {"id": "fund_term", "column_type": "string", "description": "Fund term length (e.g., '10 years plus 2 one-year extensions')."},
-      {"id": "fund_termination_date", "column_type": "date", "description": "Scheduled fund termination / dissolution date (ISO 8601).", "required": false},
-      {"id": "target_fund_size", "column_type": "money", "description": "Target fund size.", "required": false},
-      {"id": "hard_cap", "column_type": "money", "description": "Hard cap on commitments.", "required": false},
-      {"id": "minimum_commitment", "column_type": "money", "description": "Minimum LP commitment (typical or stated).", "required": false},
-      {"id": "investment_period", "column_type": "string", "description": "Investment / commitment period (e.g., '5 years from final closing')."},
-      {"id": "investment_strategy", "column_type": "verbatim_quote", "description": "Verbatim investment strategy / purpose clause."},
-      {"id": "investment_limits", "column_type": "list", "constraints": {"inner": "string"}, "description": "Investment concentration / diversification limits."},
-      {"id": "management_fee_rate", "column_type": "string", "description": "Management fee rate and basis (e.g., '2% of committed capital', '1.5% of invested capital post investment period')."},
-      {"id": "management_fee_step_down", "column_type": "string", "description": "Management fee step-down mechanics after investment period ends.", "required": false},
-      {"id": "carried_interest_rate", "column_type": "string", "description": "Carried interest percentage (typically 20%) and any tiers."},
-      {"id": "preferred_return_rate", "column_type": "string", "description": "Preferred return / hurdle rate (typically 8%).", "required": false},
-      {"id": "catch_up", "column_type": "string", "description": "GP catch-up provision (100% or partial).", "required": false},
-      {"id": "waterfall_type", "column_type": "enum", "constraints": {"values": ["deal_by_deal", "whole_fund", "european", "american"]}, "description": "Distribution waterfall type.", "required": false},
-      {"id": "clawback", "column_type": "boolean", "description": "Whether the agreement includes a GP clawback provision."},
-      {"id": "gp_commitment", "column_type": "money", "description": "GP's own capital commitment to the fund.", "required": false},
-      {"id": "key_person_clause", "column_type": "boolean", "description": "Whether the agreement contains a key-person provision."},
-      {"id": "key_persons", "column_type": "list", "constraints": {"inner": "string"}, "description": "Named key persons if key_person_clause is true."},
-      {"id": "no_fault_divorce", "column_type": "boolean", "description": "Whether LPs can remove the GP without cause (supermajority)."},
-      {"id": "advisory_committee", "column_type": "boolean", "description": "Whether the fund has an LP advisory committee."},
-      {"id": "transfer_restrictions", "column_type": "string", "description": "Restrictions on LP interest transfers."},
-      {"id": "governing_law", "column_type": "string", "description": "Governing law jurisdiction."}
+      {
+        "id": "fund_name",
+        "column_type": "string",
+        "description": "Act as a fund formation lawyer looking for the fund's full legal name. Look in the preamble and the defined term 'Partnership' or 'Fund'. Return the exact registered name (e.g., 'Blackstone Capital Partners IX, L.P.'). Do NOT include the management company or GP entity name."
+      },
+      {
+        "id": "general_partner",
+        "column_type": "string",
+        "description": "Act as a fund formation lawyer looking for the general partner entity. Look in the preamble, the 'General Partner' definition, and the signature blocks. Return the full legal name. If there is a managing general partner and a special general partner, return both. Do NOT confuse with the investment manager or management company."
+      },
+      {
+        "id": "investment_manager",
+        "column_type": "string",
+        "description": "Act as a fund formation lawyer looking for the investment manager or management company. Look for 'Investment Manager', 'Management Company', or 'Adviser' definitions. This is the entity that manages the fund's investments under a separate management agreement, distinct from the GP (though often an affiliate). If the GP itself is the manager, omit.",
+        "required": false
+      },
+      {
+        "id": "fund_structure",
+        "column_type": "string",
+        "description": "Act as a fund formation lawyer classifying the fund structure. Look in the preamble and recitals for jurisdiction of formation and entity type. Return the structure (e.g., 'Delaware limited partnership', 'Cayman Islands exempted limited partnership'). If the fund is part of a master-feeder, parallel fund, or alternative investment vehicle arrangement, describe the structure."
+      },
+      {
+        "id": "formation_date",
+        "column_type": "date",
+        "description": "Act as a fund formation lawyer looking for the fund formation or commencement date. Look in the preamble ('formed on...') or the 'Term' section ('The Partnership commenced on...'). Return ISO 8601 (YYYY-MM-DD). Do NOT return the date of the first closing or the amendment date. If not stated, omit.",
+        "required": false
+      },
+      {
+        "id": "fund_term",
+        "column_type": "string",
+        "description": "Act as a fund formation lawyer extracting the fund term. Look in the 'Term and Dissolution' section. Return the total duration including extension options (e.g., '10 years from the final closing, plus up to two consecutive 1-year extensions at the GP's discretion, plus additional 1-year extensions with Advisory Committee consent'). Do NOT return just the base term without extensions."
+      },
+      {
+        "id": "fund_termination_date",
+        "column_type": "date",
+        "description": "Act as a fund formation lawyer looking for the scheduled dissolution/termination date. Look in the 'Term' section. If a specific calendar date is given, return ISO 8601. If only a duration from final closing is stated, return that text (e.g., 'December 31, 2035'). If the termination date depends on the final closing date which is unknown, omit.",
+        "required": false
+      },
+      {
+        "id": "target_fund_size",
+        "column_type": "money",
+        "description": "Act as a fund formation lawyer extracting the target fund size. Look in the 'Capital Commitments' section or the private placement memorandum references. Return the target aggregate commitments. If stated as a range, return both ends. If not stated in the LPA, omit.",
+        "required": false
+      },
+      {
+        "id": "hard_cap",
+        "column_type": "money",
+        "description": "Act as a fund formation lawyer extracting the hard cap on aggregate commitments. Look in the 'Capital Commitments' section for 'aggregate commitments shall not exceed...' or 'hard cap'. Return the dollar amount. The hard cap is the maximum the fund can raise, regardless of GP discretion. If not stated, omit.",
+        "required": false
+      },
+      {
+        "id": "minimum_commitment",
+        "column_type": "money",
+        "description": "Act as a fund formation lawyer extracting the minimum LP commitment. Look in the 'Capital Commitments' or 'Admission of Partners' section for 'minimum commitment' or 'minimum capital contribution'. Return the dollar amount. Note whether the GP has discretion to waive the minimum. If not stated, omit.",
+        "required": false
+      },
+      {
+        "id": "investment_period",
+        "column_type": "string",
+        "description": "Act as a fund formation lawyer extracting the investment period (commitment period). Look in the 'Investment Period' or 'Commitment Period' definition. Return the duration and start/end triggers (e.g., '5 years from the date of the final closing' or 'terminating on the earlier of the 5th anniversary of the initial closing and the date on which 85% of commitments have been invested'). Include early termination triggers (key person event, removal of GP)."
+      },
+      {
+        "id": "investment_strategy",
+        "column_type": "verbatim_quote",
+        "description": "Act as a fund formation lawyer extracting the verbatim investment strategy/purpose clause. Look in the 'Purpose' or 'Investment Program' section for the operative clause describing what the fund invests in. Return the full text. This is the legal scope limitation on the GP's investment authority. Do NOT paraphrase. Do NOT truncate."
+      },
+      {
+        "id": "investment_limits",
+        "column_type": "list",
+        "constraints": {"inner": "string"},
+        "description": "Act as a fund formation lawyer listing investment concentration and diversification limits. Look in the 'Investment Restrictions' or 'Investment Limitations' section. List each restriction as a separate item (e.g., 'no more than 25% of aggregate commitments in a single portfolio company', 'no more than 15% in non-US investments', 'no investments in public securities except in connection with portfolio companies'). Include any GP override or Advisory Committee waiver rights."
+      },
+      {
+        "id": "management_fee_rate",
+        "column_type": "string",
+        "description": "Act as a fund formation lawyer extracting the management fee rate. Look in the 'Management Fee' section. State the rate and the basis during the investment period (e.g., '2.0% per annum of aggregate capital commitments'). If there is a different rate for the first year or for GP/affiliate commitments (often exempt), note that."
+      },
+      {
+        "id": "management_fee_step_down",
+        "column_type": "string",
+        "description": "Act as a fund formation lawyer extracting the management fee step-down after the investment period. Look in the 'Management Fee' section for the post-investment-period formula. Typically the basis shifts from committed capital to invested capital or net invested capital, and the rate may decrease. State the new rate and basis (e.g., '1.5% per annum of the cost basis of unrealized investments, less the cost of investments that have been written off').",
+        "required": false
+      },
+      {
+        "id": "carried_interest_rate",
+        "column_type": "string",
+        "description": "Act as a fund formation lawyer extracting the carried interest (promote) rate. Look in the 'Distributions' or 'Carried Interest' section. Return the percentage (typically 20%). If there are tiered carry rates based on return thresholds (e.g., 20% up to 2x, 25% above 2x), describe all tiers. State whether carry is calculated on a gross or net basis."
+      },
+      {
+        "id": "preferred_return_rate",
+        "column_type": "string",
+        "description": "Act as a fund formation lawyer extracting the preferred return (hurdle rate). Look in the 'Distributions' section for the LP priority return before the GP earns carried interest. Return the rate (typically 8% IRR compounded annually). State whether it is computed on committed or contributed capital and whether it is compounded. If no preferred return, omit.",
+        "required": false
+      },
+      {
+        "id": "catch_up",
+        "column_type": "string",
+        "description": "Act as a fund formation lawyer extracting the GP catch-up provision. Look in the distribution waterfall after the preferred return tier. State the allocation percentage (typically 100% to GP until the GP has received its full carry, or 80/20 split). A 100% catch-up means the GP receives all distributions after the preferred return until it has caught up to its carry percentage. If no catch-up, omit.",
+        "required": false
+      },
+      {
+        "id": "waterfall_type",
+        "column_type": "enum",
+        "constraints": {"values": ["deal_by_deal", "whole_fund", "european", "american"]},
+        "description": "Act as a fund formation lawyer classifying the distribution waterfall type. 'whole_fund' (also called 'European'): carried interest is calculated on the entire fund's aggregate returns — LPs receive their full capital back before any carry. 'deal_by_deal' (also called 'American'): carry is calculated on each investment separately — GP can earn carry on early winners before later losses are known. Look in the 'Distributions' section for the waterfall mechanics.",
+        "required": false
+      },
+      {
+        "id": "clawback",
+        "column_type": "boolean",
+        "description": "Act as a fund formation lawyer determining whether there is a GP clawback provision. Look in the 'Clawback' or 'Distributions' section. A clawback requires the GP to return previously distributed carried interest if the fund's aggregate returns fall below the preferred return threshold. Return true if a clawback exists (it should in nearly all institutional funds)."
+      },
+      {
+        "id": "gp_commitment",
+        "column_type": "money",
+        "description": "Act as a fund formation lawyer extracting the GP's own capital commitment. Look in the 'Capital Commitments' section for the GP's or its affiliates' commitment. Return the dollar amount or percentage of total commitments (typically 1-5%). If stated as 'the GP and its affiliates shall commit not less than $X', return that amount. If not stated, omit.",
+        "required": false
+      },
+      {
+        "id": "key_person_clause",
+        "column_type": "boolean",
+        "description": "Act as a fund formation lawyer determining whether there is a key person provision. Look for 'Key Person', 'Key Man', or 'Key Individual' in the 'Investment Period' or 'Suspension' sections. A key person clause suspends or terminates the investment period if named individuals cease to devote substantially all of their business time to the fund. Return true if such a provision exists."
+      },
+      {
+        "id": "key_persons",
+        "column_type": "list",
+        "constraints": {"inner": "string"},
+        "description": "Act as a fund formation lawyer listing the named key persons. Look in the 'Key Person' definition or exhibit. Return the full name of each individual designated as a key person. These are typically the fund's senior investment professionals whose departure triggers the key person event. If key_person_clause is false, return an empty list."
+      },
+      {
+        "id": "no_fault_divorce",
+        "column_type": "boolean",
+        "description": "Act as a fund formation lawyer determining whether LPs can remove the GP without cause. Look for 'Removal of General Partner', 'No-Fault Removal', or 'Removal Without Cause' provisions. Typically requires a supermajority vote (66.7% or 75% in interest). Return true if LPs have the right to remove the GP without establishing fault or cause."
+      },
+      {
+        "id": "advisory_committee",
+        "column_type": "boolean",
+        "description": "Act as a fund formation lawyer determining whether the fund has an LP Advisory Committee (LPAC). Look for 'Advisory Committee', 'Advisory Board', or 'LP Committee' sections. The LPAC typically reviews conflicts of interest, approves valuations, and consents to GP fee offsets. Return true if an advisory committee exists."
+      },
+      {
+        "id": "transfer_restrictions",
+        "column_type": "string",
+        "description": "Act as a fund formation lawyer extracting LP interest transfer restrictions. Look in the 'Transfer' or 'Assignment' section. Describe: (1) whether LP interests are transferable, (2) what consents are required (GP consent, Advisory Committee consent), (3) any right of first refusal, (4) minimum transfer amounts, (5) prohibited transferees (competitors, sanctioned entities). If LP interests are completely non-transferable, state that."
+      },
+      {
+        "id": "governing_law",
+        "column_type": "string",
+        "description": "Act as a fund formation lawyer extracting the governing law. Look in the 'Miscellaneous' or 'General Provisions' section. Return only the jurisdiction (e.g., 'Delaware', 'Cayman Islands'). For Delaware LPs, the Delaware Revised Uniform Limited Partnership Act (DRULPA) governs by default."
+      }
     ]
   },
   "notes": [
     "Waterfall type materially affects timing of carried interest — deal-by-deal (American) pays carry sooner than whole-fund (European).",
     "Key-person clauses typically suspend the investment period until the GP proposes replacement key persons acceptable to the advisory committee.",
-    "Management fee step-downs are typically after the investment period (reducing base from committed to invested capital)."
+    "Management fee step-downs are typically after the investment period (reducing base from committed to invested capital).",
+    "Clawback provisions are standard in institutional funds but the mechanics vary — some are joint and several among GP principals, others are GP-entity-only.",
+    "Use provenance='cited' for grounded extraction with source spans."
   ],
   "golden_sets": []
 }

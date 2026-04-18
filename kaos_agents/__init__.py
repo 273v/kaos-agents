@@ -5,6 +5,7 @@ from __future__ import annotations
 from kaos_agents._version import __version__
 from kaos_agents.agent import BaseAgent
 from kaos_agents.config import Agent, AgentPattern
+from kaos_agents.context import TriageResult, assemble_context, triage_corpus
 from kaos_agents.delegation import (
     DelegatedAgent,
     DelegationDepthExceeded,
@@ -65,6 +66,7 @@ from kaos_agents.memory import (
     SummarizationPolicy,
 )
 from kaos_agents.models import AgentResponse, IntentResult, IntentType, ToolCallRecord
+from kaos_agents.otel import OTelHook
 from kaos_agents.permissions import PermissionDecision, PermissionPolicy, PermissionRule
 from kaos_agents.planning import (
     ComposeResult,
@@ -126,6 +128,7 @@ __all__ = [
     "MemoryType",
     "MemoryUpdated",
     "ModelRole",
+    "OTelHook",
     "PendingToolCall",
     "PermissionDecision",
     "PermissionPolicy",
@@ -166,14 +169,17 @@ __all__ = [
     "ToolCallResult",
     "ToolCallStart",
     "ToolCallSummary",
+    "TriageResult",
     "TurnComplete",
     "TurnStart",
     "__version__",
     "agent_as_tool",
+    "assemble_context",
     "current_delegation_depth",
     "deserialize_event",
     "events_to_jsonl",
     "events_to_sse",
     "register_agent_tools",
     "serialize_event",
+    "triage_corpus",
 ]

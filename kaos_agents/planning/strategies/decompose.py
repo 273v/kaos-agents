@@ -38,6 +38,7 @@ async def execute_decompose(
     parallel: bool = True,
     confidence_threshold: float | None = None,
     deepen_threshold: float | None = None,
+    tool_timeout_seconds: float = 60.0,
 ) -> ComposeResult:
     """Decompose a goal into a full plan and execute it.
 
@@ -94,4 +95,5 @@ async def execute_decompose(
         parallel=parallel,
         confidence_threshold=confidence_threshold,
         deepen_threshold=deepen_threshold,
+        tool_timeout_seconds=tool_timeout_seconds,
     )

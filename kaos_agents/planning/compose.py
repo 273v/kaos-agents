@@ -97,9 +97,13 @@ async def compose(
 
         # Execute ready steps (parallel or sequential)
         if parallel and len(ready) > 1:
-            step_results = await _execute_parallel(ready, graph, tools, model)
+            step_results = await _execute_parallel(
+                ready, graph, tools, model, tool_timeout_seconds=tool_timeout_seconds
+            )
         else:
-            step_results = await _execute_sequential(ready, graph, tools, model)
+            step_results = await _execute_sequential(
+                ready, graph, tools, model, tool_timeout_seconds=tool_timeout_seconds
+            )
 
         # Process results
         for step_id, act_result in step_results:
@@ -225,12 +229,16 @@ async def _execute_parallel(
     graph: PlanGraph,
     tools: dict[str, Any],
     model: str,
+    *,
+    tool_timeout_seconds: float = 60.0,
 ) -> list[tuple[str, ActResult]]:
     """Execute multiple steps concurrently."""
     tasks = []
     for step_id in step_ids:
         graph.mark_running(step_id)
-        tasks.append(_execute_one(step_id, graph, tools, model))
+        tasks.append(
+            _execute_one(step_id, graph, tools, model, tool_timeout_seconds=tool_timeout_seconds)
+        )
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     output = []
@@ -255,13 +263,17 @@ async def _execute_sequential(
     graph: PlanGraph,
     tools: dict[str, Any],
     model: str,
+    *,
+    tool_timeout_seconds: float = 60.0,
 ) -> list[tuple[str, ActResult]]:
     """Execute steps one at a time."""
     output = []
     for step_id in step_ids:
         graph.mark_running(step_id)
         try:
-            result = await _execute_one(step_id, graph, tools, model)
+            result = await _execute_one(
+                step_id, graph, tools, model, tool_timeout_seconds=tool_timeout_seconds
+            )
         except Exception as exc:
             result = ActResult(output=f"ERROR: {exc}", is_error=True)
         output.append((step_id, result))
@@ -273,6 +285,8 @@ async def _execute_one(
     graph: PlanGraph,
     tools: dict[str, Any],
     model: str,
+    *,
+    tool_timeout_seconds: float = 60.0,
 ) -> ActResult:
     """Execute a single step via Act."""
     props = graph.get_step(step_id)
@@ -292,7 +306,12 @@ async def _execute_one(
         tool = tools.get(tool_name)
         # Build args from input_spec
         tool_args = input_spec if isinstance(input_spec, dict) else {}
-        return await act(step_type, tool=tool, tool_args=tool_args)
+        return await act(
+            step_type,
+            tool=tool,
+            tool_args=tool_args,
+            tool_timeout_seconds=tool_timeout_seconds,
+        )
 
     if step_type == StepType.LLM:
         prompt = props.get("description", "")

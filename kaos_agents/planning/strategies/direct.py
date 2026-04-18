@@ -33,6 +33,7 @@ async def execute_direct(
     context: str = "",
     model: str = DEFAULT_MODEL,
     budget: PlanBudget | None = None,
+    tool_timeout_seconds: float = 60.0,
 ) -> ComposeResult:
     """Execute a goal directly — one step, no plan graph.
 
@@ -68,6 +69,7 @@ async def execute_direct(
         tool_args=step.input_spec if step.step_type == StepType.TOOL else None,
         llm_prompt=step.description if step.step_type == StepType.LLM else None,
         llm_model=model,
+        tool_timeout_seconds=tool_timeout_seconds,
     )
 
     budget.record_step(cost_usd=result.cost_usd, tokens=result.token_count)

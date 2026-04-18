@@ -30,3 +30,15 @@ class SectionNotConfiguredError(KaosAgentError, KeyError):
 
     Inherits KeyError for stdlib compatibility (dict-like interface).
     """
+
+
+class EventSerializationError(KaosAgentError):
+    """Raised when an event cannot be serialized to dict/JSON."""
+
+
+class EventDeserializationError(KaosAgentError):
+    """Raised when a dict/JSON payload cannot be deserialized to an AgentEvent.
+
+    Covers: missing ``type`` field, unknown event type, missing required
+    fields, type mismatches in nested structures.
+    """

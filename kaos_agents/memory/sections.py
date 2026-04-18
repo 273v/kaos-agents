@@ -128,20 +128,35 @@ class Section:
         # Check token budget
         budget = self._config.budget_tokens
         if budget > 0 and self._token_count + item.token_count > budget:
-            if self._config.eviction_policy == EvictionPolicy.REFUSE:
+            # WS-0.7: sections with ON_OVERFLOW / AUTO summarization
+            # deliberately allow transient overflow so ``summarize_turn``
+            # can observe ``is_over_budget=True`` and trigger the
+            # summarize-then-replace path. Pre-fix, add() always evicted
+            # to stay under budget, which meant summarize_turn never
+            # fired — section never saw itself as over-budget.
+            summarization_policy = self._config.summarization_policy
+            if summarization_policy in (
+                SummarizationPolicy.ON_OVERFLOW,
+                SummarizationPolicy.AUTO,
+            ):
+                # Skip eviction — let the section exceed budget until
+                # the next summarize_turn call compresses it.
+                pass
+            elif self._config.eviction_policy == EvictionPolicy.REFUSE:
                 raise MemoryBudgetExceededError(
                     f"Section {self.memory_type.value} is full "
                     f"({self._token_count}/{budget} tokens) and uses REFUSE eviction. "
                     f"Free space with evict() or increase the budget.",
                 )
-            # Evict until we have room
-            needed = self._token_count + item.token_count - budget
-            freed = self._evict_tokens(needed)
-            if freed < needed:
-                raise EvictionError(
-                    f"Section {self.memory_type.value}: eviction freed {freed} tokens "
-                    f"but {needed} were needed. {len(self._items)} items remain.",
-                )
+            else:
+                # Evict until we have room
+                needed = self._token_count + item.token_count - budget
+                freed = self._evict_tokens(needed)
+                if freed < needed:
+                    raise EvictionError(
+                        f"Section {self.memory_type.value}: eviction freed {freed} tokens "
+                        f"but {needed} were needed. {len(self._items)} items remain.",
+                    )
 
         self._items.append(item)
         self._token_count += item.token_count
@@ -181,6 +196,10 @@ class Section:
             self._last_access[item.id] = now
 
         return result
+
+    def get_by_ids(self, item_ids: set[str]) -> list[MemoryItem]:
+        """Retrieve specific items by ID, preserving insertion order."""
+        return [item for item in self._items if item.id in item_ids]
 
     def get_recent(self, n: int) -> list[MemoryItem]:
         """Get the N most recent items (newest first)."""

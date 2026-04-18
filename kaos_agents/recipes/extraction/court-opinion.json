@@ -3,31 +3,105 @@
   "description": "Extract structured metadata from a court opinion. Mirrors Harvey's published Court Opinions workflow (16 fields, 96.49% recall floor on matched corpus).",
   "harvey_recall_floor": 0.9649,
   "schema": {
-    "id": "court-opinion-v1",
-    "version": 1,
+    "id": "court-opinion-v2",
+    "version": 2,
     "columns": [
-      {"id": "case_name", "column_type": "string", "description": "Full case name (e.g., 'Miranda v. Arizona')."},
-      {"id": "citation", "column_type": "string", "description": "Primary reporter citation (e.g., '384 U.S. 436')."},
-      {"id": "court", "column_type": "string", "description": "Court name (e.g., 'Supreme Court of the United States', 'Second Circuit')."},
-      {"id": "decision_date", "column_type": "date", "description": "Date of the decision (ISO 8601)."},
-      {"id": "judges", "column_type": "list", "constraints": {"inner": "string"}, "description": "Judges / Justices on the panel."},
-      {"id": "author_judge", "column_type": "string", "description": "Judge who authored the majority opinion."},
-      {"id": "dissenting_judges", "column_type": "list", "constraints": {"inner": "string"}, "description": "Dissenting judges, if any."},
-      {"id": "concurring_judges", "column_type": "list", "constraints": {"inner": "string"}, "description": "Concurring judges, if any."},
-      {"id": "parties", "column_type": "list", "constraints": {"inner": "string"}, "description": "Named parties (plaintiff/appellant and defendant/appellee)."},
-      {"id": "cause_of_action", "column_type": "string", "description": "Primary cause(s) of action or claim at issue."},
-      {"id": "procedural_posture", "column_type": "string", "description": "Procedural posture (e.g., 'appeal from summary judgment', 'petition for certiorari')."},
-      {"id": "issues", "column_type": "list", "constraints": {"inner": "string"}, "description": "Key legal issues presented."},
-      {"id": "holding", "column_type": "verbatim_quote", "description": "Verbatim holding of the court."},
-      {"id": "disposition", "column_type": "enum", "constraints": {"values": ["affirmed", "reversed", "remanded", "affirmed_in_part", "reversed_in_part", "vacated", "other"]}, "description": "Disposition of the case on appeal."},
-      {"id": "key_statutes_cited", "column_type": "list", "constraints": {"inner": "string"}, "description": "Statutes / regulations materially cited (e.g., '42 U.S.C. § 1983', '17 CFR 240.10b-5')."},
-      {"id": "key_cases_cited", "column_type": "list", "constraints": {"inner": "string"}, "description": "Key precedent cases cited."}
+      {
+        "id": "case_name",
+        "column_type": "string",
+        "description": "Act as a legal research analyst looking for the full case name. Look in the case caption at the top of the opinion. Return the full name with procedural designations (e.g., 'Miranda v. Arizona', 'In re: XYZ Corp., Debtor', 'United States v. Smith'). Include 'et al.' if present. Do NOT abbreviate. Do NOT include the docket number here."
+      },
+      {
+        "id": "citation",
+        "column_type": "string",
+        "description": "Act as a legal research analyst looking for the primary reporter citation. Look in the case header for the official reporter citation. Return in standard Bluebook format (e.g., '384 U.S. 436 (1966)', '775 F.3d 510 (2d Cir. 2014)'). If multiple parallel citations exist, return the official/preferred reporter. If only a slip opinion or Westlaw/Lexis cite is available, return that with the database identifier."
+      },
+      {
+        "id": "court",
+        "column_type": "string",
+        "description": "Act as a legal research analyst identifying the court. Look in the case header for the court name. Return the full name (e.g., 'Supreme Court of the United States', 'United States Court of Appeals for the Second Circuit', 'United States District Court for the Southern District of New York', 'Supreme Court of Delaware'). Do NOT abbreviate to '2d Cir.' — use the full name."
+      },
+      {
+        "id": "decision_date",
+        "column_type": "date",
+        "description": "Act as a legal research analyst looking for the date of the decision. Look in the case header for 'Decided:', 'Filed:', or the date under the court name. Return ISO 8601 (YYYY-MM-DD). If both an argued date and a decided date appear, return the decided date. Do NOT return the filing date of the underlying complaint."
+      },
+      {
+        "id": "judges",
+        "column_type": "list",
+        "constraints": {"inner": "string"},
+        "description": "Act as a legal research analyst listing all judges on the panel. Look in the header after the case name for 'Before:', the panel listing, or at the top of the opinion body. Return each judge's last name with title (e.g., 'Chief Justice Roberts', 'Circuit Judge Sotomayor', 'District Judge Jones, sitting by designation'). For Supreme Court opinions, list all justices who participated (not just the author)."
+      },
+      {
+        "id": "author_judge",
+        "column_type": "string",
+        "description": "Act as a legal research analyst identifying the author of the majority opinion. Look for the name that appears before the opinion body text, often in the format 'SOTOMAYOR, J., delivered the opinion of the Court' or 'PER CURIAM'. If per curiam, return 'Per Curiam'. If the majority is unsigned, state that. Do NOT list dissenting or concurring authors here."
+      },
+      {
+        "id": "dissenting_judges",
+        "column_type": "list",
+        "constraints": {"inner": "string"},
+        "description": "Act as a legal research analyst listing judges who dissented. Look for 'dissenting', 'dissent', or 'I respectfully dissent' in separate opinion headings. Return each dissenting judge's name. If a judge dissented in part and concurred in part, include them here with a note. If no dissent, return an empty list."
+      },
+      {
+        "id": "concurring_judges",
+        "column_type": "list",
+        "constraints": {"inner": "string"},
+        "description": "Act as a legal research analyst listing judges who wrote or joined concurrences. Look for 'concurring', 'concurrence', or 'I concur' in separate opinion headings. Include judges who concurred in the judgment only (no separate opinion) if they are listed. If no concurrence, return an empty list."
+      },
+      {
+        "id": "parties",
+        "column_type": "list",
+        "constraints": {"inner": "string"},
+        "description": "Act as a legal research analyst listing the named parties. Look in the case caption. Return each party with their procedural role (e.g., 'Miranda (Defendant-Appellant)', 'Arizona (Plaintiff-Appellee)'). For class actions, identify the named representative. For multi-party cases, include all named parties. Do NOT include amici curiae."
+      },
+      {
+        "id": "cause_of_action",
+        "column_type": "string",
+        "description": "Act as a legal research analyst identifying the primary cause(s) of action. Look in the court's statement of the case or procedural history. Return the legal claim(s) (e.g., 'securities fraud under Section 10(b) and Rule 10b-5', 'excessive force under 42 U.S.C. § 1983', 'breach of fiduciary duty'). If multiple claims, list the principal ones. Do NOT list defenses here."
+      },
+      {
+        "id": "procedural_posture",
+        "column_type": "string",
+        "description": "Act as a legal research analyst extracting the procedural posture. Look in the opening paragraphs of the opinion for how the case reached this court. Return the posture (e.g., 'appeal from grant of summary judgment', 'petition for writ of certiorari', 'interlocutory appeal from denial of motion to dismiss', 'appeal from jury verdict'). Include the lower court's disposition being reviewed."
+      },
+      {
+        "id": "issues",
+        "column_type": "list",
+        "constraints": {"inner": "string"},
+        "description": "Act as a legal research analyst listing the key legal issues presented. Look for 'Questions Presented', 'Issues', or the court's framing in the opening section ('The question before us is...'). State each issue as a question (e.g., 'Whether the Fourth Amendment requires officers to obtain a warrant before searching a cell phone incident to arrest'). Focus on issues the court actually decided, not background context."
+      },
+      {
+        "id": "holding",
+        "column_type": "verbatim_quote",
+        "description": "Act as a legal research analyst extracting the verbatim holding. Look for the court's precise legal conclusion, often in the final paragraphs of the analysis or introduced with 'We hold that...', 'We conclude...', or 'The judgment is...'. Return the exact passage. This is the ratio decidendi — the binding legal rule — not dictum. Do NOT paraphrase. Do NOT include the reasoning, only the rule announced."
+      },
+      {
+        "id": "disposition",
+        "column_type": "enum",
+        "constraints": {"values": ["affirmed", "reversed", "remanded", "affirmed_in_part", "reversed_in_part", "vacated", "other"]},
+        "description": "Act as a legal research analyst classifying the disposition. Look in the final paragraph for 'Affirmed', 'Reversed', 'Reversed and remanded', 'Vacated and remanded', or compound dispositions. If the court affirms on some issues and reverses on others, use 'affirmed_in_part' or 'reversed_in_part'. Use 'other' for unusual dispositions (dismissed for lack of jurisdiction, certified question answered)."
+      },
+      {
+        "id": "key_statutes_cited",
+        "column_type": "list",
+        "constraints": {"inner": "string"},
+        "description": "Act as a legal research analyst listing the statutes and regulations materially cited. Look throughout the opinion for statutory references. Return each in canonical form (e.g., '42 U.S.C. § 1983', '28 U.S.C. § 1331', '17 C.F.R. § 240.10b-5', 'Fed. R. Civ. P. 56'). Include only statutes that the court actually interprets or applies — not passing references. Include both federal and state statutes."
+      },
+      {
+        "id": "key_cases_cited",
+        "column_type": "list",
+        "constraints": {"inner": "string"},
+        "description": "Act as a legal research analyst listing key precedent cases cited. Look for cases the court relies on to support its holding, distinguishes, or overrules. Return each in Bluebook format (e.g., 'Chevron U.S.A., Inc. v. Nat. Res. Def. Council, Inc., 467 U.S. 837 (1984)'). Limit to the 5-10 most important cases — those the court discusses at length or quotes, not every case in the string cite."
+      }
     ]
   },
   "notes": [
     "The holding is the precise legal rule articulated by the court — emit the exact passage as verbatim_quote.",
     "Distinguish holdings from dicta. Harvey's workflow focuses on the ratio decidendi.",
-    "Key statutes should include both federal and state statutes in their canonical reporter form."
+    "Key statutes should include both federal and state statutes in their canonical reporter form.",
+    "For appellate opinions, the procedural posture should describe what happened below that is being reviewed.",
+    "Use provenance='cited' for grounded extraction with source spans."
   ],
   "golden_sets": ["legalbench"]
 }

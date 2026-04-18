@@ -1,11 +1,14 @@
-"""Run the KAOS MCP server with agent tools.
+"""Run the KAOS agent server (MCP or HTTP API).
 
 Usage:
-    # stdio (for Claude Code / Claude Desktop)
+    # stdio MCP (for Claude Code / Claude Desktop)
     kaos-agents-serve
 
-    # streamable HTTP
+    # streamable HTTP MCP
     kaos-agents-serve --http --port 8000
+
+    # HTTP API with SSE streaming (for web apps)
+    kaos-agents-serve --api --port 8080
 
     # with additional tool modules
     kaos-agents-serve --with-source --with-web
@@ -21,9 +24,14 @@ import sys
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Entry point for the MCP server."""
-    parser = argparse.ArgumentParser(description="KAOS MCP Server with agent tools")
-    parser.add_argument("--http", action="store_true", help="Use streamable HTTP transport")
+    """Entry point for the agent server."""
+    parser = argparse.ArgumentParser(description="KAOS Agent Server (MCP or HTTP API)")
+    parser.add_argument("--http", action="store_true", help="Use streamable HTTP MCP transport")
+    parser.add_argument(
+        "--api",
+        action="store_true",
+        help="Start HTTP API server with SSE streaming (requires [api] extra)",
+    )
     parser.add_argument("--host", default="127.0.0.1", help="HTTP host (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8000, help="HTTP port (default: 8000)")
     parser.add_argument(
@@ -44,6 +52,37 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     args = parser.parse_args(argv)
 
+    # --- API mode (FastAPI + SSE) ---
+    if args.api:
+        try:
+            import uvicorn
+
+            from kaos_agents.api import create_app
+        except ImportError:
+            print(
+                "Error: API server requires the 'api' extra.\n"
+                "Install with: pip install 'kaos-agents[api]'",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        # Optional runtime for tool execution
+        runtime = None
+        try:
+            from kaos_core import KaosRuntime
+
+            runtime = KaosRuntime()
+        except ImportError:
+            print("Warning: kaos-core not available, running without tool runtime", file=sys.stderr)
+
+        app = create_app(runtime=runtime)
+        print(f"Starting API server on {args.host}:{args.port}", file=sys.stderr)
+        uvicorn.run(
+            app, host=args.host, port=args.port, log_level="debug" if args.debug else "info"
+        )
+        return
+
+    # --- MCP mode (default) ---
     try:
         from kaos_core import KaosRuntime
         from kaos_mcp import KaosMCPServer, KaosMCPSettings

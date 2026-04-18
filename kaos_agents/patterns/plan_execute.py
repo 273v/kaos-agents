@@ -4,18 +4,33 @@ Adds PLAN intent handling via the adaptive strategy (ADaPT):
 - Simple goals → direct execution
 - Complex goals → hierarchical decomposition with parallel execution
 - Failures → automatic fallback with Reflexion feedback
+- Streaming: yields PlanProposed, StepStart, StepComplete events
 
 This is the full-featured agent pattern that uses all 7 planning primitives.
 """
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
 from kaos_core.logging import get_logger
 
+from kaos_agents._constants import (
+    PLAN_PRIOR_REFLECTION_COUNT,
+    RESULT_SUMMARY_TRUNCATE,
+)
+from kaos_agents.events import (
+    AgentEvent,
+    EventEmitter,
+    PlanProposed,
+    PlanStepSummary,
+    StepComplete,
+    StepStart,
+    TextDelta,
+)
 from kaos_agents.memory.types import MemoryType
-from kaos_agents.models import ToolCallRecord
+from kaos_agents.models import IntentResult, IntentType, ToolCallRecord
 from kaos_agents.patterns.chat import ChatAgent
 from kaos_agents.planning.recall import recall
 from kaos_agents.planning.types import StopReason
@@ -27,6 +42,7 @@ if TYPE_CHECKING:
 
     from kaos_agents.memory.session import SessionMemory
     from kaos_agents.memory.types import MemoryItem
+    from kaos_agents.providers import ProviderConfig
     from kaos_agents.settings import KaosAgentSettings
 
 logger = get_logger(__name__)
@@ -63,6 +79,10 @@ class PlanExecuteAgent(ChatAgent):
         max_react_iterations: int | None = None,
         max_plan_steps: int | None = None,
         settings: KaosAgentSettings | None = None,
+        provider: ProviderConfig | None = None,
+        extra_llm_tools: tuple[Any, ...] = (),
+        permission_policy: Any = None,
+        instructions: str | None = None,
     ) -> None:
         super().__init__(
             vfs,
@@ -73,22 +93,50 @@ class PlanExecuteAgent(ChatAgent):
             max_tools=max_tools,
             max_react_iterations=max_react_iterations,
             settings=settings,
+            provider=provider,
+            extra_llm_tools=extra_llm_tools,
+            permission_policy=permission_policy,
+            instructions=instructions,
         )
         self._max_plan_steps = max_plan_steps or self._settings.plan_max_steps
 
-    async def _handle_plan(
+    async def _dispatch_streaming(
+        self,
+        intent: IntentResult,
+        message: str,
+        memory: SessionMemory,
+        context_items: dict[MemoryType, list[Any]],
+        emitter: EventEmitter,
+    ) -> AsyncIterator[AgentEvent]:
+        """Override dispatch to stream plan execution events.
+
+        For PLAN intent, yields PlanProposed, StepStart, StepComplete.
+        For other intents, delegates to ChatAgent (which handles TOOL_USE)
+        or BaseAgent (which handles RESPOND/CLARIFY).
+        """
+        if intent.intent != IntentType.PLAN:
+            async for event in super()._dispatch_streaming(
+                intent, message, memory, context_items, emitter
+            ):
+                yield event
+            return
+
+        async for event in self._handle_plan_streaming(message, memory, context_items, emitter):
+            yield event
+
+    async def _handle_plan_streaming(
         self,
         message: str,
         memory: SessionMemory,
         context_items: dict[MemoryType, list[MemoryItem]],
-    ) -> tuple[str, list[ToolCallRecord]]:
-        """Handle multi-step plan via adaptive strategy."""
+        emitter: EventEmitter,
+    ) -> AsyncIterator[AgentEvent]:
+        """Handle multi-step plan via adaptive strategy, yielding events."""
         from kaos_agents.actions.tool_bridge import bridge_runtime_tools
         from kaos_agents.planning.result_check import is_error_result
         from kaos_agents.planning.strategies.adaptive import execute_adaptive
         from kaos_agents.planning.types import PlanBudget
 
-        # Build tool bridge
         tools_dict: dict[str, Any] = {}
         tool_descriptions: dict[str, str] = {}
         if self._runtime:
@@ -97,12 +145,18 @@ class PlanExecuteAgent(ChatAgent):
                 self._context,
                 filter_names=self._tool_filter,
                 max_tools=self._max_tools,
+                permission_policy=self._permission_policy,
             )
             for t in llm_tools:
                 tools_dict[t.name] = t
                 tool_descriptions[t.name] = t.description or ""
+        # Append extra tools (delegation / handoff) injected by the Runner
+        for t in self._extra_llm_tools:
+            tools_dict[t.name] = t
+            tool_descriptions[t.name] = t.description or ""
 
-        # Recall context for planning (includes prior failures)
+        from kaos_agents.context.triage import triage_corpus
+
         ctx = recall(
             memory,
             [MemoryType.MESSAGES, MemoryType.FINDINGS, MemoryType.ACTIONS, MemoryType.REFLECTION],
@@ -110,13 +164,27 @@ class PlanExecuteAgent(ChatAgent):
             priority_order=[MemoryType.MESSAGES, MemoryType.FINDINGS],
         )
 
-        # Check for prior failures in reflection
+        triage = triage_corpus(
+            memory,
+            message,
+            max_selected=20,
+            threshold=self._settings.retrieval_threshold,
+        )
+
+        context_text = ctx.text
+        if triage is not None:
+            context_text = f"{triage.context_summary}\n\n{context_text}"
+            n_documents = triage.selected_count
+        elif memory.has_section(MemoryType.DOCUMENTS):
+            n_documents = memory.section_item_count(MemoryType.DOCUMENTS)
+        else:
+            n_documents = 0
+
         prior_failures = ""
-        reflections = memory.get_recent(MemoryType.REFLECTION, 3)
+        reflections = memory.get_recent(MemoryType.REFLECTION, PLAN_PRIOR_REFLECTION_COUNT)
         if reflections:
             prior_failures = "\n".join(r.content for r in reflections)
 
-        # Execute via adaptive strategy
         budget = PlanBudget(
             max_steps=self._settings.plan_max_steps,
             max_replans=self._settings.plan_max_replans,
@@ -128,21 +196,22 @@ class PlanExecuteAgent(ChatAgent):
             message,
             tools=tools_dict,
             tool_descriptions=tool_descriptions,
-            context=ctx.text,
+            context=context_text,
             prior_failures=prior_failures,
-            model=self._settings.planning_llm_model,
+            model=self._model_for_role("plan"),
             budget=budget,
             complexity_threshold=self._settings.complexity_threshold,
             simple_word_threshold=self._settings.simple_goal_word_threshold,
             max_steps=self._max_plan_steps,
             confidence_threshold=self._settings.confidence_threshold,
             deepen_threshold=self._settings.deepen_threshold,
+            tool_timeout_seconds=self._settings.tool_timeout_seconds,
+            n_documents=n_documents,
         )
 
-        # Build tool call records with actual tool names from the plan graph
-        tool_calls: list[ToolCallRecord] = []
-        # Parse plan graph to recover tool names per step
+        # Recover step metadata from the plan graph
         step_tool_names: dict[str, str] = {}
+        step_descriptions: dict[str, str] = {}
         if result.plan_json and result.plan_json != "{}":
             try:
                 from kaos_agents.planning.graph import PlanGraph
@@ -150,26 +219,41 @@ class PlanExecuteAgent(ChatAgent):
                 pg = PlanGraph.from_json(result.plan_json)
                 for sid in pg.step_ids():
                     props = pg.get_step(sid)
-                    if props and props.get("tool_name"):
-                        step_tool_names[sid] = props["tool_name"]
+                    if props:
+                        if props.get("tool_name"):
+                            step_tool_names[sid] = props["tool_name"]
+                        if props.get("description"):
+                            step_descriptions[sid] = props["description"]
             except Exception as exc:
-                logger.warning(
-                    "plan_execute: failed to recover tool names from plan graph: %s",
-                    exc,
-                )
+                logger.warning("plan_execute: failed to parse plan graph: %s", exc)
 
+        # Emit PlanProposed
+        plan_steps = tuple(
+            PlanStepSummary(
+                step_id=sid,
+                description=step_descriptions.get(sid, sid),
+                tool_name=step_tool_names.get(sid),
+            )
+            for sid in result.step_results
+        )
+        if plan_steps:
+            yield emitter.emit(PlanProposed, steps=plan_steps, strategy="adaptive")
+
+        # Emit per-step events
         for step_id, step_result in result.step_results.items():
-            actual_tool = step_tool_names.get(step_id, step_id)
-            tool_calls.append(
-                ToolCallRecord.from_dict_args(
-                    tool_name=actual_tool,
-                    arguments={"step_id": step_id},
-                    result_summary=str(step_result)[:200],
-                    is_error=is_error_result(str(step_result)),
-                )
+            desc = step_descriptions.get(step_id, step_id)
+            step_is_error = is_error_result(str(step_result))
+
+            yield emitter.emit(StepStart, step_id=step_id, description=desc)
+            yield emitter.emit(
+                StepComplete,
+                step_id=step_id,
+                result_summary=str(step_result)[:RESULT_SUMMARY_TRUNCATE],
+                is_error=step_is_error,
+                duration_ms=0.0,
             )
 
-        # Synthesize response from results
+        # Emit final response text
         if result.stop_reason == StopReason.SUCCESS and result.step_results:
             response = _synthesize_results(result.step_results)
         elif result.stop_reason == StopReason.SUCCESS:
@@ -179,22 +263,53 @@ class PlanExecuteAgent(ChatAgent):
                 f"Plan execution stopped: {result.stop_reason.value}. "
                 f"Completed {result.steps_executed} steps."
             )
-            # Record failure for Reflexion
             memory.add(
                 MemoryType.REFLECTION,
                 f"Plan failed ({result.stop_reason.value}) for goal: {message[:100]}. "
                 f"Steps completed: {result.steps_executed}.",
             )
 
+        if response:
+            yield emitter.emit(TextDelta, content=response)
+
         logger.debug(
-            "plan_execute: %d steps, %d tools, stop=%s, cost=$%.4f",
+            "plan_execute: %d steps, stop=%s, cost=$%.4f",
             result.steps_executed,
-            len(tool_calls),
             result.stop_reason.value,
             result.total_cost_usd,
         )
 
-        return response, tool_calls
+    async def _handle_plan(
+        self,
+        message: str,
+        memory: SessionMemory,
+        context_items: dict[MemoryType, list[MemoryItem]],
+    ) -> tuple[str, list[ToolCallRecord]]:
+        """Handle multi-step plan (non-streaming, backward compat).
+
+        Delegates to _handle_plan_streaming and collects events,
+        avoiding logic duplication.
+        """
+        from kaos_agents.events import EventEmitter, StepComplete, TextDelta
+
+        emitter = EventEmitter(session_id="internal", run_id="internal")
+
+        response_text = ""
+        tool_calls: list[ToolCallRecord] = []
+        async for event in self._handle_plan_streaming(message, memory, context_items, emitter):
+            if isinstance(event, TextDelta):
+                response_text += event.content
+            elif isinstance(event, StepComplete):
+                tool_calls.append(
+                    ToolCallRecord.from_dict_args(
+                        tool_name=event.step_id,
+                        arguments={"step_id": event.step_id},
+                        result_summary=event.result_summary,
+                        is_error=event.is_error,
+                    )
+                )
+
+        return response_text, tool_calls
 
 
 def _synthesize_results(results: dict[str, Any]) -> str:

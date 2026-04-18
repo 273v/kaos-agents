@@ -4,7 +4,11 @@ Stateless agent that orchestrates memory, tool calling, and LLM dispatch.
 The agent is reconstructed per MCP call from session_id. All persistent
 state lives in SessionMemory, which hydrates from VFS.
 
-The 8-step turn:
+Two execution modes:
+- ``run()`` — streaming: yields ``AgentEvent`` objects progressively
+- ``turn()`` — blocking: collects all events, returns ``AgentResponse``
+
+The 8-step turn (both modes share the same logic):
 1. Hydrate memory from store (or create fresh)
 2. Begin turn (clear ephemeral sections)
 3. Add user message to MESSAGES section
@@ -17,11 +21,27 @@ The 8-step turn:
 
 from __future__ import annotations
 
+import uuid
+from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
 from kaos_core.logging import get_logger
 
+from kaos_agents._constants import FALLBACK_RECENT_MESSAGES
 from kaos_agents.context.classify import classify_intent
+from kaos_agents.events import (
+    AgentEvent,
+    EventEmitter,
+    IntentClassified,
+    MemoryUpdated,
+    RunError,
+    TextDelta,
+    ToolCallResult,
+    ToolCallStart,
+    ToolCallSummary,
+    TurnComplete,
+    TurnStart,
+)
 from kaos_agents.memory.session import SessionMemory
 from kaos_agents.memory.store import SessionStore
 from kaos_agents.memory.types import MemoryType
@@ -35,7 +55,14 @@ _DEFAULT_RESPOND_INSTRUCTION = "You are a helpful assistant."
 if TYPE_CHECKING:
     from kaos_core.vfs.core import VirtualFileSystem
 
+    from kaos_agents.providers import ProviderConfig
+
 logger = get_logger(__name__)
+
+
+def _generate_run_id() -> str:
+    """Generate a unique run ID for event correlation."""
+    return f"run_{uuid.uuid4().hex[:12]}"
 
 
 class BaseAgent:
@@ -43,6 +70,10 @@ class BaseAgent:
 
     Subclasses (ChatAgent, PlanExecuteAgent) override dispatch handlers
     for each intent type. BaseAgent provides the loop scaffolding.
+
+    Two execution modes:
+    - ``run(message, session_id)`` yields ``AgentEvent`` progressively
+    - ``turn(message, session_id)`` returns ``AgentResponse`` (backward compat)
 
     The agent is stateless — constructed per call, not per session.
     All state lives in SessionMemory.
@@ -54,15 +85,247 @@ class BaseAgent:
         *,
         model: str | None = None,
         settings: KaosAgentSettings | None = None,
+        provider: ProviderConfig | None = None,
+        instructions: str | None = None,
     ) -> None:
         self._settings = KaosAgentSettings.resolve(settings)
         self._store = SessionStore(vfs)
         self._model = model or self._settings.default_llm_model
+        self._provider = provider
+        # WS-0.4: ``Agent.instructions`` is threaded from the top-level
+        # ``Agent`` config through Runner → pattern classes → BaseAgent.
+        # Prior to WS-0.4 this field was advertised as "core identity" on
+        # the ``Agent`` public API (config.py:57) but never reached the
+        # internal agents — every pattern used a hardcoded default. Now:
+        #
+        # - ``_simple_respond`` uses self._instructions when set.
+        # - ``ChatAgent._handle_tool_use_streaming`` composes its ReAct
+        #   instruction with the caller's instructions.
+        # - Pattern-specific defaults (``_DEFAULT_RESPOND_INSTRUCTION``,
+        #   ``_REACT_INSTRUCTION``) apply only when
+        #   ``instructions is None``.
+        self._instructions: str | None = instructions
+
+    def _model_for_role(self, role: str) -> str:
+        """Resolve the model to use for a specific role.
+
+        If a ProviderConfig is attached, delegates to its role_models map.
+        Otherwise returns the agent's default model.
+
+        Special cases:
+        - role='plan' falls back to settings.planning_llm_model when no
+          provider is set (backward compat with the pre-provider path).
+        """
+        if self._provider is not None:
+            from kaos_agents.providers import ModelRole
+
+            try:
+                return self._provider.model_for(ModelRole(role))
+            except ValueError:
+                return self._provider.default
+        # Backward compat: planning has its own settings field
+        if role == "plan":
+            return self._settings.planning_llm_model
+        return self._model
+
+    async def run(self, message: str, session_id: str) -> AsyncIterator[AgentEvent]:
+        """Execute a single agent turn, yielding events progressively.
+
+        This is the primary streaming entry point. Yields ``AgentEvent``
+        objects at each step of the 8-step loop. Consumers iterate:
+
+            async for event in agent.run("Find EPA actions", "session-1"):
+                match event:
+                    case TurnStart(): ...
+                    case ToolCallStart(): ...
+                    case TurnComplete(): ...
+
+        Args:
+            message: The user's message.
+            session_id: Session identifier for memory persistence.
+
+        Yields:
+            AgentEvent subclass instances in execution order.
+        """
+        run_id = _generate_run_id()
+        emitter = EventEmitter(session_id=session_id, run_id=run_id)
+
+        # Step 1: Hydrate memory
+        memory = await self._store.load_or_create(session_id)
+        logger.debug(
+            "agent.step1_hydrate: session=%s total_tokens=%d turn_history=%d",
+            session_id,
+            memory.total_tokens,
+            memory.turn_count,
+        )
+
+        # Step 2: Begin turn
+        memory.begin_turn()
+        turn_number = memory.turn_count + 1
+        logger.debug("agent.step2_begin_turn: session=%s turn_number=%d", session_id, turn_number)
+
+        yield emitter.emit(TurnStart, turn_number=turn_number)
+
+        # Step 3: Add user message
+        memory.add(MemoryType.MESSAGES, f"user: {message}")
+        logger.debug("agent.step3_add_message: session=%s message_len=%d", session_id, len(message))
+
+        # Step 4: Assemble context (query-aware when sections are large)
+        from kaos_agents.context.assemble import assemble_context
+
+        context_items = assemble_context(
+            memory,
+            message,
+            sections=[
+                MemoryType.MESSAGES,
+                MemoryType.ACTIONS,
+                MemoryType.FINDINGS,
+                MemoryType.DOCUMENTS,
+            ],
+            total_budget_tokens=self._settings.default_context_budget_tokens,
+            priority_order=[
+                MemoryType.MESSAGES,
+                MemoryType.FINDINGS,
+                MemoryType.DOCUMENTS,
+                MemoryType.ACTIONS,
+            ],
+            retrieval_threshold=self._settings.retrieval_threshold,
+        )
+
+        context_section_counts = {
+            mt.value: len(items) for mt, items in context_items.items() if items
+        }
+        context_total_items = sum(context_section_counts.values())
+        logger.debug(
+            "agent.step4_assemble: session=%s sections=%s total_items=%d",
+            session_id,
+            context_section_counts,
+            context_total_items,
+        )
+
+        # Step 5: Classify intent
+        intent = await self._classify(message, memory, context_items)
+
+        yield emitter.emit(
+            IntentClassified,
+            intent=intent.intent.value,
+            confidence=intent.confidence,
+            reasoning=intent.reasoning,
+        )
+
+        logger.debug(
+            "agent.run: session=%s intent=%s confidence=%.2f",
+            session_id,
+            intent.intent.value,
+            intent.confidence,
+        )
+
+        # Step 6: Dispatch to streaming handler — yields events from the handler
+        response_text = ""
+        tool_calls: list[ToolCallRecord] = []
+        tool_call_summaries: list[ToolCallSummary] = []
+
+        logger.debug(
+            "agent.step6_dispatch: session=%s intent=%s pattern=%s",
+            session_id,
+            intent.intent.value,
+            type(self).__name__,
+        )
+
+        try:
+            async for event in self._dispatch_streaming(
+                intent, message, memory, context_items, emitter
+            ):
+                yield event
+                # Collect response data from terminal events for memory update
+                if isinstance(event, TextDelta):
+                    response_text += event.content
+                elif isinstance(event, ToolCallStart):
+                    pass  # Tracked via ToolCallResult
+                elif isinstance(event, ToolCallResult):
+                    tool_calls.append(
+                        ToolCallRecord.from_dict_args(
+                            tool_name=event.tool_name,
+                            arguments={},
+                            result_summary=event.result_summary,
+                            is_error=event.is_error,
+                        )
+                    )
+                    tool_call_summaries.append(
+                        ToolCallSummary(
+                            tool_name=event.tool_name,
+                            call_id=event.call_id,
+                            is_error=event.is_error,
+                            duration_ms=event.duration_ms,
+                        )
+                    )
+        except Exception as exc:
+            logger.warning("agent.run: dispatch failed: %s", exc)
+            yield emitter.emit(
+                RunError,
+                error_type=type(exc).__name__,
+                message=str(exc),
+                recovery_hint="Check logs for details. Try a simpler query.",
+            )
+
+        # If no TextDelta events were yielded, get response from the non-streaming path.
+        # This handles the case where _dispatch_streaming falls back to _dispatch.
+        if not response_text:
+            # The streaming handler may have set response_text via a different mechanism.
+            # For BaseAgent's simple respond, we use the non-streaming path.
+            pass
+
+        logger.debug(
+            "agent.step6_complete: session=%s response_len=%d tool_calls=%d",
+            session_id,
+            len(response_text),
+            len(tool_calls),
+        )
+
+        # Step 7: Update memory
+        if response_text:
+            memory.add(MemoryType.MESSAGES, f"assistant: {response_text}")
+        if tool_calls:
+            for tc in tool_calls:
+                summary = f"Tool: {tc.tool_name}({tc.arguments}) → {tc.result_summary}"
+                memory.add(MemoryType.ACTIONS, summary)
+            yield emitter.emit(
+                MemoryUpdated,
+                section=MemoryType.ACTIONS.value,
+                action="add",
+                item_count=len(tool_calls),
+            )
+
+        # Step 8: Summarize (if needed), end turn, persist
+        try:
+            n_summarized = await memory.summarize_turn(model=self._model)
+            if n_summarized > 0:
+                logger.debug("agent.run: summarized %d sections", n_summarized)
+        except Exception as exc:
+            logger.warning("agent.run: summarization failed (non-fatal): %s", exc)
+
+        memory.end_turn()
+        await self._store.save(memory)
+        logger.debug(
+            "agent.step8_persist: session=%s total_tokens=%d",
+            session_id,
+            memory.total_tokens,
+        )
+
+        yield emitter.emit(
+            TurnComplete,
+            text=response_text,
+            intent=intent.intent.value,
+            tool_calls=tuple(tool_call_summaries),
+            tokens_used=0,  # TODO: aggregate from sub-events when available
+            cost_usd=0.0,
+        )
 
     async def turn(self, message: str, session_id: str) -> AgentResponse:
-        """Execute a single agent turn.
+        """Execute a single agent turn (backward-compatible blocking mode).
 
-        This is the main entry point. Implements the 8-step loop.
+        Collects all events from ``run()`` and returns the final response.
+        Use ``run()`` for streaming.
 
         Args:
             message: The user's message.
@@ -71,65 +334,52 @@ class BaseAgent:
         Returns:
             AgentResponse with the agent's reply and metadata.
         """
-        # Step 1: Hydrate memory
-        memory = await self._store.load_or_create(session_id)
+        events: list[AgentEvent] = []
+        async for event in self.run(message, session_id):
+            events.append(event)
+        return _events_to_response(events, session_id)
 
-        # Step 2: Begin turn
-        memory.begin_turn()
+    # -- Streaming dispatch (override in subclasses) ---------------------------
 
-        # Step 3: Add user message
-        memory.add(MemoryType.MESSAGES, f"user: {message}")
+    async def _dispatch_streaming(
+        self,
+        intent: IntentResult,
+        message: str,
+        memory: SessionMemory,
+        context_items: dict[MemoryType, list[Any]],
+        emitter: EventEmitter,
+    ) -> AsyncIterator[AgentEvent]:
+        """Dispatch to the appropriate streaming handler based on intent.
 
-        # Step 4: Assemble context
-        context_items = memory.get_sections(
-            [MemoryType.MESSAGES, MemoryType.ACTIONS, MemoryType.FINDINGS, MemoryType.DOCUMENTS],
-            total_budget_tokens=self._settings.default_context_budget_tokens,
-            priority_order=[
-                MemoryType.MESSAGES,
-                MemoryType.FINDINGS,
-                MemoryType.DOCUMENTS,
-                MemoryType.ACTIONS,
-            ],
-        )
+        Yields AgentEvent instances. Subclasses override to add streaming
+        for tool_use, research, plan handlers.
 
-        # Step 5: Classify intent (with assembled context)
-        intent = await self._classify(message, memory, context_items)
-
-        logger.debug(
-            "agent.turn: session=%s intent=%s confidence=%.2f",
-            session_id,
-            intent.intent.value,
-            intent.confidence,
-        )
-
-        # Step 6: Dispatch to handler
+        Default implementation falls back to _dispatch() and yields
+        the result as a single TextDelta.
+        """
+        # Default: use the non-streaming handlers and wrap the result
         response_text, tool_calls = await self._dispatch(intent, message, memory, context_items)
 
-        # Step 7: Update memory
-        memory.add(MemoryType.MESSAGES, f"assistant: {response_text}")
-        if tool_calls:
-            for tc in tool_calls:
-                summary = f"Tool: {tc.tool_name}({tc.arguments}) → {tc.result_summary}"
-                memory.add(MemoryType.ACTIONS, summary)
+        # Yield tool call events if any
+        for tc in tool_calls:
+            yield emitter.emit(
+                ToolCallStart,
+                call_id=tc.tool_name,  # Use tool_name as call_id for backward compat
+                tool_name=tc.tool_name,
+                arguments=tc.arguments,
+            )
+            yield emitter.emit(
+                ToolCallResult,
+                call_id=tc.tool_name,
+                tool_name=tc.tool_name,
+                result_summary=tc.result_summary,
+                is_error=tc.is_error,
+                duration_ms=0.0,
+            )
 
-        # Step 8: Summarize (if needed), end turn, persist
-        try:
-            n_summarized = await memory.summarize_turn(model=self._model)
-            if n_summarized > 0:
-                logger.debug("agent.turn: summarized %d sections", n_summarized)
-        except Exception as exc:
-            logger.warning("agent.turn: summarization failed (non-fatal): %s", exc)
-
-        memory.end_turn()
-        await self._store.save(memory)
-
-        return AgentResponse.create(
-            text=response_text,
-            intent=intent,
-            tool_calls=tuple(tool_calls),
-            turn_number=memory.turn_count,
-            metadata={"session_id": session_id},
-        )
+        # Yield the response text
+        if response_text:
+            yield emitter.emit(TextDelta, content=response_text)
 
     # -- Overridable dispatch handlers ---------------------------------------
 
@@ -149,7 +399,12 @@ class BaseAgent:
                     parts.append("\n".join(item.content for item in items))
             context_text = "\n".join(parts)
 
-        return await classify_intent(message, memory, model=self._model, context_text=context_text)
+        return await classify_intent(
+            message,
+            memory,
+            model=self._model_for_role("classify"),
+            context_text=context_text,
+        )
 
     async def _dispatch(
         self,
@@ -262,13 +517,77 @@ class BaseAgent:
                     )
             history = "\n\n".join(parts) if parts else "(new conversation)"
         else:
-            recent = memory.get_recent(MemoryType.MESSAGES, 10)
+            recent = memory.get_recent(MemoryType.MESSAGES, FALLBACK_RECENT_MESSAGES)
             history = "\n".join(item.content for item in recent) if recent else "(new conversation)"
 
-        instructions = _DEFAULT_RESPOND_INSTRUCTION
+        instructions = self._instructions or _DEFAULT_RESPOND_INSTRUCTION
         if extra_instruction:
             instructions = f"{instructions} {extra_instruction}"
 
-        call = Call(Respond, model=self._model, instructions=instructions)
+        call = Call(Respond, model=self._model_for_role("respond"), instructions=instructions)
         result = await call(message=message, conversation_history=history)
         return str(result.response)
+
+
+# ---------------------------------------------------------------------------
+# Event-to-response conversion (used by turn() backward compat)
+# ---------------------------------------------------------------------------
+
+
+def _events_to_response(events: list[AgentEvent], session_id: str) -> AgentResponse:
+    """Convert a collected event stream to a single AgentResponse.
+
+    Scans events for TurnComplete (final text + metrics) and IntentClassified
+    (intent). Falls back gracefully if events are incomplete.
+    """
+    # Find the final TurnComplete and IntentClassified events
+    turn_complete: TurnComplete | None = None
+    intent_event: IntentClassified | None = None
+    tool_call_records: list[ToolCallRecord] = []
+
+    for event in events:
+        if isinstance(event, TurnComplete):
+            turn_complete = event
+        elif isinstance(event, IntentClassified):
+            intent_event = event
+        elif isinstance(event, ToolCallResult):
+            tool_call_records.append(
+                ToolCallRecord.from_dict_args(
+                    tool_name=event.tool_name,
+                    arguments={},
+                    result_summary=event.result_summary,
+                    is_error=event.is_error,
+                )
+            )
+
+    # Build IntentResult from the intent event
+    intent = IntentResult(
+        intent=IntentType(intent_event.intent) if intent_event else IntentType.RESPOND,
+        confidence=intent_event.confidence if intent_event else 0.0,
+        reasoning=intent_event.reasoning if intent_event else "",
+    )
+
+    # Build response from TurnComplete or fallback to concatenated TextDelta
+    if turn_complete:
+        text = turn_complete.text
+        tokens_used = turn_complete.tokens_used
+        turn_number = 0
+        # Find turn number from TurnStart
+        for event in events:
+            if isinstance(event, TurnStart):
+                turn_number = event.turn_number
+                break
+    else:
+        # Fallback: concatenate all TextDelta content
+        text = "".join(event.content for event in events if isinstance(event, TextDelta))
+        tokens_used = 0
+        turn_number = 0
+
+    return AgentResponse.create(
+        text=text,
+        intent=intent,
+        tool_calls=tuple(tool_call_records),
+        turn_number=turn_number,
+        tokens_used=tokens_used,
+        metadata={"session_id": session_id},
+    )
