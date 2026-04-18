@@ -34,34 +34,49 @@ _CORPUS_DIR = Path(__file__).resolve().parent.parent.parent.parent / (
 )
 _QUESTIONS_PATH = _CORPUS_DIR / "multiformat-questions.jsonl"
 
-_FUZZY_MATCH_THRESHOLD = 0.6  # 60% of hint words must appear in answer
-_STOPWORDS = frozenset({
-    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
-    "have", "has", "had", "do", "does", "did", "will", "would", "shall",
-    "should", "may", "might", "must", "can", "could", "of", "in", "to",
-    "for", "with", "on", "at", "by", "from", "as", "or", "and", "that",
-    "this", "it", "its", "not", "no", "but", "if", "than", "each",
-})
+_FUZZY_MATCH_THRESHOLD = 0.5  # BM25 score threshold (hint as query, answer as doc)
+_WORD_OVERLAP_THRESHOLD = 0.5  # Fallback: 50% of hint content words in answer
 
 
 def _fuzzy_hint_match(answer: str, hint: str) -> bool:
-    """Check if the answer contains most of the hint's meaningful words.
+    """Check if the answer contains the expected hint content.
 
-    More robust than exact substring matching. Returns True if >= 60%
-    of the hint's non-stopword words appear anywhere in the answer.
+    Uses kaos-nlp-core BM25 scoring when available (treating the hint as a
+    query and the answer as a document). Falls back to word overlap.
+    More robust than exact substring — tolerates paraphrasing, reordering,
+    and synonyms.
     """
     if not hint or not answer:
         return False
     # Exact match first (fast path)
-    if hint in answer:
+    if hint.lower() in answer.lower():
         return True
-    # Fuzzy: check word overlap
-    hint_words = {w for w in hint.lower().split() if w not in _STOPWORDS and len(w) > 2}
+
+    # Try BM25-based scoring via kaos-nlp-core
+    try:
+        from kaos_nlp_core.search import Searcher
+
+        records = [{"id": 0, "text": answer}]
+        searcher = Searcher.from_documents(records)
+        hits = searcher.search(hint, top_k=1)
+        if hits and hits[0].score > _FUZZY_MATCH_THRESHOLD:
+            return True
+    except ImportError:
+        pass
+
+    # Fallback: word overlap (content words only)
+    hint_words = {
+        w for w in hint.lower().split()
+        if len(w) > 2 and w not in {
+            "the", "and", "for", "are", "was", "with", "that", "this",
+            "from", "have", "has", "been", "not", "but", "its", "each",
+        }
+    }
     if not hint_words:
-        return hint in answer
+        return hint.lower() in answer.lower()
     answer_lower = answer.lower()
     found = sum(1 for w in hint_words if w in answer_lower)
-    return found / len(hint_words) >= _FUZZY_MATCH_THRESHOLD
+    return found / len(hint_words) >= _WORD_OVERLAP_THRESHOLD
 
 
 @dataclass(frozen=True, slots=True)
