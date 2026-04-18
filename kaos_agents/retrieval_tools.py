@@ -36,6 +36,44 @@ _READ_ANNOTATIONS = ToolAnnotations(
 )
 
 
+def _get_corpus_from_context(context: Any) -> Any | None:
+    """Get the ContentDocumentCorpus from the execution context, if available."""
+    if context is None:
+        return None
+    config = getattr(context, "_config", None)
+    if config and isinstance(config, dict):
+        return config.get("_corpus")
+    return None
+
+
+# Process-level cache: corpus → Searcher (avoid rebuilding per tool call)
+_CORPUS_SEARCHER_CACHE: dict[int, Any] = {}
+
+
+def _get_corpus_searcher(corpus: Any) -> Any:
+    """Get or build a BM25 Searcher over the corpus passages."""
+    corpus_id = id(corpus)
+    if corpus_id in _CORPUS_SEARCHER_CACHE:
+        return _CORPUS_SEARCHER_CACHE[corpus_id]
+
+    from kaos_nlp_core.search import Searcher
+
+    records = []
+    passage_meta: list[dict[str, Any]] = []
+    for passage in corpus.iter_passages():
+        records.append({"id": len(records), "text": passage.text})
+        passage_meta.append({
+            "doc_uri": getattr(passage, "doc_uri", ""),
+            "block_ref": passage.block_ref,
+            "page": passage.page,
+            "section_title": getattr(passage, "section_title", None),
+        })
+
+    searcher = Searcher.from_documents(records)
+    _CORPUS_SEARCHER_CACHE[corpus_id] = (searcher, passage_meta)
+    return searcher, passage_meta
+
+
 def _get_memory(inputs: dict[str, Any], context: Any):
     """Load session memory from context."""
     from kaos_core.vfs.core import VirtualFileSystem
@@ -203,6 +241,14 @@ class BM25SearchTool(KaosTool):
                 "Alternative: use kaos-retrieval-synonyms to look up terms first."
             )
 
+        top_k = int(inputs.get("top_k", 20))
+
+        # Check for ContentDocumentCorpus in context (passage-level search)
+        corpus = _get_corpus_from_context(context)
+        if corpus is not None:
+            return await self._search_corpus(query, corpus, top_k)
+
+        # Fall back to session memory search
         memory, _store, err = _get_memory(inputs, context)
         if err:
             return ToolResult.create_error(err)
@@ -210,7 +256,6 @@ class BM25SearchTool(KaosTool):
         from kaos_agents.memory.search import search_memory
         from kaos_agents.memory.types import MemoryType
 
-        top_k = int(inputs.get("top_k", 20))
         results = search_memory(
             memory, query, sections=[MemoryType.DOCUMENTS], top_k=top_k, expand_relations=[]
         )
@@ -233,6 +278,55 @@ class BM25SearchTool(KaosTool):
                 f"BM25 found {len(results)} documents for '{query[:50]}'. "
                 f"{expansion_signal['recommendation']}. "
                 f"Topics: {topic_summary[:100]}"
+            ),
+        )
+
+
+    async def _search_corpus(
+        self, query: str, corpus: Any, top_k: int
+    ) -> ToolResult:
+        """Search a ContentDocumentCorpus at passage level."""
+        searcher, passage_meta = _get_corpus_searcher(corpus)
+        hits = searcher.search(query, top_k=top_k)
+
+        formatted = []
+        for h in hits:
+            meta = passage_meta[int(h.doc_id)]
+            formatted.append({
+                "doc_uri": meta["doc_uri"],
+                "block_ref": meta["block_ref"],
+                "page": meta["page"],
+                "section": meta["section_title"],
+                "score": round(h.score, 3),
+                "preview": h.text[:300] if hasattr(h, "text") and h.text else "",
+            })
+
+        # Build topic summary from top results
+        topic_parts = [
+            f"{r['doc_uri']}:{r['block_ref']} ({r['score']})"
+            for r in formatted[:5]
+        ]
+        topic_summary = " | ".join(topic_parts)
+
+        expansion_signal = _assess_expansion_need(
+            [type("R", (), {"score": h.score, "content": ""})() for h in hits],
+            top_k,
+        )
+
+        return ToolResult.create_success(
+            output={
+                "query": query,
+                "result_count": len(formatted),
+                "results": formatted,
+                "topic_summary": topic_summary,
+                "expansion_assessment": expansion_signal,
+                "search_level": "passage",
+                "corpus_size": corpus.size,
+            },
+            summary=(
+                f"BM25 found {len(formatted)} passages for '{query[:50]}' "
+                f"(from {corpus.size} total passages). "
+                f"{expansion_signal['recommendation']}"
             ),
         )
 
@@ -729,6 +823,143 @@ class CorpusInfoTool(KaosTool):
         )
 
 
+class GroundedAnswerTool(KaosTool):
+    """Generate a grounded, cited answer from passages found by previous searches.
+
+    Call this AFTER you have found relevant passages via BM25/HyDE/synonym search.
+    Provide the question and the passage texts. The tool uses RAG to generate a
+    verified, cited answer or explicitly refuses if evidence is insufficient.
+    """
+
+    @property
+    def metadata(self) -> ToolMetadata:
+        return ToolMetadata(
+            name="kaos-retrieval-answer",
+            display_name="Generate Grounded Answer",
+            description=(
+                "Generate a cited answer from passages you have found. Provide the "
+                "question and paste the relevant passage texts. The tool verifies "
+                "citations against the source text and returns a grounded answer. "
+                "If the passages don't contain enough evidence, it returns "
+                "'insufficient evidence' with a hint about what to search for next. "
+                "Use this AFTER searching — not as the first step."
+            ),
+            category=ToolCategory.DATA,
+            capability=ToolCapability.QUERY,
+            module_name=_MODULE,
+            version=_VERSION,
+            annotations=_READ_ANNOTATIONS,
+            input_schema=[
+                ParameterSchema(
+                    name="question",
+                    type="string",
+                    description="The user's question to answer",
+                ),
+                ParameterSchema(
+                    name="passages",
+                    type="string",
+                    description="The passage texts to answer from (paste from previous search results)",
+                ),
+            ],
+        )
+
+    async def execute(self, inputs: dict[str, Any], context: Any = None) -> ToolResult:
+        question = inputs.get("question", "")
+        passages_text = inputs.get("passages", "")
+        if not question:
+            return ToolResult.create_error(
+                "Missing 'question'. Provide the question to answer. "
+                "Alternative: use kaos-retrieval-bm25 to search for relevant passages first."
+            )
+        if not passages_text:
+            return ToolResult.create_error(
+                "Missing 'passages'. Paste the passage texts from your search results. "
+                "Alternative: run kaos-retrieval-bm25 first, then pass the results here."
+            )
+
+        try:
+            from kaos_agents._llm_imports import require_llm_core
+
+            require_llm_core()
+            from kaos_llm_core.programs.rag import RAG
+            from kaos_llm_core.signatures.grounding import (
+                Answer,
+                InsufficientEvidence,
+                MatchStrategy,
+            )
+
+            from kaos_agents.settings import DEFAULT_MODEL
+
+            # Build a mini-corpus from the provided passages
+            corpus = {"passage": passages_text}
+
+            rag = RAG(
+                model=DEFAULT_MODEL,
+                top_k=5,
+                max_retries=1,
+                match_strategies=(
+                    MatchStrategy.STRICT,
+                    MatchStrategy.SUBSTRING,
+                    MatchStrategy.CASE_INSENSITIVE,
+                    MatchStrategy.NORMALIZED_TOKEN,
+                ),
+            )
+            result = await rag.query(question=question, documents=corpus)
+
+            if isinstance(result.grounded_answer, Answer):
+                answer = result.grounded_answer
+                claims = [
+                    {
+                        "statement": c.statement,
+                        "confidence": c.confidence,
+                        "sources": [s.source_uri for s in c.supporting_spans],
+                    }
+                    for c in answer.claims
+                ]
+                return ToolResult.create_success(
+                    output={
+                        "answered": True,
+                        "answer": str(answer.value),
+                        "claims": claims,
+                        "verified": result.is_verified,
+                    },
+                    summary=f"Answer: {str(answer.value)[:200]}",
+                )
+
+            if isinstance(result.grounded_answer, InsufficientEvidence):
+                refusal = result.grounded_answer
+                return ToolResult.create_success(
+                    output={
+                        "answered": False,
+                        "reason": refusal.reason,
+                        "what_would_resolve": refusal.what_would_resolve or "",
+                    },
+                    summary=(
+                        f"Insufficient evidence: {refusal.reason[:100]}. "
+                        f"Try searching for: {refusal.what_would_resolve or 'more specific terms'}"
+                    ),
+                )
+
+            return ToolResult.create_success(
+                output={"answered": False, "reason": "Unexpected RAG result type"},
+                summary="RAG returned unexpected result type",
+            )
+
+        except ImportError:
+            return ToolResult.create_error(
+                "kaos-llm-core not installed. "
+                "Fix: install with pip install kaos-agents[llm]. "
+                "Alternative: synthesize the answer manually from the passage texts."
+            )
+        except Exception as exc:
+            logger.warning("grounded_answer_tool: RAG failed: %s", exc)
+            return ToolResult.create_error(
+                f"Answer generation failed: {exc}. "
+                "Try providing fewer or more focused passages. "
+                "Alternative: answer based on the passage texts directly."
+            )
+
+
 def register_retrieval_tools(runtime: Any) -> int:
     """Register all retrieval tools with a KaosRuntime."""
     tools: list[KaosTool] = [
@@ -738,6 +969,7 @@ def register_retrieval_tools(runtime: Any) -> int:
         EvaluateCoverageTool(),
         RerankTool(),
         CorpusInfoTool(),
+        GroundedAnswerTool(),
     ]
     for tool in tools:
         runtime.tools.register_tool(tool)
