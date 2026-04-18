@@ -41,12 +41,17 @@ STRATEGY:
 4. If there's a large vocabulary gap (consumer language vs. technical language):
    a. Use kaos-retrieval-hyde to generate a pseudo-document in the corpus's
       vocabulary, then search against it.
-5. After 2-3 search rounds, evaluate coverage with kaos-retrieval-evaluate.
-6. If coverage is sufficient, STOP and return your findings.
+5. If you have 10+ candidates and need better precision, use kaos-retrieval-rerank
+   to reorder results by cross-encoder relevance scoring.
+6. After 2-3 search rounds, evaluate coverage with kaos-retrieval-evaluate.
+7. If coverage is sufficient, STOP and return your findings.
 
 IMPORTANT:
 - Do NOT run every tool on every query. Simple queries need only BM25.
 - Do NOT over-search. 2-3 rounds is usually enough.
+- Reranking is most useful when BM25 returned many candidates but you're not
+  sure which are truly relevant. It does NOT find new documents — it reorders
+  existing results.
 - Report what you found AND what you could not find.
 - Include the document previews in your response so the parent agent can use them.
 

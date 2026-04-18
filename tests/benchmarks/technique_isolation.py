@@ -39,6 +39,7 @@ from pathlib import Path
 
 _BEIR_DATASETS = ("nfcorpus", "scifact", "fiqa")
 _CHEAP_TECHNIQUES = ("bm25", "lexicon", "prf")
+_RERANK_TECHNIQUES = ("bm25_rerank",)
 _LLM_TECHNIQUES = ("hyde",)
 
 
@@ -237,10 +238,67 @@ def run_hyde(memory, queries, test_qids):
     return all_ranked, latencies
 
 
+def run_bm25_rerank(memory, queries, test_qids):
+    """BM25 + cross-encoder reranking (requires sentence-transformers)."""
+    import asyncio
+
+    from kaos_agents.memory.search import search_memory
+    from kaos_agents.memory.types import MemoryType
+
+    try:
+        from kaos_nlp_core.retrieval.protocol import RetrievalResult
+        from kaos_nlp_transformers.reranker import CrossEncoderReranker
+
+        reranker = CrossEncoderReranker.load()
+    except ImportError as exc:
+        sys.stderr.write(f"    bm25_rerank: skipped — {exc}\n")
+        return {}, {}
+
+    _PASSAGE_TRUNCATE = 2000
+
+    all_ranked: dict[str, list[str]] = {}
+    latencies: dict[str, float] = {}
+
+    for i, qid in enumerate(test_qids):
+        t0 = time.perf_counter()
+        hits = search_memory(
+            memory, queries[qid], sections=[MemoryType.DOCUMENTS], top_k=100,
+            expand_relations=[],
+        )
+
+        if len(hits) >= 5:
+            retrieval_results = [
+                RetrievalResult(
+                    text=h.content[:_PASSAGE_TRUNCATE],
+                    score=h.score,
+                    doc_id=h.item_id,
+                )
+                for h in hits
+            ]
+            ranked = asyncio.run(reranker.rerank(queries[qid], retrieval_results, top_k=100))
+            # Map back to URIs
+            item_id_to_uri: dict[str, str] = {}
+            for h in hits:
+                uri = _resolve_uri(memory, h)
+                item_id_to_uri[h.item_id] = uri
+            all_ranked[qid] = [item_id_to_uri.get(r.result.doc_id, "") for r in ranked]
+        else:
+            all_ranked[qid] = [_resolve_uri(memory, h) for h in hits]
+
+        latencies[qid] = time.perf_counter() - t0
+
+        if (i + 1) % 50 == 0:
+            sys.stdout.write(f"    bm25_rerank: {i + 1}/{len(test_qids)}\n")
+            sys.stdout.flush()
+
+    return all_ranked, latencies
+
+
 _RUNNERS = {
     "bm25": run_bm25,
     "lexicon": run_lexicon,
     "prf": run_prf,
+    "bm25_rerank": run_bm25_rerank,
     "hyde": run_hyde,
 }
 
@@ -258,12 +316,15 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Technique isolation benchmark")
     parser.add_argument("--dataset", choices=_BEIR_DATASETS, default=None)
     parser.add_argument("--all", action="store_true", help="Run on all 3 datasets")
+    parser.add_argument("--with-rerank", action="store_true", help="Include cross-encoder reranking")
     parser.add_argument("--with-llm", action="store_true", help="Include LLM techniques (hyde)")
     parser.add_argument("--json", type=str, default=None)
     args = parser.parse_args(argv)
 
     datasets = list(_BEIR_DATASETS) if args.all else [args.dataset or "nfcorpus"]
     techniques = list(_CHEAP_TECHNIQUES)
+    if args.with_rerank:
+        techniques.extend(_RERANK_TECHNIQUES)
     if args.with_llm:
         techniques.extend(_LLM_TECHNIQUES)
 

@@ -394,6 +394,153 @@ class EvaluateCoverageTool(KaosTool):
         )
 
 
+_RERANK_PASSAGE_TRUNCATE = 2000  # Max chars per passage for cross-encoder
+_RERANK_MIN_CANDIDATES = 5  # Don't rerank fewer than this
+
+
+class RerankTool(KaosTool):
+    """Rerank BM25 results using a cross-encoder model for improved precision."""
+
+    @property
+    def metadata(self) -> ToolMetadata:
+        return ToolMetadata(
+            name="kaos-retrieval-rerank",
+            display_name="Cross-Encoder Reranker",
+            description=(
+                "Rerank previously retrieved documents using a cross-encoder model "
+                "that reads each (query, passage) pair with full attention. Much more "
+                "accurate than BM25 scoring alone — promotes truly relevant documents "
+                "from deeper in the results. Use this AFTER running BM25 search when "
+                "you have 10+ candidates and want to improve precision. Requires the "
+                "sentence-transformers backend; falls back to BM25 score ordering if "
+                "not available."
+            ),
+            category=ToolCategory.DATA,
+            capability=ToolCapability.QUERY,
+            module_name=_MODULE,
+            version=_VERSION,
+            annotations=_READ_ANNOTATIONS,
+            input_schema=[
+                ParameterSchema(name="session_id", type="string", description="Session ID"),
+                ParameterSchema(name="query", type="string", description="Search query to rerank against"),
+                ParameterSchema(
+                    name="top_k",
+                    type="integer",
+                    description="Number of top results to return after reranking (default 20)",
+                    required=False,
+                    constraints={"min": 1, "max": 100},
+                ),
+            ],
+        )
+
+    async def execute(self, inputs: dict[str, Any], context: Any = None) -> ToolResult:
+        query = inputs.get("query", "")
+        if not query:
+            return ToolResult.create_error("Missing 'query'. Provide the search query to rerank against.")
+
+        memory, _store, err = _get_memory(inputs, context)
+        if err:
+            return ToolResult.create_error(err)
+
+        # First run BM25 to get candidates (wide net: 100 results)
+        from kaos_agents.memory.search import search_memory
+        from kaos_agents.memory.types import MemoryType
+
+        candidates = search_memory(
+            memory, query, sections=[MemoryType.DOCUMENTS], top_k=100, expand_relations=[]
+        )
+
+        if len(candidates) < _RERANK_MIN_CANDIDATES:
+            formatted = _format_results(candidates)
+            return ToolResult.create_success(
+                output={
+                    "query": query,
+                    "reranked": False,
+                    "reason": f"Too few candidates ({len(candidates)}) for reranking",
+                    "result_count": len(candidates),
+                    "results": formatted,
+                },
+                summary=f"Only {len(candidates)} candidates — returned BM25 order (reranking needs {_RERANK_MIN_CANDIDATES}+)",
+            )
+
+        # Try cross-encoder reranking
+        try:
+            from kaos_nlp_core.retrieval.protocol import RetrievalResult
+            from kaos_nlp_transformers.reranker import CrossEncoderReranker
+
+            reranker = CrossEncoderReranker.load()
+
+            retrieval_results = [
+                RetrievalResult(
+                    text=c.content[:_RERANK_PASSAGE_TRUNCATE],
+                    score=c.score,
+                    doc_id=c.item_id,
+                )
+                for c in candidates
+            ]
+
+            top_k = int(inputs.get("top_k", 20))
+            ranked = await reranker.rerank(query, retrieval_results, top_k=top_k)
+
+            formatted = []
+            for r in ranked:
+                formatted.append({
+                    "item_id": r.result.doc_id,
+                    "bm25_score": round(r.result.score, 3),
+                    "rerank_score": round(r.rerank_score, 3),
+                    "preview": r.result.text[:300],
+                })
+
+            return ToolResult.create_success(
+                output={
+                    "query": query,
+                    "reranked": True,
+                    "method": "cross-encoder",
+                    "model": reranker.model_id,
+                    "candidates": len(candidates),
+                    "result_count": len(ranked),
+                    "results": formatted,
+                },
+                summary=(
+                    f"Cross-encoder reranked {len(candidates)} candidates → top {len(ranked)}. "
+                    f"Top score: {ranked[0].rerank_score:.3f}" if ranked else "No results"
+                ),
+            )
+
+        except ImportError:
+            # Fall back to BM25 order with a note
+            top_k = int(inputs.get("top_k", 20))
+            formatted = _format_results(candidates[:top_k])
+            return ToolResult.create_success(
+                output={
+                    "query": query,
+                    "reranked": False,
+                    "reason": "Cross-encoder not available (install kaos-nlp-transformers[torch])",
+                    "result_count": len(formatted),
+                    "results": formatted,
+                },
+                summary=(
+                    f"Cross-encoder not available — returning BM25 top-{top_k}. "
+                    "Install kaos-nlp-transformers[torch] for cross-encoder reranking."
+                ),
+            )
+
+        except Exception as exc:
+            logger.warning("rerank_tool: cross-encoder failed: %s", exc)
+            top_k = int(inputs.get("top_k", 20))
+            formatted = _format_results(candidates[:top_k])
+            return ToolResult.create_success(
+                output={
+                    "query": query,
+                    "reranked": False,
+                    "reason": f"Cross-encoder error: {exc}",
+                    "result_count": len(formatted),
+                    "results": formatted,
+                },
+                summary=f"Cross-encoder failed ({exc}) — returning BM25 order",
+            )
+
+
 def register_retrieval_tools(runtime: Any) -> int:
     """Register all retrieval tools with a KaosRuntime."""
     tools: list[KaosTool] = [
@@ -401,6 +548,7 @@ def register_retrieval_tools(runtime: Any) -> int:
         SynonymSearchTool(),
         HyDESearchTool(),
         EvaluateCoverageTool(),
+        RerankTool(),
     ]
     for tool in tools:
         runtime.tools.register_tool(tool)
