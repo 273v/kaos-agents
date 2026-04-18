@@ -1,0 +1,57 @@
+{
+  "timestamp": "2026-04-18T06:47:19",
+  "datasets": [
+    "nfcorpus"
+  ],
+  "techniques": [
+    "bm25",
+    "lexicon",
+    "prf",
+    "bm25_rerank"
+  ],
+  "results": [
+    {
+      "dataset": "nfcorpus",
+      "technique": "bm25",
+      "ndcg_at_10": 0.2960444109434609,
+      "map_at_100": 0.12788162207722567,
+      "recall_at_10": 0.14139606899639226,
+      "recall_at_100": 0.22480133724595655,
+      "avg_latency_s": 0.18524883052005486,
+      "num_queries": 323
+    },
+    {
+      "dataset": "nfcorpus",
+      "technique": "lexicon",
+      "ndcg_at_10": 0.23094581935112438,
+      "map_at_100": 0.09756507408652926,
+      "recall_at_10": 0.11271930398701105,
+      "recall_at_100": 0.19529176659452732,
+      "avg_latency_s": 0.17836859359765633,
+      "num_queries": 323
+    },
+    {
+      "dataset": "nfcorpus",
+      "technique": "prf",
+      "ndcg_at_10": 0.2765266611052296,
+      "map_at_100": 0.1237302823451614,
+      "recall_at_10": 0.14121087873411764,
+      "recall_at_100": 0.2610668731204823,
+      "avg_latency_s": 0.3573999205418039,
+      "num_queries": 323
+    },
+    {
+      "dataset": "nfcorpus",
+      "technique": "bm25_rerank",
+      "ndcg_at_10": 0.2993205312323292,
+      "map_at_100": 0.12513373663206598,
+      "recall_at_10": 0.1337186362067963,
+      "recall_at_100": 0.22480133724595655,
+      "avg_latency_s": 0.6916326035977192,
+      "num_queries": 323
+    }
+  ],
+  "baselines": {
+    "nfcorpus": 0.2960444109434609
+  }
+}
