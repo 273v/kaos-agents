@@ -281,11 +281,11 @@ class ResearchAgent(ChatAgent):
         corpus_size = 0
         if self._corpus is not None:
             corpus_size = getattr(self._corpus, "size", 0)
+            # Always thread corpus into context so retrieval tools can access it
+            if hasattr(self, "_context") and self._context is not None:
+                self._context._config["_corpus"] = self._corpus
             if corpus_size >= self._REACT_CORPUS_THRESHOLD:
                 can_escalate = True
-                # Thread corpus into context for retrieval tools
-                if hasattr(self, "_context") and self._context is not None:
-                    self._context._config["_corpus"] = self._corpus
 
         logger.debug(
             "research_agent._dispatch_streaming: path=%s, corpus_size=%d, "
