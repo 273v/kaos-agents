@@ -312,7 +312,7 @@ async def _run_repl(args: argparse.Namespace) -> None:
     while True:
         try:
             user_input = input(_c(_ANSI_GREEN, "> "))
-        except EOFError, KeyboardInterrupt:
+        except (EOFError, KeyboardInterrupt):
             print()
             break
 
