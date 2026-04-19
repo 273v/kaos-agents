@@ -1,5 +1,29 @@
 # kaos-agents Development Notes
 
+## Required Checklists
+
+Apply these checklist sources to every change in this module.
+
+Python:
+- `../docs/python/checklists/index.md`
+- `../docs/python/checklists/01-research.md`
+- `../docs/python/checklists/02-design.md`
+- `../docs/python/checklists/03-implement.md`
+- `../docs/python/checklists/04-test.md`
+- `../docs/python/checklists/05-quality.md`
+- `../docs/python/checklists/06-review.md`
+- `../docs/python/checklists/07-commit.md`
+- `../docs/python/checklists/08-debug.md`
+- `../docs/python/checklists/09-optimize.md`
+- `../docs/python/checklists/10-document.md`
+- `../docs/python/checklists/11-retrieval-and-evaluation.md`
+- `../docs/python/checklists/12-benchmarking.md`
+- `../docs/python/checklists/13-kaos-agent-retrieval.md`
+
+Rust-adjacent:
+- `../kaos-nlp-core/docs/FUZZY_HASHING_PLAN.md` (`QA Checklist`) for Rust, PyO3, native bindings, and performance-critical boundary work
+- `../kaos-nlp-core/docs/todo/API_IMPROVEMENTS_TODO.md` for Rust-adjacent backlog and API-shape guidance
+
 ## Purpose
 
 Agentic runtime with persistent, section-based memory for KAOS. Sits above kaos-llm-core (which provides the LLM programming primitives) and below applications (which use the agent as a multi-turn, tool-using assistant).
