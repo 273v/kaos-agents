@@ -285,7 +285,8 @@ def main(argv: list[str] | None = None) -> None:
         sys.stdout.write(f"\nResults for {ds_name}:\n")
         for q in result.queries:
             sys.stdout.write(
-                f"  [{q.query_id}] recall={q.recall:.1%} ({q.true_positives}/{q.ground_truth_count})"
+                f"  [{q.query_id}] recall={q.recall:.1%} "
+                f"({q.true_positives}/{q.ground_truth_count})"
                 f" unique={q.unique_items} rounds={q.total_rounds} {q.latency_s:.1f}s\n"
             )
         sys.stdout.write(

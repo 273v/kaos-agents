@@ -303,13 +303,13 @@ class Runner:
         emitter = EventEmitter(session_id=run_state.session_id, run_id=run_state.run_id)
 
         if not approved:
+            tool_name = (
+                run_state.pending_tool_call.tool_name if run_state.pending_tool_call else "unknown"
+            )
             yield emitter.emit(
                 RunError,
                 error_type="approval_denied",
-                message=(
-                    f"Human approval denied for tool call "
-                    f"'{run_state.pending_tool_call.tool_name if run_state.pending_tool_call else 'unknown'}'."
-                ),
+                message=(f"Human approval denied for tool call '{tool_name}'."),
                 recovery_hint=(
                     "If this denial was a mistake, call resume() again with approved=True. "
                     "Otherwise, restart the run with a different message or different tools."
@@ -769,9 +769,7 @@ class Runner:
                     from kaos_agents.delegation import DelegatedAgent
 
                     if isinstance(retrieval_tool, DelegatedAgent):
-                        da_tool = self._build_single_delegation_tool(
-                            retrieval_tool, session_id
-                        )
+                        da_tool = self._build_single_delegation_tool(retrieval_tool, session_id)
                         if da_tool is not None:
                             research_extra_tools = (*extra_tools, da_tool)
             except Exception as exc:

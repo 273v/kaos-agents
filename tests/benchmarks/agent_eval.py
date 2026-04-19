@@ -171,8 +171,8 @@ async def run_agent_eval(
                     intent = event.intent
                     intent_conf = event.confidence
                 elif isinstance(event, CitationFound):
-                    if hasattr(event, "doc_id") and event.doc_id:
-                        cited_doc_ids.append(event.doc_id)
+                    if event.source_uri:
+                        cited_doc_ids.append(event.source_uri)
                 elif isinstance(event, EvidenceInsufficient):
                     refused = True
                 elif isinstance(event, TextDelta):
@@ -292,9 +292,7 @@ def main(argv: list[str] | None = None) -> None:
         today = time.strftime("%Y-%m-%d")
         benchmarks_dir = Path(__file__).resolve().parent.parent.parent / "docs" / "benchmarks"
         json_path = str(benchmarks_dir / f"agent-{args.dataset}-{today}.json")
-        sys.stderr.write(
-            f"WARNING: --json not specified; results will be saved to {json_path}\n"
-        )
+        sys.stderr.write(f"WARNING: --json not specified; results will be saved to {json_path}\n")
 
     out_path = Path(json_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)

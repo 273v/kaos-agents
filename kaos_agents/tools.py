@@ -205,9 +205,12 @@ class AgentPlanTool(KaosTool):
             display_name="Agent Plan-Execute",
             description=(
                 "Run a plan-execute agent for complex multi-step goals. "
-                "Decomposes the goal into steps, executes them with available tools, "
-                "and synthesizes results. For simple conversational queries, use kaos-agent-chat. "
-                "Session memory persists — prior plan failures inform future attempts via Reflexion."
+                "Decomposes the goal into steps, executes them with "
+                "available tools, "
+                "and synthesizes results. For simple conversational queries, "
+                "use kaos-agent-chat. "
+                "Session memory persists — prior plan failures inform "
+                "future attempts via Reflexion."
             ),
             category=ToolCategory.TEXT,
             capability=ToolCapability.TRANSFORM,
@@ -232,7 +235,8 @@ class AgentPlanTool(KaosTool):
                     name="model",
                     type="string",
                     description=(
-                        "LLM model for planning and execution. Default: anthropic:claude-haiku-4-5. "
+                        "LLM model for planning and execution. "
+                        "Default: anthropic:claude-haiku-4-5. "
                         "Use anthropic:claude-sonnet-4-6 for complex multi-step research."
                     ),
                     required=False,
@@ -269,7 +273,8 @@ class AgentPlanTool(KaosTool):
             return ToolResult.create_error(
                 "Missing 'message' parameter. "
                 "Provide the goal or multi-step request. "
-                'Example: {"message": "Search FR for EPA rules, then get the full text of the first result"}'
+                'Example: {"message": "Search FR for EPA rules, '
+                'then get the full text of the first result"}'
             )
         if not session_id:
             return ToolResult.create_error(
@@ -362,7 +367,8 @@ class AgentMemoryQueryTool(KaosTool):
                     type="string",
                     description=(
                         "Memory section to read. "
-                        "Options: messages, actions, findings, documents, reflection, role, playbooks. "
+                        "Options: messages, actions, findings, documents, "
+                        "reflection, role, playbooks. "
                         "Default: messages."
                     ),
                     required=False,
@@ -418,7 +424,8 @@ class AgentMemoryQueryTool(KaosTool):
                 logger.debug("Failed to load session '%s': %s", session_id, exc, exc_info=True)
                 return ToolResult.create_error(
                     f"Session '{session_id}' not found or failed to load: {exc}. "
-                    "Check that the session_id matches a previous kaos-agent-chat or kaos-agent-plan call. "
+                    "Check that the session_id matches a previous "
+                    "kaos-agent-chat or kaos-agent-plan call. "
                     "Sessions persist in VFS — they may have expired if older than 7 days."
                 )
 
@@ -449,7 +456,10 @@ class AgentMemoryQueryTool(KaosTool):
                 ],
             }
 
-            summary = f"Session '{session_id}' ({memory.turn_count} turns): {len(items)} {section_name} items"
+            summary = (
+                f"Session '{session_id}' ({memory.turn_count} turns): "
+                f"{len(items)} {section_name} items"
+            )
             return ToolResult.create_success(output=result_data, summary=summary)
 
         except Exception as exc:

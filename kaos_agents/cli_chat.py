@@ -18,7 +18,8 @@ Slash commands inside the REPL:
     /memory   — dump memory section summaries
     /clear    — clear session memory
     /verbose  — toggle verbose event display
-    /load <path>  — load file, glob, or folder (PDF, DOCX, PPTX, XLSX, HTML, TXT, MD, CSV, JSON, EML)
+    /load <path>  — load file, glob, or folder
+                    (PDF, DOCX, PPTX, XLSX, HTML, TXT, MD, CSV, JSON, EML)
     /docs     — list loaded documents
 """
 
@@ -40,9 +41,17 @@ _ANSI_RED = "\033[31m"
 _ANSI_RESET = "\033[0m"
 
 _SUPPORTED_EXTENSIONS = {
-    ".pdf", ".docx", ".pptx", ".xlsx",
-    ".html", ".htm", ".txt", ".md",
-    ".json", ".csv", ".eml",
+    ".pdf",
+    ".docx",
+    ".pptx",
+    ".xlsx",
+    ".html",
+    ".htm",
+    ".txt",
+    ".md",
+    ".json",
+    ".csv",
+    ".eml",
 }
 
 
@@ -65,7 +74,7 @@ def _parse_file_to_document(file_path: Path) -> Any:
 
     ext = file_path.suffix.lower()
 
-    source = SourceRef(uri=file_path.as_uri(), path=str(file_path))
+    source = SourceRef(uri=file_path.as_uri())
 
     # PDF → kaos-pdf
     if ext == ".pdf":
@@ -288,7 +297,7 @@ async def _run_repl(args: argparse.Namespace) -> None:
     session_cost = 0.0
     session_turns = 0
 
-    tool_names = sorted(runtime.list_tools().keys()) if hasattr(runtime, "list_tools") else []
+    tool_names = sorted(runtime.tools.list_tools())
     print(_c(_ANSI_BOLD, f"KAOS Agent | {args.model} | pattern={pattern}"))
     corpus_size = corpus.size if corpus is not None else 0
     docs_label = f" | Passages: {corpus_size}" if corpus_size > 0 else ""
@@ -303,7 +312,7 @@ async def _run_repl(args: argparse.Namespace) -> None:
     while True:
         try:
             user_input = input(_c(_ANSI_GREEN, "> "))
-        except (EOFError, KeyboardInterrupt):
+        except EOFError, KeyboardInterrupt:
             print()
             break
 
@@ -322,9 +331,7 @@ async def _run_repl(args: argparse.Namespace) -> None:
                 print(f"Verbose: {'ON' if verbose else 'OFF'}")
                 continue
             if stripped == "/tools":
-                names = (
-                    sorted(runtime.list_tools().keys()) if hasattr(runtime, "list_tools") else []
-                )
+                names = sorted(runtime.tools.list_tools())
                 for n in names:
                     print(f"  {n}")
                 print(f"({len(names)} tools)")
@@ -349,7 +356,8 @@ async def _run_repl(args: argparse.Namespace) -> None:
                 if target.is_dir():
                     # Load all supported files from the directory
                     paths = [
-                        f for f in sorted(target.iterdir())
+                        f
+                        for f in sorted(target.iterdir())
                         if f.is_file() and f.suffix.lower() in _SUPPORTED_EXTENSIONS
                     ]
                     if not paths:
@@ -439,7 +447,7 @@ async def _run_repl(args: argparse.Namespace) -> None:
                     print(_c(_ANSI_CYAN, f"[step:{event.step_id}] {event.description}"))
 
                 elif isinstance(event, StepComplete) and verbose:
-                    status = "done" if event.success else "failed"
+                    status = "failed" if event.is_error else "done"
                     print(_c(_ANSI_DIM, f"[step:{event.step_id}] {status}"))
 
                 elif isinstance(event, ToolCallStart):
@@ -479,7 +487,11 @@ async def _run_repl(args: argparse.Namespace) -> None:
                     print(
                         _c(
                             _ANSI_RED,
-                            f"[refusal] confidence={event.original_confidence:.2f} < {event.min_confidence:.2f}",
+                            (
+                                "[refusal] confidence="
+                                f"{event.original_confidence:.2f} < "
+                                f"{event.min_confidence:.2f}"
+                            ),
                         )
                     )
 

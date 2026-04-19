@@ -1034,6 +1034,7 @@ dev = [
     { name = "kaos-content", extra = ["html", "markdown"] },
     { name = "kaos-llm-client" },
     { name = "kaos-llm-core" },
+    { name = "kaos-mcp" },
     { name = "kaos-ml-core" },
     { name = "kaos-nlp-transformers", extra = ["torch"] },
     { name = "kaos-office", extra = ["pptx"] },
@@ -1041,6 +1042,7 @@ dev = [
     { name = "kaos-source" },
     { name = "kaos-web" },
     { name = "mdit-py-plugins" },
+    { name = "opentelemetry-api" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-benchmark" },
@@ -1074,6 +1076,7 @@ dev = [
     { name = "kaos-content", extras = ["markdown", "html"], editable = "../kaos-content" },
     { name = "kaos-llm-client", editable = "../kaos-llm-client" },
     { name = "kaos-llm-core", editable = "../kaos-llm-core" },
+    { name = "kaos-mcp", editable = "../kaos-mcp" },
     { name = "kaos-ml-core", editable = "../kaos-ml-core" },
     { name = "kaos-nlp-transformers", extras = ["torch"], editable = "../kaos-nlp-transformers" },
     { name = "kaos-office", extras = ["pptx"], editable = "../kaos-office" },
@@ -1081,6 +1084,7 @@ dev = [
     { name = "kaos-source", editable = "../kaos-source" },
     { name = "kaos-web", editable = "../kaos-web" },
     { name = "mdit-py-plugins", specifier = ">=0.4" },
+    { name = "opentelemetry-api", specifier = ">=1.20" },
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "pytest-asyncio", specifier = ">=0.26.0" },
     { name = "pytest-benchmark", specifier = ">=5.1.0" },
@@ -1136,11 +1140,20 @@ provides-extras = ["dedup", "duckdb", "html", "images", "layout", "markdown", "m
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "duckdb", specifier = ">=1.0.0" },
+    { name = "imagehash", specifier = ">=4.3.0" },
+    { name = "kaos-mcp", editable = "../kaos-mcp" },
+    { name = "kaos-nlp-core", editable = "../kaos-nlp-core" },
+    { name = "kaos-nlp-transformers", editable = "../kaos-nlp-transformers" },
     { name = "kaos-office", extras = ["xlsx-calamine"], editable = "../kaos-office" },
+    { name = "numpy", specifier = ">=2.0.0" },
+    { name = "pillow", specifier = ">=11.0.0" },
+    { name = "polars", specifier = ">=1.0.0" },
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "pytest-asyncio", specifier = ">=0.26.0" },
     { name = "pytest-cov", specifier = ">=6.0.0" },
     { name = "ruff", specifier = ">=0.11.0" },
+    { name = "scipy", specifier = ">=1.13.0" },
     { name = "ty", specifier = ">=0.0.1a17" },
 ]
 
@@ -1169,6 +1182,7 @@ provides-extras = ["mcp", "pydantic-ai"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "kaos-mcp", editable = "../kaos-mcp" },
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "pytest-asyncio", specifier = ">=0.26.0" },
     { name = "pytest-benchmark", specifier = ">=5.1.0" },
@@ -1194,6 +1208,10 @@ provides-extras = ["rdf", "mcp", "tabular", "programs"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "kaos-core", editable = "../kaos-core" },
+    { name = "kaos-llm-core", editable = "../kaos-llm-core" },
+    { name = "kaos-mcp", editable = "../kaos-mcp" },
+    { name = "networkx", specifier = ">=3.5" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "pytest-asyncio", specifier = ">=0.25" },
     { name = "ruff", specifier = ">=0.11" },
@@ -1258,11 +1276,13 @@ provides-extras = ["mcp", "otel", "pdf", "tabular"]
 dev = [
     { name = "datasets", specifier = ">=4.8.4" },
     { name = "kaos-content", editable = "../kaos-content" },
+    { name = "kaos-mcp", directory = "../kaos-mcp" },
     { name = "kaos-ml-core", editable = "../kaos-ml-core" },
     { name = "kaos-nlp-transformers", editable = "../kaos-nlp-transformers" },
     { name = "kaos-office", editable = "../kaos-office" },
     { name = "kaos-pdf", editable = "../kaos-pdf" },
     { name = "kaos-source", extras = ["content"], editable = "../kaos-source" },
+    { name = "kaos-tabular", editable = "../kaos-tabular" },
     { name = "kaos-web", editable = "../kaos-web" },
     { name = "markdown-it-py", specifier = ">=4.0.0" },
     { name = "mdit-py-plugins", specifier = ">=0.5.0" },
@@ -1362,6 +1382,7 @@ provides-extras = ["mcp"]
 dev = [
     { name = "datasets", specifier = ">=4.8.4" },
     { name = "kaos-content", editable = "../kaos-content" },
+    { name = "kaos-mcp", editable = "../kaos-mcp" },
     { name = "kaos-ml-core", editable = "../kaos-ml-core" },
     { name = "kaos-nlp-transformers", editable = "../kaos-nlp-transformers" },
     { name = "markdown-it-py", specifier = ">=4.0.0" },
@@ -1449,9 +1470,11 @@ provides-extras = ["mcp", "nlp", "pptx", "xlsx-calamine", "xlsx-formulas", "xlsx
 dev = [
     { name = "kaos-mcp", editable = "../kaos-mcp" },
     { name = "kaos-nlp-core", editable = "../kaos-nlp-core" },
+    { name = "kaos-pdf", editable = "../kaos-pdf" },
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "pytest-asyncio", specifier = ">=0.26.0" },
     { name = "pytest-cov", specifier = ">=6.0.0" },
+    { name = "python-calamine", specifier = ">=0.6" },
     { name = "python-pptx", specifier = ">=1.0" },
     { name = "ruff", specifier = ">=0.11.0" },
     { name = "ty", specifier = ">=0.0.1a17" },
@@ -1520,6 +1543,10 @@ provides-extras = ["browser", "content", "mcp", "pacer"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "kaos-content", extras = ["html"], editable = "../kaos-content" },
+    { name = "kaos-mcp", editable = "../kaos-mcp" },
+    { name = "kaos-nlp-core", editable = "../kaos-nlp-core" },
+    { name = "lxml", specifier = ">=5.0.0" },
     { name = "pillow", specifier = ">=12.2.0" },
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "pytest-asyncio", specifier = ">=0.26.0" },

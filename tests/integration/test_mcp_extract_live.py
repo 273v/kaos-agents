@@ -132,7 +132,9 @@ class TestExtractCorpusToolLive:
                 {
                     "id": "document_type",
                     "column_type": "string",
-                    "description": "The document type (e.g., 'Software License Agreement', 'court opinion').",
+                    "description": (
+                        "The document type (e.g., 'Software License Agreement', 'court opinion')."
+                    ),
                 },
                 {
                     "id": "primary_entity",

@@ -447,7 +447,8 @@ def deserialize_event(data: dict[str, Any]) -> AgentEvent:
         >>> d = {'type': 'turn_start', 'timestamp': 1.0, 'sequence': 0,
         ...      'session_id': 's', 'run_id': 'r', 'turn_number': 1}
         >>> deserialize_event(d)
-        TurnStart(timestamp=1.0, sequence=0, session_id='s', run_id='r', agent_id=None, turn_number=1)
+        TurnStart(timestamp=1.0, sequence=0, session_id='s',
+        run_id='r', agent_id=None, turn_number=1)
     """
     type_name = data.get("type")
     if not type_name:

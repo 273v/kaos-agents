@@ -14,7 +14,9 @@ Endpoints:
 
 from __future__ import annotations
 
-from fastapi import FastAPI, Header, HTTPException, Path, Query
+from typing import Annotated
+
+from fastapi import Body, FastAPI, Header, HTTPException, Path, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from kaos_core import KaosRuntime
@@ -167,9 +169,9 @@ def _register_routes(app: FastAPI) -> None:
 
     @app.post("/v1/sessions/{session_id}/messages", response_model=None)
     async def send_message(
-        session_id: str = Path(description="Session identifier"),
-        body: MessageRequest = ...,  # type: ignore[assignment]
-        accept: str = Header(default="text/event-stream"),
+        session_id: Annotated[str, Path(description="Session identifier")],
+        body: Annotated[MessageRequest, Body()],
+        accept: Annotated[str, Header()] = "text/event-stream",
     ) -> StreamingResponse | JSONResponse:
         """Send a message; responds per ``Accept`` header content negotiation.
 
@@ -227,8 +229,10 @@ def _register_routes(app: FastAPI) -> None:
 
     @app.post("/v1/runs/{run_id}/approve", response_model=None)
     async def approve_run(
-        run_id: str = Path(description="Run identifier from a paused ToolCallApprovalRequired"),
-        body: ApprovalRequest = ...,  # type: ignore[assignment]
+        run_id: Annotated[
+            str, Path(description="Run identifier from a paused ToolCallApprovalRequired")
+        ],
+        body: Annotated[ApprovalRequest, Body()],
     ) -> StreamingResponse:
         """Approve or deny a paused run, then stream the continuation as SSE.
 
@@ -249,7 +253,8 @@ def _register_routes(app: FastAPI) -> None:
                 detail=(
                     f"No paused run found for run_id={run_id!r}: {exc}. "
                     "Either the run was never paused, or the VFS state has expired. "
-                    "Check the run_state_ref returned with the original ToolCallApprovalRequired event."
+                    "Check the run_state_ref returned with the original "
+                    "ToolCallApprovalRequired event."
                 ),
             ) from exc
 

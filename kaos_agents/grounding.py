@@ -105,10 +105,17 @@ def apply_refusal_policy(
 def make_evidence_insufficient_event(
     collapsed: Any,
     sequence: int = 0,
+    *,
+    timestamp: float = 0.0,
+    session_id: str = "",
+    run_id: str = "",
 ) -> EvidenceInsufficient:
     """Build an EvidenceInsufficient event from an InsufficientEvidence model."""
     return EvidenceInsufficient(
+        timestamp=timestamp,
         sequence=sequence,
+        session_id=session_id,
+        run_id=run_id,
         reason=getattr(collapsed, "reason", ""),
         what_would_resolve=getattr(collapsed, "what_would_resolve", "") or "",
     )

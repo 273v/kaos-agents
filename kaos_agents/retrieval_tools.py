@@ -189,7 +189,8 @@ def _assess_expansion_need(results: list, requested_k: int) -> dict[str, Any]:
     """
     if not results:
         logger.debug(
-            "retrieval_tools._assess_expansion_need: no results, suggesting expansion, requested_k=%d",
+            "retrieval_tools._assess_expansion_need: "
+            "no results, suggesting expansion, requested_k=%d",
             requested_k,
         )
         return {
@@ -251,7 +252,9 @@ def _assess_expansion_need(results: list, requested_k: int) -> dict[str, Any]:
         return {
             "suggest_expansion": False,
             "reason": "Strong top matches with sharp score drop — focused results",
-            "recommendation": "Results look focused. Expansion not recommended unless coverage gaps are found",
+            "recommendation": (
+                "Results look focused. Expansion not recommended unless coverage gaps are found"
+            ),
             "top_score": round(top_score, 2),
             "score_p50": round(score_p50, 2),
         }
@@ -509,7 +512,8 @@ class SynonymSearchTool(KaosTool):
             synonyms = synonyms or lexicon.synonyms(dehyphenated)
             hypernyms = hypernyms or lexicon.hypernyms(dehyphenated)
             logger.debug(
-                "retrieval_tools.SynonymSearchTool: dehyphenated fallback used, word=%s dehyphenated=%s",
+                "retrieval_tools.SynonymSearchTool: "
+                "dehyphenated fallback used, word=%s dehyphenated=%s",
                 word,
                 dehyphenated,
             )
@@ -537,7 +541,8 @@ class SynonymSearchTool(KaosTool):
         if also_search and synonyms:
             expanded_query = " ".join(synonyms[:5])
             logger.debug(
-                "retrieval_tools.SynonymSearchTool: searching with expanded query, expanded_query=%s",
+                "retrieval_tools.SynonymSearchTool: "
+                "searching with expanded query, expanded_query=%s",
                 expanded_query[:100],
             )
 
@@ -647,7 +652,8 @@ class HyDESearchTool(KaosTool):
             )
 
         logger.debug(
-            "retrieval_tools.HyDESearchTool: pseudo-document generated, query=%s pseudo_doc_length=%d",
+            "retrieval_tools.HyDESearchTool: pseudo-document generated, "
+            "query=%s pseudo_doc_length=%d",
             query[:100],
             len(pseudo_doc),
         )
@@ -664,12 +670,14 @@ class HyDESearchTool(KaosTool):
             formatted = []
             for h in hits:
                 meta = passage_meta[int(h.doc_id)]
-                formatted.append({
-                    "doc_uri": meta["doc_uri"],
-                    "block_ref": meta["block_ref"],
-                    "score": round(h.score, 3),
-                    "preview": h.text[:300] if hasattr(h, "text") and h.text else "",
-                })
+                formatted.append(
+                    {
+                        "doc_uri": meta["doc_uri"],
+                        "block_ref": meta["block_ref"],
+                        "score": round(h.score, 3),
+                        "preview": h.text[:300] if hasattr(h, "text") and h.text else "",
+                    }
+                )
         else:
             memory, _store, err = _get_memory(inputs, context)
             if err:
@@ -740,7 +748,9 @@ class EvaluateCoverageTool(KaosTool):
                 ParameterSchema(
                     name="document_summaries",
                     type="string",
-                    description="Summaries of documents found so far (paste from previous search results)",
+                    description=(
+                        "Summaries of documents found so far (paste from previous search results)"
+                    ),
                 ),
             ],
         )
@@ -767,7 +777,8 @@ class EvaluateCoverageTool(KaosTool):
             )
 
         logger.debug(
-            "retrieval_tools.EvaluateCoverageTool: evaluating coverage, query=%s summaries_length=%d",
+            "retrieval_tools.EvaluateCoverageTool: evaluating coverage, "
+            "query=%s summaries_length=%d",
             query[:100],
             len(summaries),
         )
@@ -885,11 +896,15 @@ class RerankTool(KaosTool):
             raw_hits = searcher.search(query, top_k=100)
             # Convert to a list with .score, .content, .item_id for compatibility
             candidates = [
-                type("Hit", (), {
-                    "score": h.score,
-                    "content": h.text if hasattr(h, "text") else "",
-                    "item_id": str(h.doc_id),
-                })()
+                type(
+                    "Hit",
+                    (),
+                    {
+                        "score": h.score,
+                        "content": h.text if hasattr(h, "text") else "",
+                        "item_id": str(h.doc_id),
+                    },
+                )()
                 for h in raw_hits
             ]
         else:
@@ -909,14 +924,16 @@ class RerankTool(KaosTool):
             )
 
         logger.debug(
-            "retrieval_tools.RerankTool: BM25 candidate retrieval complete, query=%s candidate_count=%d",
+            "retrieval_tools.RerankTool: BM25 candidate retrieval complete, "
+            "query=%s candidate_count=%d",
             query[:100],
             len(candidates),
         )
 
         if len(candidates) < _RERANK_MIN_CANDIDATES:
             logger.info(
-                "retrieval_tools.RerankTool: too few candidates for reranking, returning BM25 order, "
+                "retrieval_tools.RerankTool: too few candidates for "
+                "reranking, returning BM25 order, "
                 "query=%s candidate_count=%d min_required=%d",
                 query[:100],
                 len(candidates),
@@ -931,7 +948,10 @@ class RerankTool(KaosTool):
                     "result_count": len(candidates),
                     "results": formatted,
                 },
-                summary=f"Only {len(candidates)} candidates — returned BM25 order (reranking needs {_RERANK_MIN_CANDIDATES}+)",
+                summary=(
+                    f"Only {len(candidates)} candidates — returned BM25 order "
+                    f"(reranking needs {_RERANK_MIN_CANDIDATES}+)"
+                ),
             )
 
         # Try cross-encoder reranking
@@ -998,7 +1018,8 @@ class RerankTool(KaosTool):
         except ImportError:
             # Fall back to BM25 order with a note
             logger.info(
-                "retrieval_tools.RerankTool: cross-encoder not available, falling back to BM25 order, query=%s",
+                "retrieval_tools.RerankTool: cross-encoder not available, "
+                "falling back to BM25 order, query=%s",
                 query[:100],
             )
             top_k = int(inputs.get("top_k", 20))
@@ -1138,7 +1159,6 @@ class CorpusInfoTool(KaosTool):
             ),
         )
 
-
     def _corpus_info(self, corpus: Any) -> ToolResult:
         """Return info about a ContentDocumentCorpus from context."""
         from collections import Counter
@@ -1164,7 +1184,10 @@ class CorpusInfoTool(KaosTool):
         logger.info(
             "retrieval_tools.CorpusInfoTool: corpus stats (from context), "
             "document_count=%d passage_count=%d total_chars=%d avg_chars=%d",
-            n_docs, n_passages, total_chars, avg_chars,
+            n_docs,
+            n_passages,
+            total_chars,
+            avg_chars,
         )
 
         return ToolResult.create_success(
@@ -1220,7 +1243,9 @@ class GroundedAnswerTool(KaosTool):
                 ParameterSchema(
                     name="passages",
                     type="string",
-                    description="The passage texts to answer from (paste from previous search results)",
+                    description=(
+                        "The passage texts to answer from (paste from previous search results)"
+                    ),
                 ),
             ],
         )

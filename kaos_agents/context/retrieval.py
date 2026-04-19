@@ -28,7 +28,7 @@ Usage::
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from kaos_core.logging import get_logger
 
@@ -566,6 +566,7 @@ def _try_hybrid_retrieve(
         else:
             hits = asyncio.run(hybrid.retrieve(query, top_k=top_k))
 
+        hits = cast(list[Any], hits)
         results: list[MemorySearchResult] = []
         for hit in hits:
             idx = int(hit.doc_id) if hasattr(hit, "doc_id") else 0
@@ -625,7 +626,10 @@ def _reflect_on_coverage(
                 description="Summaries of the top documents found so far"
             )
             gap_queries: list[str] = OutputField(
-                description="2-3 targeted queries for MISSING aspects, or empty list if coverage is sufficient"
+                description=(
+                    "2-3 targeted queries for MISSING aspects, or empty "
+                    "list if coverage is sufficient"
+                )
             )
 
         top_summaries = []
@@ -656,7 +660,7 @@ def _reflect_on_coverage(
         else:
             result = asyncio.run(call(original_query=query, document_summaries=summary_text))
 
-        queries = result.gap_queries if hasattr(result, "gap_queries") else []
+        queries = cast(list[str], getattr(result, "gap_queries", []))
         logger.debug(
             "retrieval.reflect: query=%r gaps=%d",
             query[:50],
@@ -830,7 +834,10 @@ def _generate_pseudo_document(
 
             search_query: str = InputField(description="The search query to generate a passage for")
             hypothetical_passage: str = OutputField(
-                description="A realistic 150-250 word excerpt using domain-specific terminology relevant to the query"
+                description=(
+                    "A realistic 150-250 word excerpt using domain-specific "
+                    "terminology relevant to the query"
+                )
             )
 
         from kaos_agents.settings import DEFAULT_MODEL
@@ -854,7 +861,7 @@ def _generate_pseudo_document(
         else:
             result = asyncio.run(call(search_query=query))
 
-        passage = result.hypothetical_passage if hasattr(result, "hypothetical_passage") else ""
+        passage = cast(str, getattr(result, "hypothetical_passage", ""))
         logger.debug("retrieval.hyde_generated: query=%r passage_len=%d", query[:50], len(passage))
         return passage
     except Exception as exc:
@@ -894,7 +901,10 @@ def _generate_llm_queries(
             original_query: str = InputField(description="The original search query")
             results_found: int = InputField(description="Number of documents found so far")
             alternative_queries: list[str] = OutputField(
-                description="3-5 alternative search queries, each using different domain terminology and vocabulary"
+                description=(
+                    "3-5 alternative search queries, each using different "
+                    "domain terminology and vocabulary"
+                )
             )
 
         from kaos_agents.settings import DEFAULT_MODEL
@@ -920,7 +930,7 @@ def _generate_llm_queries(
             result = asyncio.run(
                 call(original_query=original_query, results_found=len(found_item_ids))
             )
-        queries = result.alternative_queries if hasattr(result, "alternative_queries") else []
+        queries = cast(list[str], getattr(result, "alternative_queries", []))
         logger.debug(
             "retrieval.llm_expand: original=%r suggestions=%d",
             original_query[:50],

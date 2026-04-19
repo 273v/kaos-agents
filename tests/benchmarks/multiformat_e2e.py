@@ -66,10 +66,27 @@ def _fuzzy_hint_match(answer: str, hint: str) -> bool:
 
     # Fallback: word overlap (content words only)
     hint_words = {
-        w for w in hint.lower().split()
-        if len(w) > 2 and w not in {
-            "the", "and", "for", "are", "was", "with", "that", "this",
-            "from", "have", "has", "been", "not", "but", "its", "each",
+        w
+        for w in hint.lower().split()
+        if len(w) > 2
+        and w
+        not in {
+            "the",
+            "and",
+            "for",
+            "are",
+            "was",
+            "with",
+            "that",
+            "this",
+            "from",
+            "have",
+            "has",
+            "been",
+            "not",
+            "but",
+            "its",
+            "each",
         }
     }
     if not hint_words:
@@ -154,7 +171,8 @@ async def run_benchmark(
     sys.stdout.flush()
 
     corpus_files = sorted(
-        f for f in _CORPUS_DIR.iterdir()
+        f
+        for f in _CORPUS_DIR.iterdir()
         if f.is_file()
         and f.suffix.lower() != ".jsonl"
         and f.name not in ("README.md", "extraction-golden.jsonl")
@@ -236,10 +254,11 @@ async def run_benchmark(
         if answerable:
             # Did the agent answer with the expected content? (fuzzy match)
             answer_correct = answered and _fuzzy_hint_match(answer_text, expected_hint)
-            expected_doc_found = any(
-                expected_doc.split("/")[-1].split(".")[0] in c
-                for c in citations
-            ) if expected_doc and citations else False
+            expected_doc_found = (
+                any(expected_doc.split("/")[-1].split(".")[0] in c for c in citations)
+                if expected_doc and citations
+                else False
+            )
         else:
             # Did the agent correctly refuse?
             answer_correct = refused or (
@@ -295,7 +314,8 @@ async def run_benchmark(
     result.accuracy = total_correct / result.n_questions if result.n_questions else 0
     result.avg_latency_s = (
         sum(q.latency_s for q in result.questions) / len(result.questions)
-        if result.questions else 0
+        if result.questions
+        else 0
     )
 
     return result

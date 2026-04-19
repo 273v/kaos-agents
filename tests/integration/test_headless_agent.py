@@ -88,7 +88,7 @@ async def test_multi_turn_memory() -> None:
     session = "test-memory"
 
     # Turn 1: give the agent a fact
-    text1, _ = await _collect_events(
+    _text1, _ = await _collect_events(
         runner,
         "Remember this: the contract between Acme Corp and Beta LLC was signed on March 15, 2024.",
         session,

@@ -27,7 +27,10 @@ class TestExpandLive:
     async def test_single_tool_goal(self):
         """Simple goal with one obvious tool → LLM should produce 1-3 steps using it."""
         tools = {
-            "kaos-source-ecfr-search": "Search the eCFR (Electronic Code of Federal Regulations) for regulatory text by title, part, or keyword.",
+            "kaos-source-ecfr-search": (
+                "Search the eCFR (Electronic Code of Federal Regulations) "
+                "for regulatory text by title, part, or keyword."
+            ),
         }
 
         steps = await expand(
@@ -51,7 +54,7 @@ class TestExpandLive:
             assert s.tool_name in tools, f"Hallucinated tool: {s.tool_name}"
 
     async def test_multi_source_plan(self):
-        """Complex goal needing multiple sources → LLM should produce a multi-step plan with dependencies."""
+        """Complex goal needing multiple sources should produce a multi-step plan."""
         tools = {
             "kaos-source-ecfr-search": "Search the eCFR for regulatory text.",
             "kaos-source-edgar-search": "Search SEC EDGAR for company filings (10-K, 10-Q, etc.).",
@@ -82,7 +85,11 @@ class TestExpandLive:
         steps = await expand(
             "Find EPA enforcement guidelines",
             available_tools=tools,
-            prior_failures="Previous attempt: searched eCFR with query 'EPA enforcement' but got zero results. The guidelines may be on the EPA website instead.",
+            prior_failures=(
+                "Previous attempt: searched eCFR with query 'EPA enforcement' "
+                "but got zero results. The guidelines may be on the EPA "
+                "website instead."
+            ),
             model=MODEL,
         )
 
@@ -126,7 +133,10 @@ class TestEvaluateSemanticLive:
     async def test_relevant_result_matches(self):
         """A result that addresses the expectation should match."""
         j = await evaluate_semantic(
-            result="42 USC 7412 establishes the list of hazardous air pollutants and requires EPA to set emission standards for major sources.",
+            result=(
+                "42 USC 7412 establishes the list of hazardous air pollutants "
+                "and requires EPA to set emission standards for major sources."
+            ),
             expected="Information about Clean Air Act emission standards",
             model=MODEL,
         )
@@ -162,7 +172,11 @@ class TestEvaluateSemanticLive:
     async def test_extracts_new_facts(self):
         """Semantic evaluation should extract key facts from the result."""
         j = await evaluate_semantic(
-            result="Under 40 CFR Part 60, new stationary sources must comply with New Source Performance Standards (NSPS). The effective date for Subpart OOOO is October 15, 2012.",
+            result=(
+                "Under 40 CFR Part 60, new stationary sources must comply "
+                "with New Source Performance Standards (NSPS). "
+                "The effective date for Subpart OOOO is October 15, 2012."
+            ),
             expected="Emission standards for new sources",
             model=MODEL,
         )

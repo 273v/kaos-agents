@@ -82,4 +82,4 @@ class TestTriageLargeCorpus:
         result = triage_corpus(memory, "lease property", threshold=20)
         assert result is not None
         with pytest.raises(AttributeError):
-            result.total_documents = 999  # type: ignore[misc]
+            result.__setattr__("total_documents", 999)

@@ -113,9 +113,7 @@ async def run_scale_benchmark(
 
     n_docs = len(uris)
     n_passages = corpus.size
-    sys.stdout.write(
-        f"Loaded {n_docs} docs → {n_passages} passages in {t1 - t0:.1f}s\n"
-    )
+    sys.stdout.write(f"Loaded {n_docs} docs → {n_passages} passages in {t1 - t0:.1f}s\n")
     sys.stdout.flush()
 
     session_id = "scale-e2e"
@@ -178,15 +176,15 @@ async def run_scale_benchmark(
                     errored = True
                     error_msg = event.message[:200]
                 elif isinstance(event, ToolCallStart):
-                    tool_trace.append({
-                        "tool": event.tool_name,
-                        "args": str(event.arguments)[:200],
-                    })
+                    tool_trace.append(
+                        {
+                            "tool": event.tool_name,
+                            "args": str(event.arguments)[:200],
+                        }
+                    )
                 elif isinstance(event, ToolCallResult) and tool_trace:
-                        tool_trace[-1]["summary"] = getattr(
-                            event, "result_summary", ""
-                        )[:200]
-                        tool_trace[-1]["error"] = event.is_error
+                    tool_trace[-1]["summary"] = getattr(event, "result_summary", "")[:200]
+                    tool_trace[-1]["error"] = event.is_error
         except Exception as exc:
             errored = True
             error_msg = f"{type(exc).__name__}: {exc}"[:200]
@@ -203,8 +201,13 @@ async def run_scale_benchmark(
             answer_correct = refused or any(
                 phrase in answer_text
                 for phrase in (
-                    "insufficient", "not find", "not contain",
-                    "no information", "not available", "cannot answer", "don't have",
+                    "insufficient",
+                    "not find",
+                    "not contain",
+                    "no information",
+                    "not available",
+                    "cannot answer",
+                    "don't have",
                 )
             )
 
@@ -247,16 +250,15 @@ async def run_scale_benchmark(
         if verbose and tool_trace:
             for t in tool_trace:
                 err_flag = " [ERROR]" if t.get("error") else ""
-                sys.stdout.write(
-                    f"    → {t['tool']}: {t.get('summary', '')[:100]}{err_flag}\n"
-                )
+                sys.stdout.write(f"    → {t['tool']}: {t.get('summary', '')[:100]}{err_flag}\n")
         sys.stdout.flush()
 
     total_correct = result.n_correct_answers + result.n_correct_refusals
     result.accuracy = total_correct / result.n_questions if result.n_questions else 0
     result.avg_latency_s = (
         sum(q.latency_s for q in result.questions) / len(result.questions)
-        if result.questions else 0
+        if result.questions
+        else 0
     )
     return result
 

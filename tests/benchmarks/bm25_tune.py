@@ -150,9 +150,7 @@ def main(argv: list[str] | None = None) -> None:
 
     tune_results: list[TuneResult] = []
     for k1, b in grid:
-        result = run_bm25_with_params(
-            corpus, queries, qrels, test_qids, tune_dataset, k1=k1, b=b
-        )
+        result = run_bm25_with_params(corpus, queries, qrels, test_qids, tune_dataset, k1=k1, b=b)
         tune_results.append(result)
         sys.stdout.write(
             f"{k1:>6.2f} {b:>6.2f} {result.ndcg_at_10:>8.4f} "
@@ -164,12 +162,13 @@ def main(argv: list[str] | None = None) -> None:
     best = max(tune_results, key=lambda r: r.ndcg_at_10)
     default = next((r for r in tune_results if r.k1 == 1.5 and r.b == 0.75), None)
 
-    sys.stdout.write(f"\nBest on {tune_dataset}: k1={best.k1}, b={best.b}, NDCG@10={best.ndcg_at_10:.4f}\n")
+    sys.stdout.write(
+        f"\nBest on {tune_dataset}: k1={best.k1}, b={best.b}, NDCG@10={best.ndcg_at_10:.4f}\n"
+    )
     if default:
         delta = best.ndcg_at_10 - default.ndcg_at_10
         sys.stdout.write(
-            f"Default (k1=1.5, b=0.75): NDCG@10={default.ndcg_at_10:.4f} "
-            f"(delta={delta:+.4f})\n"
+            f"Default (k1=1.5, b=0.75): NDCG@10={default.ndcg_at_10:.4f} (delta={delta:+.4f})\n"
         )
     sys.stdout.flush()
 
@@ -185,9 +184,7 @@ def main(argv: list[str] | None = None) -> None:
         v_best = run_bm25_with_params(
             v_corpus, v_queries, v_qrels, v_qids, vd, k1=best.k1, b=best.b
         )
-        v_default = run_bm25_with_params(
-            v_corpus, v_queries, v_qrels, v_qids, vd, k1=1.5, b=0.75
-        )
+        v_default = run_bm25_with_params(v_corpus, v_queries, v_qrels, v_qids, vd, k1=1.5, b=0.75)
         validation_results[vd] = [v_best, v_default]
 
         delta = v_best.ndcg_at_10 - v_default.ndcg_at_10
@@ -205,18 +202,23 @@ def main(argv: list[str] | None = None) -> None:
     sys.stdout.write(f"Best params: k1={best.k1}, b={best.b}\n")
     sys.stdout.write(f"Tune set ({tune_dataset}): NDCG@10={best.ndcg_at_10:.4f}\n")
     for vd, vr in validation_results.items():
-        sys.stdout.write(f"Validation ({vd}): NDCG@10={vr[0].ndcg_at_10:.4f} "
-                        f"(default={vr[1].ndcg_at_10:.4f})\n")
+        sys.stdout.write(
+            f"Validation ({vd}): NDCG@10={vr[0].ndcg_at_10:.4f} (default={vr[1].ndcg_at_10:.4f})\n"
+        )
 
     # Recommendation
     if default:
         improvement = best.ndcg_at_10 - default.ndcg_at_10
         if improvement > 0.02:
-            sys.stdout.write(f"\nRECOMMENDATION: Update defaults to k1={best.k1}, b={best.b} "
-                           f"(+{improvement:.4f} NDCG@10)\n")
+            sys.stdout.write(
+                f"\nRECOMMENDATION: Update defaults to k1={best.k1}, b={best.b} "
+                f"(+{improvement:.4f} NDCG@10)\n"
+            )
         else:
-            sys.stdout.write(f"\nRECOMMENDATION: Keep defaults (k1=1.5, b=0.75). "
-                           f"Improvement only {improvement:+.4f} (<0.02 threshold)\n")
+            sys.stdout.write(
+                f"\nRECOMMENDATION: Keep defaults (k1=1.5, b=0.75). "
+                f"Improvement only {improvement:+.4f} (<0.02 threshold)\n"
+            )
     sys.stdout.flush()
 
     # Save results
@@ -229,9 +231,7 @@ def main(argv: list[str] | None = None) -> None:
             "best": asdict(best),
             "default": asdict(default) if default else None,
             "tune_results": [asdict(r) for r in tune_results],
-            "validation": {
-                k: [asdict(r) for r in v] for k, v in validation_results.items()
-            },
+            "validation": {k: [asdict(r) for r in v] for k, v in validation_results.items()},
         }
         out_path = Path(args.json)
         out_path.parent.mkdir(parents=True, exist_ok=True)

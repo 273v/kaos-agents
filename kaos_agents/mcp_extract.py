@@ -529,7 +529,8 @@ class ExtractVerifyTool(KaosTool):
                     type="string",
                     description=(
                         "JSON-encoded Cited[T] claim: "
-                        '{"value": <any>, "spans": [{"source_uri":"...","char_span":[s,e],"quote":"..."}]}. '
+                        '{"value": <any>, "spans": [{"source_uri":"...", '
+                        '"char_span":[s,e],"quote":"..."}]}. '
                         "Spans must use the matching source_uri."
                     ),
                 ),

@@ -56,7 +56,7 @@ _MODEL_EXEMPT_PATHS = {
 }
 
 # Numeric literals that are likely magic numbers (not 0, 1, 2, -1, 100, etc.)
-_EXEMPT_NUMBERS = {0, 1, 2, 3, -1, 0.0, 1.0, 0.5, 100, 10, 1000}
+_EXEMPT_NUMBERS = {0, 1, 2, 3, -1, 0.5, 100, 10, 1000}
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,7 +151,10 @@ class ConstantLinter(ast.NodeVisitor):
                                 file=self.filepath,
                                 line=node.lineno,
                                 category="hardcoded-model",
-                                message=f'Hardcoded model ID: "{value}". Use DEFAULT_MODEL from settings.',
+                                message=(
+                                    f'Hardcoded model ID: "{value}". '
+                                    "Use DEFAULT_MODEL from settings."
+                                ),
                                 severity="error",
                             )
                         )
@@ -166,29 +169,36 @@ class ConstantLinter(ast.NodeVisitor):
                                 file=self.filepath,
                                 line=node.lineno,
                                 category="domain-bias",
-                                message=f'Domain-specific term: "{value[:80]}". Use neutral language.',
+                                message=(
+                                    f'Domain-specific term: "{value[:80]}". Use neutral language.'
+                                ),
                                 severity="warning",
                             )
                         )
                         break
 
         # Check for magic numbers in function bodies
-        if isinstance(value, (int, float)) and _is_in_function(node, self._parents):
-            if value not in _EXEMPT_NUMBERS and not isinstance(value, bool):
-                # Skip if it's an argument default
-                is_default = any(
-                    isinstance(p, ast.arguments) for p in self._parents
-                )
-                if not is_default and self.strict:
-                    self.issues.append(
-                        LintIssue(
-                            file=self.filepath,
-                            line=node.lineno,
-                            category="magic-number",
-                            message=f"Magic number {value} in function body. Extract to module-level constant.",
-                            severity="info",
-                        )
+        if (
+            isinstance(value, (int, float))
+            and _is_in_function(node, self._parents)
+            and value not in _EXEMPT_NUMBERS
+            and not isinstance(value, bool)
+        ):
+            # Skip if it's an argument default
+            is_default = any(isinstance(p, ast.arguments) for p in self._parents)
+            if not is_default and self.strict:
+                self.issues.append(
+                    LintIssue(
+                        file=self.filepath,
+                        line=node.lineno,
+                        category="magic-number",
+                        message=(
+                            f"Magic number {value} in function body. "
+                            "Extract to module-level constant."
+                        ),
+                        severity="info",
                     )
+                )
 
 
 def lint_file(filepath: Path, *, strict: bool = False) -> list[LintIssue]:
@@ -196,7 +206,7 @@ def lint_file(filepath: Path, *, strict: bool = False) -> list[LintIssue]:
     try:
         source = filepath.read_text()
         tree = ast.parse(source, filename=str(filepath))
-    except (SyntaxError, UnicodeDecodeError):
+    except SyntaxError, UnicodeDecodeError:
         return []
 
     linter = ConstantLinter(str(filepath), strict=strict)
@@ -282,9 +292,7 @@ def main(argv: list[str] | None = None) -> None:
 
     errors = sum(1 for i in filtered if i.severity == "error")
     warnings = sum(1 for i in filtered if i.severity == "warning")
-    sys.stdout.write(
-        f"\n{total_files} files checked: {errors} error(s), {warnings} warning(s)\n"
-    )
+    sys.stdout.write(f"\n{total_files} files checked: {errors} error(s), {warnings} warning(s)\n")
 
     if errors > 0:
         sys.exit(1)

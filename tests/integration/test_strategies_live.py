@@ -92,7 +92,9 @@ class TestAdaptiveStrategy:
     async def test_complex_goal_routes_decompose(self):
         """Complex goal with 'then' should trigger decomposition."""
         result = await execute_adaptive(
-            "First search eCFR for emission regulations, then search EDGAR for Tesla's compliance disclosures, then cross-reference the findings",
+            "First search eCFR for emission regulations, then search EDGAR "
+            "for Tesla's compliance disclosures, then cross-reference "
+            "the findings",
             tools=TOOLS,
             tool_descriptions=TOOL_DESCS,
             model=MODEL,

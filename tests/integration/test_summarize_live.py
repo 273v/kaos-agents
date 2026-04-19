@@ -37,7 +37,8 @@ class TestSummarizeItemsLive:
             create_item(MemoryType.MESSAGES, "user: How often is it published?"),
             create_item(
                 MemoryType.MESSAGES,
-                "assistant: It is published every business day by the Office of the Federal Register.",
+                "assistant: It is published every business day by the Office "
+                "of the Federal Register.",
             ),
             create_item(MemoryType.MESSAGES, "user: Can I search it programmatically?"),
             create_item(
@@ -69,7 +70,8 @@ class TestSummarizeItemsLive:
             ),
             create_item(
                 MemoryType.ACTIONS,
-                "Tool: kaos-source-fr-get-document(doc_number='2024-01234') → EPA Rule on Emissions",
+                "Tool: kaos-source-fr-get-document(doc_number='2024-01234') "
+                "→ EPA Rule on Emissions",
             ),
             create_item(
                 MemoryType.ACTIONS,

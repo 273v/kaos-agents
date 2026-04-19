@@ -12,7 +12,7 @@ InsufficientEvidence objects — no live LLM calls. Verifies:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
@@ -30,11 +30,7 @@ from kaos_agents.grounding import apply_refusal_policy
 class FakeAnswer:
     kind: str = "answer"
     confidence: float = 0.9
-    claims: list[Any] = None  # type: ignore[assignment]
-
-    def __post_init__(self) -> None:
-        if self.claims is None:
-            self.claims = []
+    claims: list[Any] = field(default_factory=list)
 
 
 @dataclass
@@ -127,4 +123,4 @@ class TestAgentRefusalPolicyField:
     def test_frozen_immutability(self) -> None:
         agent = Agent()
         with pytest.raises(AttributeError):
-            agent.refusal_policy = FakeRefusalPolicy()  # type: ignore[misc]
+            agent.__setattr__("refusal_policy", FakeRefusalPolicy())

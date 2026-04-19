@@ -34,9 +34,12 @@ _PLAN_PHRASES = ("then", "after that", "first", "step by step", "steps to")
 _CLASSIFY_INSTRUCTION = """Classify the user's intent into one of these categories:
 
 - respond: Simple conversational response, greeting, or acknowledgment. No tools needed.
-- tool_use: The user wants to perform an action that requires calling tools (extract data, search the web, analyze a file, etc.).
-- research: The user is asking a question about loaded documents that requires retrieval and reasoning over document content.
-- plan: The user wants a multi-step workflow (analyze a document, then extract specific data, then summarize findings).
+- tool_use: The user wants to perform an action that requires calling
+  tools (extract data, search the web, analyze a file, etc.).
+- research: The user is asking a question about loaded documents that
+  requires retrieval and reasoning over document content.
+- plan: The user wants a multi-step workflow (analyze a document, then
+  extract specific data, then summarize findings).
 - clarify: The user's request is ambiguous and you need more information before proceeding.
 
 Consider the conversation history and available context when classifying.

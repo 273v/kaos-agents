@@ -12,7 +12,8 @@ Usage::
     from kaos_agents.context.doc2query import expand_document_with_queries
 
     expanded_text = await expand_document_with_queries(document_text)
-    # Original text + "\\n\\n[PREDICTED QUERIES]\\n- <predicted question 1>\\n- <predicted question 2>\\n..."
+    # Original text + "\\n\\n[PREDICTED QUERIES]\\n- <predicted question 1>"
+    # + "\\n- <predicted question 2>\\n..."
 """
 
 from __future__ import annotations

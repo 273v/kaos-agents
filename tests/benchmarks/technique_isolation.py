@@ -58,7 +58,6 @@ class TechniqueResult:
     num_queries: int
 
 
-
 def _evaluate_ranked(
     all_ranked: dict[str, list[str]],
     qrels: dict[str, dict[str, int]],
@@ -108,7 +107,10 @@ def run_bm25(memory, queries, test_qids):
     for i, qid in enumerate(test_qids):
         t0 = time.perf_counter()
         hits = search_memory(
-            memory, queries[qid], sections=[MemoryType.DOCUMENTS], top_k=100,
+            memory,
+            queries[qid],
+            sections=[MemoryType.DOCUMENTS],
+            top_k=100,
             expand_relations=[],
         )
         latencies[qid] = time.perf_counter() - t0
@@ -129,7 +131,10 @@ def run_lexicon(memory, queries, test_qids):
     for i, qid in enumerate(test_qids):
         t0 = time.perf_counter()
         hits = search_memory(
-            memory, queries[qid], sections=[MemoryType.DOCUMENTS], top_k=100,
+            memory,
+            queries[qid],
+            sections=[MemoryType.DOCUMENTS],
+            top_k=100,
             expand_relations=["synonym", "inflection"],
         )
         latencies[qid] = time.perf_counter() - t0
@@ -153,7 +158,10 @@ def run_prf(memory, queries, test_qids):
 
         # Initial BM25 pass
         initial_hits = search_memory(
-            memory, queries[qid], sections=[MemoryType.DOCUMENTS], top_k=10,
+            memory,
+            queries[qid],
+            sections=[MemoryType.DOCUMENTS],
+            top_k=10,
             expand_relations=[],
         )
 
@@ -165,17 +173,17 @@ def run_prf(memory, queries, test_qids):
                 word_counts.update(w for w in words if len(w) >= 4)
             # Remove query terms and stopwords
             query_terms = set(queries[qid].lower().split())
-            top_terms = [
-                w for w, _ in word_counts.most_common(10)
-                if w not in query_terms
-            ][:5]
+            top_terms = [w for w, _ in word_counts.most_common(10) if w not in query_terms][:5]
             expanded_query = queries[qid] + " " + " ".join(top_terms)
         else:
             expanded_query = queries[qid]
 
         # Re-query with expanded terms
         hits = search_memory(
-            memory, expanded_query, sections=[MemoryType.DOCUMENTS], top_k=100,
+            memory,
+            expanded_query,
+            sections=[MemoryType.DOCUMENTS],
+            top_k=100,
             expand_relations=[],
         )
         latencies[qid] = time.perf_counter() - t0
@@ -202,7 +210,10 @@ def run_hyde(memory, queries, test_qids):
         pseudo_doc = _generate_pseudo_document(queries[qid])
         search_query = pseudo_doc if pseudo_doc else queries[qid]
         hits = search_memory(
-            memory, search_query, sections=[MemoryType.DOCUMENTS], top_k=100,
+            memory,
+            search_query,
+            sections=[MemoryType.DOCUMENTS],
+            top_k=100,
             expand_relations=[],
         )
         latencies[qid] = time.perf_counter() - t0
@@ -239,7 +250,10 @@ def run_bm25_rerank(memory, queries, test_qids):
     for i, qid in enumerate(test_qids):
         t0 = time.perf_counter()
         hits = search_memory(
-            memory, queries[qid], sections=[MemoryType.DOCUMENTS], top_k=100,
+            memory,
+            queries[qid],
+            sections=[MemoryType.DOCUMENTS],
+            top_k=100,
             expand_relations=[],
         )
 
@@ -293,7 +307,9 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Technique isolation benchmark")
     parser.add_argument("--dataset", choices=_BEIR_DATASETS, default=None)
     parser.add_argument("--all", action="store_true", help="Run on all 3 datasets")
-    parser.add_argument("--with-rerank", action="store_true", help="Include cross-encoder reranking")
+    parser.add_argument(
+        "--with-rerank", action="store_true", help="Include cross-encoder reranking"
+    )
     parser.add_argument("--with-llm", action="store_true", help="Include LLM techniques (hyde)")
     parser.add_argument("--json", type=str, default=None)
     args = parser.parse_args(argv)
@@ -321,9 +337,7 @@ def main(argv: list[str] | None = None) -> None:
 
             runner = _RUNNERS[tech]
             ranked, latencies = runner(memory, queries, test_qids)
-            ndcg, mapp, r10, r100, avg_lat = _evaluate_ranked(
-                ranked, qrels, test_qids, latencies
-            )
+            ndcg, mapp, r10, r100, avg_lat = _evaluate_ranked(ranked, qrels, test_qids, latencies)
 
             result = TechniqueResult(
                 dataset=ds,

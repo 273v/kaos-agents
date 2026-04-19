@@ -173,6 +173,7 @@ class TestRunnerPauseCapturesSnapshot:
             tool_name="kaos-source-edgar-lookup",
             arguments=(("cik", "0000320193"),),
         )
+        assert isinstance(tool_event, ToolCallStart)
 
         approval = await runner._pause_for_approval(
             tool_event,

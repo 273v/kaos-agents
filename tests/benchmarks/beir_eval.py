@@ -278,7 +278,8 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.method in ("adaptive", "both"):
         sys.stdout.write(
-            f"\nRunning adaptive pipeline ({len(test_qids)} queries, max_rounds={args.max_rounds})...\n"
+            f"\nRunning adaptive pipeline ({len(test_qids)} queries, "
+            f"max_rounds={args.max_rounds})...\n"
         )
         sys.stdout.flush()
         adap_results, adap_latencies = run_adaptive_pipeline(
@@ -294,7 +295,8 @@ def main(argv: list[str] | None = None) -> None:
     sys.stdout.write(f"RESULTS: {args.dataset} ({len(corpus)} docs, {len(test_qids)} queries)\n")
     sys.stdout.write(f"{'=' * 70}\n")
     sys.stdout.write(
-        f"{'Method':<15} {'NDCG@10':>8} {'MAP@100':>8} {'R@10':>6} {'R@50':>6} {'R@100':>6} {'Latency':>8}\n"
+        f"{'Method':<15} {'NDCG@10':>8} {'MAP@100':>8} {'R@10':>6} "
+        f"{'R@50':>6} {'R@100':>6} {'Latency':>8}\n"
     )
     sys.stdout.write(f"{'-' * 70}\n")
 

@@ -16,12 +16,21 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, cast
 
 if TYPE_CHECKING:
     from kaos_agents.memory.session import SessionMemory
 
 CACHE_PATH = Path(__file__).parent / "data" / "edgar-agreements-decoded.jsonl"
+
+
+class _TokenizerWithDecode(Protocol):
+    def decode(
+        self,
+        token_ids: object,
+        *,
+        skip_special_tokens: bool = False,
+    ) -> str | list[str]: ...
 
 
 def load_edgar_agreements(
@@ -74,14 +83,16 @@ def _download_and_cache(
 
     ds = load_dataset("alea-institute/kl3m-data-edgar-agreements-sample", split="train")
     tokenizer = AutoTokenizer.from_pretrained("alea-institute/kl3m-004-128k-cased")
+    decode = cast(_TokenizerWithDecode, tokenizer).decode
 
     CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
     all_docs: list[tuple[str, str]] = []
 
     with CACHE_PATH.open("w") as f:
         for i in range(len(ds)):
-            identifier = ds[i]["identifier"]
-            text = tokenizer.decode(ds[i]["tokens"], skip_special_tokens=True)
+            identifier = str(ds[i]["identifier"])
+            decoded = decode(ds[i]["tokens"], skip_special_tokens=True)
+            text = "".join(decoded) if isinstance(decoded, list) else str(decoded)
             record = {"identifier": identifier, "text": text}
             f.write(json.dumps(record))
             f.write("\n")

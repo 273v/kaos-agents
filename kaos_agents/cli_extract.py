@@ -46,7 +46,8 @@ def main(argv: list[str] | None = None) -> None:
         help="Files or folder to extract from (glob pattern or directory path)",
     )
     parser.add_argument(
-        "--output", "-o",
+        "--output",
+        "-o",
         help="Output file path (.xlsx, .csv, or .tsv)",
     )
     parser.add_argument(
@@ -60,7 +61,8 @@ def main(argv: list[str] | None = None) -> None:
         help="List available extraction recipes and exit",
     )
     parser.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="store_true",
     )
     args = parser.parse_args(argv)
@@ -107,8 +109,7 @@ async def _run_extraction(args: argparse.Namespace) -> None:
     target = Path(args.files).expanduser()
     if target.is_dir():
         file_paths = sorted(
-            f for f in target.iterdir()
-            if f.is_file() and f.suffix.lower() in _SUPPORTED_EXTENSIONS
+            f for f in target.iterdir() if f.is_file() and f.suffix.lower() in _SUPPORTED_EXTENSIONS
         )
     elif target.is_file():
         file_paths = [target]
@@ -196,7 +197,9 @@ async def _run_extraction(args: argparse.Namespace) -> None:
     sys.stdout.flush()
 
     # 4. Write output
-    output_path = Path(args.output) if args.output else Path(f"{args.recipe or 'extraction'}_results.xlsx")
+    output_path = (
+        Path(args.output) if args.output else Path(f"{args.recipe or 'extraction'}_results.xlsx")
+    )
     ext = output_path.suffix.lower()
 
     if ext == ".xlsx":

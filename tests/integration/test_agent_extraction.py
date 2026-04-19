@@ -146,7 +146,7 @@ async def test_agent_extraction_with_recipe() -> None:
     if tool_starts:
         for ts in tool_starts:
             print(f"Tool called: {ts.tool_name}")
-            args = ts.arguments or {}
+            args = dict(ts.arguments)
             if "recipe_name" in args:
                 print(f"  recipe_name = {args['recipe_name']}")
 

@@ -89,7 +89,8 @@ async def expand(
 
     instructions = (
         "Generate a concrete, actionable plan using ONLY the listed tools. "
-        "Each step must reference a specific tool by its exact name, or use 'llm' for reasoning steps. "
+        "Each step must reference a specific tool by its exact name, or "
+        "use 'llm' for reasoning steps. "
         "Keep plans focused — use the minimum number of steps needed. "
         f"Maximum {max_steps} steps."
         f"{failure_context}"
