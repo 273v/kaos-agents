@@ -24,9 +24,11 @@ from kaos_agents.events import (
     TextDelta,
     ToolCallResult,
     ToolCallStart,
+    UsageObserved,
 )
 from kaos_agents.memory.types import MemoryType
 from kaos_agents.models import IntentResult, IntentType, ToolCallRecord
+from kaos_agents.usage import ZERO_USAGE, InvocationUsage, emit_usage_observed
 
 _REACT_INSTRUCTION = (
     "Complete the user's request using the available tools. Be thorough and cite your sources."
@@ -139,9 +141,10 @@ class ChatAgent(BaseAgent):
             logger.warning(
                 "chat_agent: no runtime and no extra tools — falling back to simple response"
             )
-            response = await self._simple_respond(message, memory)
+            response, usage = await self._simple_respond(message, memory)
             if response:
                 yield emitter.emit(TextDelta, content=response)
+            yield emit_usage_observed(emitter, usage, source="respond-fallback")
             return
 
         from kaos_agents._llm_imports import require_llm_core
@@ -182,9 +185,10 @@ class ChatAgent(BaseAgent):
 
         if not tools:
             logger.warning("chat_agent: no tools available — falling back to simple response")
-            response = await self._simple_respond(message, memory)
+            response, usage = await self._simple_respond(message, memory)
             if response:
                 yield emitter.emit(TextDelta, content=response)
+            yield emit_usage_observed(emitter, usage, source="respond-fallback")
             return
 
         if context_items:
@@ -219,7 +223,11 @@ class ChatAgent(BaseAgent):
 
         try:
             t_start = time.monotonic()
-            result = await react(question=message, context=context_text)
+            # ``.invoke()`` returns the full Invocation so we can surface
+            # ``invocation.usage`` for TurnComplete — ``.__call__()``
+            # returns the bare ReActResult and throws usage on the floor.
+            invocation = await react.invoke(question=message, context=context_text)
+            result = invocation.output
             t_total = (time.monotonic() - t_start) * 1000
 
             # Emit tool call events from the trajectory
@@ -257,6 +265,13 @@ class ChatAgent(BaseAgent):
             if response_text:
                 yield emitter.emit(TextDelta, content=response_text)
 
+            # ReAct rolls up usage across every sub-Call + tool-using
+            # iteration into invocation.usage. Emit the rolled-up total
+            # so the turn loop sees one consolidated UsageObserved.
+            yield emit_usage_observed(
+                emitter, InvocationUsage.from_invocation(invocation), source="react"
+            )
+
             logger.debug(
                 "chat_agent.react_complete: iterations=%d, tool_calls=%d, stop=%s, latency_ms=%.0f",
                 result.iterations_used,
@@ -267,7 +282,7 @@ class ChatAgent(BaseAgent):
 
         except Exception as exc:
             logger.warning("chat_agent: ReAct failed: %s", exc)
-            response = await self._simple_respond(
+            response, usage = await self._simple_respond(
                 message,
                 memory,
                 extra_instruction=f"A tool-calling attempt failed: {exc}. "
@@ -275,22 +290,26 @@ class ChatAgent(BaseAgent):
             )
             if response:
                 yield emitter.emit(TextDelta, content=response)
+            yield emit_usage_observed(emitter, usage, source="react-fallback")
 
     async def _handle_tool_use(
         self,
         message: str,
         memory: SessionMemory,
         context_items: dict[MemoryType, list[MemoryItem]],
-    ) -> tuple[str, list[ToolCallRecord]]:
+    ) -> tuple[str, list[ToolCallRecord], InvocationUsage]:
         """Handle tool-using request (non-streaming, backward compat).
 
         Delegates to _handle_tool_use_streaming and collects events,
-        avoiding logic duplication.
+        avoiding logic duplication. Aggregates UsageObserved events into
+        the returned InvocationUsage so the outer turn loop sees real
+        token/cost numbers on the fallback path too.
         """
         emitter = EventEmitter(session_id="internal", run_id="internal")
 
         response_text = ""
         tool_calls: list[ToolCallRecord] = []
+        usage_total = ZERO_USAGE
         async for event in self._handle_tool_use_streaming(message, memory, context_items, emitter):
             if isinstance(event, TextDelta):
                 response_text += event.content
@@ -303,5 +322,7 @@ class ChatAgent(BaseAgent):
                         is_error=event.is_error,
                     )
                 )
+            elif isinstance(event, UsageObserved):
+                usage_total = usage_total + InvocationUsage.from_llm_usage(event)
 
-        return response_text, tool_calls
+        return response_text, tool_calls, usage_total

@@ -86,10 +86,23 @@ class TestSimpleRespondUsesInstructions:
         class _FakeResult:
             response = "ok"
 
+        class _FakeUsage:
+            input_tokens = 10
+            output_tokens = 5
+            total_tokens = 15
+            cost_usd = 0.001
+
+        class _FakeInvocation:
+            output = _FakeResult()
+            usage = _FakeUsage()
+
         class _FakeCall:
             def __init__(self, sig, *, model, instructions):
                 captured["instructions"] = instructions
                 captured["model"] = model
+
+            async def invoke(self, **kwargs):
+                return _FakeInvocation()
 
             async def __call__(self, **kwargs):
                 return _FakeResult()
@@ -117,9 +130,22 @@ class TestSimpleRespondUsesInstructions:
         class _FakeResult:
             response = "ok"
 
+        class _FakeUsage:
+            input_tokens = 10
+            output_tokens = 5
+            total_tokens = 15
+            cost_usd = 0.001
+
+        class _FakeInvocation:
+            output = _FakeResult()
+            usage = _FakeUsage()
+
         class _FakeCall:
             def __init__(self, sig, *, model, instructions):
                 captured["instructions"] = instructions
+
+            async def invoke(self, **kwargs):
+                return _FakeInvocation()
 
             async def __call__(self, **kwargs):
                 return _FakeResult()

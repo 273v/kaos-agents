@@ -30,10 +30,12 @@ from kaos_agents.events import (
     TextDelta,
     ToolCallResult,
     ToolCallStart,
+    UsageObserved,
 )
 from kaos_agents.memory.types import MemoryType
 from kaos_agents.models import IntentResult, IntentType, ToolCallRecord
 from kaos_agents.patterns.chat import ChatAgent
+from kaos_agents.usage import ZERO_USAGE, InvocationUsage, emit_usage_observed
 
 if TYPE_CHECKING:
     from kaos_core.base.context import KaosContext
@@ -384,7 +386,7 @@ class ResearchAgent(ChatAgent):
 
         if not corpus:
             logger.warning("research_agent: no documents loaded — falling back to simple response")
-            response = await self._simple_respond(
+            response, usage = await self._simple_respond(
                 message,
                 memory,
                 extra_instruction=(
@@ -394,6 +396,7 @@ class ResearchAgent(ChatAgent):
             )
             if response:
                 yield emitter.emit(TextDelta, content=response)
+            yield emit_usage_observed(emitter, usage, source="research-no-corpus")
             return
 
         try:
@@ -427,7 +430,16 @@ class ResearchAgent(ChatAgent):
                 arguments=(("question", message), ("n_documents", str(n_docs_label))),
             )
 
-            result = await rag.query(question=message, documents=corpus)
+            # ``.invoke()`` returns the full Invocation so we can emit
+            # real usage. ``rag.query()``/``rag(...)`` are thin unwrappers
+            # around the same pipeline that throw usage on the floor.
+            rag_invocation = await rag.invoke(question=message, documents=corpus)
+            result = rag_invocation.output
+            yield emit_usage_observed(
+                emitter,
+                InvocationUsage.from_invocation(rag_invocation),
+                source="rag",
+            )
 
             if isinstance(result.grounded_answer, Answer):
                 answer = result.grounded_answer
@@ -573,8 +585,15 @@ class ResearchAgent(ChatAgent):
                             len(corpus),
                         )
 
-                        # Re-query RAG with expanded corpus
-                        retry_result = await rag.query(question=message, documents=corpus)
+                        # Re-query RAG with expanded corpus. Use .invoke()
+                        # so the retry's tokens/cost roll into the turn total.
+                        retry_invocation = await rag.invoke(question=message, documents=corpus)
+                        retry_result = retry_invocation.output
+                        yield emit_usage_observed(
+                            emitter,
+                            InvocationUsage.from_invocation(retry_invocation),
+                            source="rag-retry",
+                        )
 
                         if isinstance(retry_result.grounded_answer, Answer):
                             retried = True
@@ -668,7 +687,7 @@ class ResearchAgent(ChatAgent):
 
         except Exception as exc:
             logger.warning("research_agent: RAG failed: %s", exc)
-            response = await self._simple_respond(
+            response, usage = await self._simple_respond(
                 message,
                 memory,
                 extra_instruction=(
@@ -679,22 +698,25 @@ class ResearchAgent(ChatAgent):
             )
             if response:
                 yield emitter.emit(TextDelta, content=response)
+            yield emit_usage_observed(emitter, usage, source="rag-fallback")
 
     async def _handle_research(
         self,
         message: str,
         memory: SessionMemory,
         context_items: dict[MemoryType, list[MemoryItem]],
-    ) -> tuple[str, list[ToolCallRecord]]:
+    ) -> tuple[str, list[ToolCallRecord], InvocationUsage]:
         """Handle document Q&A (non-streaming, backward compat).
 
         Delegates to _handle_research_streaming and collects events,
-        avoiding logic duplication.
+        avoiding logic duplication. Aggregates UsageObserved into the
+        returned InvocationUsage.
         """
         emitter = EventEmitter(session_id="internal", run_id="internal")
 
         response_text = ""
         tool_calls: list[ToolCallRecord] = []
+        usage_total = ZERO_USAGE
         async for event in self._handle_research_streaming(message, memory, context_items, emitter):
             if isinstance(event, TextDelta):
                 response_text += event.content
@@ -707,8 +729,10 @@ class ResearchAgent(ChatAgent):
                         is_error=event.is_error,
                     )
                 )
+            elif isinstance(event, UsageObserved):
+                usage_total = usage_total + InvocationUsage.from_llm_usage(event)
 
-        return response_text, tool_calls
+        return response_text, tool_calls, usage_total
 
 
 def _looks_like_question(message: str, prefixes: tuple[str, ...]) -> bool:

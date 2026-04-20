@@ -34,6 +34,7 @@ from kaos_agents.models import IntentResult, IntentType, ToolCallRecord
 from kaos_agents.patterns.chat import ChatAgent
 from kaos_agents.planning.recall import recall
 from kaos_agents.planning.types import StopReason
+from kaos_agents.usage import ZERO_USAGE, InvocationUsage, emit_usage_observed
 
 if TYPE_CHECKING:
     from kaos_core.base.context import KaosContext
@@ -209,6 +210,20 @@ class PlanExecuteAgent(ChatAgent):
             n_documents=n_documents,
         )
 
+        # Planning's act.py already reads ``invocation.usage.total_tokens``
+        # from each step and rolls them into ``budget.cost_usd`` /
+        # ``budget.tokens_used``. ``ComposeResult`` surfaces those
+        # aggregates as ``total_cost_usd`` / ``total_tokens``. Input/output
+        # split is not tracked per-step today; emit the aggregate.
+        yield emit_usage_observed(
+            emitter,
+            InvocationUsage(
+                total_tokens=int(getattr(result, "total_tokens", 0) or 0),
+                cost_usd=float(getattr(result, "total_cost_usd", 0.0) or 0.0),
+            ),
+            source="plan-execute",
+        )
+
         # Recover step metadata from the plan graph
         step_tool_names: dict[str, str] = {}
         step_descriptions: dict[str, str] = {}
@@ -284,18 +299,20 @@ class PlanExecuteAgent(ChatAgent):
         message: str,
         memory: SessionMemory,
         context_items: dict[MemoryType, list[MemoryItem]],
-    ) -> tuple[str, list[ToolCallRecord]]:
+    ) -> tuple[str, list[ToolCallRecord], InvocationUsage]:
         """Handle multi-step plan (non-streaming, backward compat).
 
         Delegates to _handle_plan_streaming and collects events,
-        avoiding logic duplication.
+        avoiding logic duplication. Aggregates UsageObserved into the
+        returned InvocationUsage for the outer turn loop.
         """
-        from kaos_agents.events import EventEmitter, StepComplete, TextDelta
+        from kaos_agents.events import EventEmitter, StepComplete, TextDelta, UsageObserved
 
         emitter = EventEmitter(session_id="internal", run_id="internal")
 
         response_text = ""
         tool_calls: list[ToolCallRecord] = []
+        usage_total = ZERO_USAGE
         async for event in self._handle_plan_streaming(message, memory, context_items, emitter):
             if isinstance(event, TextDelta):
                 response_text += event.content
@@ -308,8 +325,10 @@ class PlanExecuteAgent(ChatAgent):
                         is_error=event.is_error,
                     )
                 )
+            elif isinstance(event, UsageObserved):
+                usage_total = usage_total + InvocationUsage.from_llm_usage(event)
 
-        return response_text, tool_calls
+        return response_text, tool_calls, usage_total
 
 
 def _synthesize_results(results: dict[str, Any]) -> str:

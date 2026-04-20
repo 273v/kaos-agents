@@ -41,12 +41,14 @@ from kaos_agents.events import (
     ToolCallSummary,
     TurnComplete,
     TurnStart,
+    UsageObserved,
 )
 from kaos_agents.memory.session import SessionMemory
 from kaos_agents.memory.store import SessionStore
 from kaos_agents.memory.types import MemoryType
 from kaos_agents.models import AgentResponse, IntentResult, IntentType, ToolCallRecord
 from kaos_agents.settings import KaosAgentSettings
+from kaos_agents.usage import ZERO_USAGE, InvocationUsage
 
 # Default instruction for the respond handler. Module-level constant
 # so it's auditable and overridable (subclasses can replace self._respond_instruction).
@@ -232,6 +234,7 @@ class BaseAgent:
             type(self).__name__,
         )
 
+        turn_usage = ZERO_USAGE
         try:
             async for event in self._dispatch_streaming(
                 intent, message, memory, context_items, emitter
@@ -259,6 +262,8 @@ class BaseAgent:
                             duration_ms=event.duration_ms,
                         )
                     )
+                elif isinstance(event, UsageObserved):
+                    turn_usage = turn_usage + InvocationUsage.from_llm_usage(event)
         except Exception as exc:
             logger.warning("agent.run: dispatch failed: %s", exc)
             yield emitter.emit(
@@ -317,8 +322,10 @@ class BaseAgent:
             text=response_text,
             intent=intent.intent.value,
             tool_calls=tuple(tool_call_summaries),
-            tokens_used=0,  # TODO: aggregate from sub-events when available
-            cost_usd=0.0,
+            tokens_used=turn_usage.total_tokens,
+            cost_usd=turn_usage.cost_usd,
+            input_tokens=turn_usage.input_tokens,
+            output_tokens=turn_usage.output_tokens,
         )
 
     async def turn(self, message: str, session_id: str) -> AgentResponse:
@@ -357,8 +364,16 @@ class BaseAgent:
         Default implementation falls back to _dispatch() and yields
         the result as a single TextDelta.
         """
-        # Default: use the non-streaming handlers and wrap the result
-        response_text, tool_calls = await self._dispatch(intent, message, memory, context_items)
+        # Default: use the non-streaming handlers and wrap the result.
+        # Pre-Phase-5.0 callers (and test mocks) may return a 2-tuple
+        # without usage — accept both shapes so we don't force every
+        # downstream test fixture to be rewritten at once.
+        dispatched = await self._dispatch(intent, message, memory, context_items)
+        if len(dispatched) == 3:
+            response_text, tool_calls, usage = dispatched
+        else:
+            response_text, tool_calls = dispatched  # type: ignore[misc]
+            usage = ZERO_USAGE
 
         # Yield tool call events if any
         for tc in tool_calls:
@@ -380,6 +395,19 @@ class BaseAgent:
         # Yield the response text
         if response_text:
             yield emitter.emit(TextDelta, content=response_text)
+
+        # Surface real usage from the handler's LLM invocations so the
+        # turn loop can roll it into TurnComplete. Zero usage (no LLM
+        # call) still emits — downstream consumers distinguish "nothing
+        # happened" from "missing data".
+        yield emitter.emit(
+            UsageObserved,
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+            total_tokens=usage.total_tokens,
+            cost_usd=usage.cost_usd,
+            source="dispatch",
+        )
 
     # -- Overridable dispatch handlers ---------------------------------------
 
@@ -412,11 +440,14 @@ class BaseAgent:
         message: str,
         memory: SessionMemory,
         context_items: dict[MemoryType, list[Any]],
-    ) -> tuple[str, list[ToolCallRecord]]:
+    ) -> tuple[str, list[ToolCallRecord], InvocationUsage]:
         """Dispatch to the appropriate handler based on intent.
 
-        Returns (response_text, tool_calls).
-        Subclasses override to add tool_use, research, plan handlers.
+        Returns ``(response_text, tool_calls, usage)``. ``usage`` is the
+        sum of token+cost spend across whatever sub-LLM-calls the handler
+        made (:class:`InvocationUsage.ZERO_USAGE` when the handler
+        bypassed the LLM entirely). Subclasses override specific
+        handlers to add tool_use, research, plan.
         """
         if intent.intent == IntentType.RESPOND:
             return await self._handle_respond(message, memory, context_items)
@@ -437,31 +468,31 @@ class BaseAgent:
         message: str,
         memory: SessionMemory,
         context_items: dict[MemoryType, list[Any]],
-    ) -> tuple[str, list[ToolCallRecord]]:
+    ) -> tuple[str, list[ToolCallRecord], InvocationUsage]:
         """Handle simple conversational response. Uses a Call."""
-        response = await self._simple_respond(message, memory, context_items=context_items)
-        return response, []
+        response, usage = await self._simple_respond(message, memory, context_items=context_items)
+        return response, [], usage
 
     async def _handle_clarify(
         self,
         message: str,
         memory: SessionMemory,
         context_items: dict[MemoryType, list[Any]],
-    ) -> tuple[str, list[ToolCallRecord]]:
+    ) -> tuple[str, list[ToolCallRecord], InvocationUsage]:
         """Handle clarification request."""
-        response = await self._simple_respond(
+        response, usage = await self._simple_respond(
             message,
             memory,
             extra_instruction="The user's request is ambiguous. Ask a clarifying question.",
         )
-        return response, []
+        return response, [], usage
 
     async def _handle_tool_use(
         self,
         message: str,
         memory: SessionMemory,
         context_items: dict[MemoryType, list[Any]],
-    ) -> tuple[str, list[ToolCallRecord]]:
+    ) -> tuple[str, list[ToolCallRecord], InvocationUsage]:
         """Handle tool-using request. Override in ChatAgent to use ReAct."""
         # BaseAgent falls back to simple response (no tools configured)
         return await self._handle_respond(message, memory, context_items)
@@ -471,7 +502,7 @@ class BaseAgent:
         message: str,
         memory: SessionMemory,
         context_items: dict[MemoryType, list[Any]],
-    ) -> tuple[str, list[ToolCallRecord]]:
+    ) -> tuple[str, list[ToolCallRecord], InvocationUsage]:
         """Handle research/document Q&A. Override to use RAG."""
         return await self._handle_respond(message, memory, context_items)
 
@@ -480,7 +511,7 @@ class BaseAgent:
         message: str,
         memory: SessionMemory,
         context_items: dict[MemoryType, list[Any]],
-    ) -> tuple[str, list[ToolCallRecord]]:
+    ) -> tuple[str, list[ToolCallRecord], InvocationUsage]:
         """Handle multi-step plan. Override in PlanExecuteAgent."""
         return await self._handle_respond(message, memory, context_items)
 
@@ -493,8 +524,14 @@ class BaseAgent:
         *,
         extra_instruction: str = "",
         context_items: dict[MemoryType, list[Any]] | None = None,
-    ) -> str:
-        """Generate a simple text response via Call."""
+    ) -> tuple[str, InvocationUsage]:
+        """Generate a simple text response via Call.
+
+        Returns ``(response_text, usage)`` so callers can record token
+        spend. Pre-Phase-5.0 this returned just ``str`` and the agent
+        shipped ``tokens_used=0`` in every ``TurnComplete``; the usage
+        is now provider-reported (pulled from ``Invocation.usage``).
+        """
         from kaos_agents._llm_imports import require_llm_core
 
         require_llm_core()
@@ -525,8 +562,12 @@ class BaseAgent:
             instructions = f"{instructions} {extra_instruction}"
 
         call = Call(Respond, model=self._model_for_role("respond"), instructions=instructions)
-        result = await call(message=message, conversation_history=history)
-        return str(result.response)
+        # ``.invoke()`` returns the full Invocation so we can read
+        # ``invocation.usage`` — the bare ``await call(...)`` path is
+        # slightly cheaper but throws the usage record on the floor.
+        invocation = await call.invoke(message=message, conversation_history=history)
+        text = str(getattr(invocation.output, "response", "")) if invocation.output else ""
+        return text, InvocationUsage.from_invocation(invocation)
 
 
 # ---------------------------------------------------------------------------

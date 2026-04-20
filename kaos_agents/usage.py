@@ -20,7 +20,10 @@ that never make an LLM call.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from kaos_agents.events import AgentEvent, EventEmitter
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,3 +74,28 @@ class InvocationUsage:
 # Identity for addition; ``sum(usages, ZERO_USAGE)`` is the canonical
 # accumulation idiom (single allocation, no None checks).
 ZERO_USAGE = InvocationUsage()
+
+
+def emit_usage_observed(
+    emitter: EventEmitter, usage: InvocationUsage, *, source: str = ""
+) -> AgentEvent:
+    """Build a ``UsageObserved`` event from an ``InvocationUsage``.
+
+    Returns ``AgentEvent`` (not ``UsageObserved``) because ``emitter.emit``
+    is declared to return the common base type. Downstream consumers
+    narrow with ``isinstance(event, UsageObserved)`` as usual.
+
+    Centralized so pattern-level dispatchers (chat, plan, research)
+    don't each re-learn the field mapping. Import lazily to avoid the
+    events → usage → events cycle on module import.
+    """
+    from kaos_agents.events import UsageObserved
+
+    return emitter.emit(
+        UsageObserved,
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        total_tokens=usage.total_tokens,
+        cost_usd=usage.cost_usd,
+        source=source,
+    )

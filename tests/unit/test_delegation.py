@@ -423,9 +423,22 @@ class TestDelegationInjection:
             },
         )()
 
+        class _MockUsage:
+            input_tokens = 0
+            output_tokens = 0
+            total_tokens = 0
+            cost_usd = 0.0
+
+        class _MockInvocation:
+            output = mock_result
+            usage = _MockUsage()
+
         class _MockReActInstance:
             async def __call__(self, **kwargs):  # type: ignore[no-untyped-def]
                 return mock_result
+
+            async def invoke(self, **kwargs):  # type: ignore[no-untyped-def]
+                return _MockInvocation()
 
         # Build a dummy SessionMemory via the runner's store
         from kaos_agents.events import EventEmitter
