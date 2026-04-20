@@ -175,7 +175,11 @@ class TurnStart(LifecycleEvent):
 class TurnComplete(LifecycleEvent):
     """Emitted at the end of a turn, after memory persistence.
 
-    Contains the final response and aggregate metrics.
+    Contains the final response and aggregate metrics. ``tokens_used``
+    is the turn's total (== ``input_tokens + output_tokens``); the
+    split fields were added in Phase 5.0 when real provider-reported
+    usage started flowing through the turn loop. Pre-5.0 both fields
+    were hard-coded to 0.
     """
 
     text: str = ""
@@ -183,6 +187,32 @@ class TurnComplete(LifecycleEvent):
     tool_calls: tuple[ToolCallSummary, ...] = ()
     tokens_used: int = 0
     cost_usd: float = 0.0
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class UsageObserved(LifecycleEvent):
+    """Emitted each time an LLM invocation completes during a turn.
+
+    Streaming handlers yield one ``UsageObserved`` per completed
+    ``Call`` / ``Program`` with its ``Invocation.usage`` surfaced verbatim.
+    The turn loop accumulates these into the aggregate fields on the
+    final ``TurnComplete``. Downstream hooks (OTel, cost-aware routing,
+    budget enforcement) can consume individual events for fine-grained
+    attribution — which program fired, at which step, for how much.
+
+    ``source`` is a short string the emitter chose to distinguish
+    concurrent sub-invocations (e.g. ``"react"``, ``"respond"``,
+    ``"classify"``, or the name of a delegated subagent). It's
+    informational, not a routing key.
+    """
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    cost_usd: float = 0.0
+    source: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -389,6 +419,7 @@ ALL_EVENT_TYPES: tuple[type[AgentEvent], ...] = (
     HandoffStart,
     SubagentStart,
     SubagentComplete,
+    UsageObserved,
 )
 
 # Map type names in snake_case to classes and back.

@@ -47,6 +47,7 @@ from kaos_agents.events import (
     ToolCallSummary,
     TurnComplete,
     TurnStart,
+    UsageObserved,
     deserialize_event,
     deserialize_event_json,
     event_type_name,
@@ -236,6 +237,17 @@ def _make_all_events() -> list[AgentEvent]:
             subagent_name="writer",
             result_summary="Memo drafted",
             tokens_used=500,
+        ),
+        UsageObserved(
+            timestamp=_TS,
+            sequence=19,
+            session_id=_SID,
+            run_id=_RID,
+            input_tokens=120,
+            output_tokens=80,
+            total_tokens=200,
+            cost_usd=0.004,
+            source="react",
         ),
     ]
 
