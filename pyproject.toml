@@ -126,7 +126,12 @@ exclude_lines = [
 ]
 
 [tool.ruff]
-target-version = "py314"
+# Match the package's requires-python floor (>=3.13). Setting this to
+# py314 was triggering the PEP 758 except-without-parens auto-"upgrade"
+# on code that then fails ty check (ty reads requires-python honestly).
+# Ruff target-version should be the MINIMUM supported version, not the
+# dev interpreter.
+target-version = "py313"
 line-length = 100
 
 [tool.ruff.lint]

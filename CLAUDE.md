@@ -170,6 +170,35 @@ kaos-agents-serve --with-source --with-web --with-pdf
 kaos-agents-serve --http --port 8000
 ```
 
+### CLI: `kaos-agent chat`
+
+Interactive REPL or one-shot non-interactive turn (the latter lets
+scripts, CI, and course runnables drive the agent without a TTY).
+Entry point: `kaos_agents.cli_chat:main`.
+
+```bash
+# Interactive REPL (default)
+kaos-agent chat
+kaos-agent chat --session my-session --verbose
+kaos-agent chat --files "contracts/*.pdf" --pattern research
+
+# One-shot: --message (or --message - for stdin)
+kaos-agent chat --message "What is 2+2?"
+echo "summarize this corpus" | kaos-agent chat --message -
+
+# Session cost ceiling: --max-cost $USD (env fallback
+# KAOS_AGENT_MAX_COST_USD). The current turn completes, then further
+# turns are refused; non-interactive mode exits with code 2 (distinct
+# from code 1 for real errors) so scripts can branch on the outcome.
+kaos-agent chat --message "..." --max-cost 0.05
+KAOS_AGENT_MAX_COST_USD=0.10 kaos-agent chat
+```
+
+The ``_SessionState`` dataclass is the single source of truth for
+"how much did this session spend" and "should we refuse the next
+turn". ``_resolve_max_cost()`` is the CLI > env > None precedence
+resolver. Both are tested in ``tests/unit/test_cli_chat.py``.
+
 ## Settings — KaosAgentSettings
 
 `KaosAgentSettings(ModuleSettings)` with `env_prefix="KAOS_AGENT_"`.
@@ -192,6 +221,7 @@ kaos-agents-serve --http --port 8000
 | `KAOS_AGENT_PLAN_MAX_REPLANS` | 3 | Max replan attempts |
 | `KAOS_AGENT_PLAN_MAX_COST_USD` | 1.0 | Max cost per plan |
 | `KAOS_AGENT_PLAN_MAX_WALL_CLOCK_SECONDS` | 120.0 | Max wall-clock time per plan |
+| `KAOS_AGENT_MAX_COST_USD` | — | `kaos-agent chat` session cost ceiling (USD). CLI flag `--max-cost` takes precedence. Disable with `0`. |
 
 ## QA Sequence (mandatory)
 

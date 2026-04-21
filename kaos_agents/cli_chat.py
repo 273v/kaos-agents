@@ -1,7 +1,8 @@
-"""Interactive CLI REPL for conversing with the KAOS agent.
+"""CLI for conversing with the KAOS agent — interactive REPL or one-shot.
 
 Usage::
 
+    # Interactive REPL (default when no --message is given)
     kaos-agent chat
     kaos-agent chat --session my-session --verbose
     kaos-agent chat --tools "kaos-source-*,kaos-pdf-*" --model anthropic:claude-sonnet-4-6
@@ -9,6 +10,11 @@ Usage::
     # Load documents at startup for RAG Q&A
     kaos-agent chat --files "contracts/*.pdf,memos/*.docx" --verbose
     kaos-agent chat --files "*.pdf" --pattern research
+
+    # One-shot non-interactive mode (scripts, CI, course runnables)
+    kaos-agent chat --message "What is 2+2?" --max-cost 0.05
+    echo "extract parties from this contract" | kaos-agent chat --message -
+    kaos-agent chat --message "summarize" --files "report.pdf" --max-cost 0.20
 
 Slash commands inside the REPL:
 
@@ -21,16 +27,77 @@ Slash commands inside the REPL:
     /load <path>  — load file, glob, or folder
                     (PDF, DOCX, PPTX, XLSX, HTML, TXT, MD, CSV, JSON, EML)
     /docs     — list loaded documents
+
+Budget enforcement: ``--max-cost`` (or env ``KAOS_AGENT_MAX_COST_USD``)
+sets a hard session cost ceiling in USD. Every turn checks the running
+session total against the cap *after* the turn completes; the next
+turn is refused when the cap is exceeded, and non-interactive mode
+exits with code 2. Set to 0 to disable.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import sys
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+# Non-interactive mode exit codes. 0 success, 1 runtime error, 2 budget
+# exceeded. Chosen to match the convention set by validate-platform.sh
+# (2 for "well-formed but intentional refusal").
+_EXIT_OK = 0
+_EXIT_ERROR = 1
+_EXIT_BUDGET = 2
+
+
+@dataclass
+class _SessionState:
+    """Mutable session-level running totals + budget decision state.
+
+    Consolidates what were free-floating locals in ``_run_repl`` so the
+    same helper can drive the REPL loop and the one-shot
+    ``--message`` path without twinning state-update logic.
+    """
+
+    tokens: int = 0
+    cost_usd: float = 0.0
+    turns: int = 0
+    max_cost_usd: float | None = None  # None = no cap
+
+    def absorb(self, tokens: int, cost: float) -> None:
+        self.tokens += tokens
+        self.cost_usd += cost
+        self.turns += 1
+
+    def budget_exceeded(self) -> bool:
+        """After-the-fact check. We let the current turn finish — budgets
+        only block the *next* turn, matching how Budget works in
+        planning/compose.py. Set ``max_cost_usd=0`` to disable the cap."""
+        return (
+            self.max_cost_usd is not None
+            and self.max_cost_usd > 0
+            and self.cost_usd >= self.max_cost_usd
+        )
+
+
+def _resolve_max_cost(cli_value: float | None) -> float | None:
+    """``--max-cost`` with env-var fallback. Returns ``None`` when
+    unset (no cap). Negative / zero disables the cap explicitly."""
+    if cli_value is not None:
+        return cli_value if cli_value > 0 else None
+    raw = os.environ.get("KAOS_AGENT_MAX_COST_USD")
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
 
 _ANSI_BOLD = "\033[1m"
 _ANSI_DIM = "\033[2m"
@@ -220,7 +287,24 @@ def _load_files_into_memory(
     return loaded
 
 
-async def _run_repl(args: argparse.Namespace) -> None:
+def _one_shot_message(args: argparse.Namespace) -> str | None:
+    """Resolve the one-shot message from CLI args.
+
+    Returns ``None`` when no ``--message`` was supplied (REPL mode).
+    Supports ``--message -`` for reading from stdin, matching the
+    convention used by ``kaos-office`` writer CLIs. Empty messages
+    produce ``None`` — we don't send empty prompts to the agent.
+    """
+    raw = getattr(args, "message", None)
+    if raw is None:
+        return None
+    if raw == "-":
+        raw = sys.stdin.read()
+    stripped = raw.strip()
+    return stripped or None
+
+
+async def _run_repl(args: argparse.Namespace) -> _SessionState:
     from kaos_core.registry.container import KaosRuntime
 
     from kaos_agents.config import Agent
@@ -292,10 +376,9 @@ async def _run_repl(args: argparse.Namespace) -> None:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_file = log_path.open("a")
 
-    # Phase 4.4: Session-level cost tracking
-    session_tokens = 0
-    session_cost = 0.0
-    session_turns = 0
+    # Phase 4.4 + Phase 5.x: Session-level cost tracking + budget cap.
+    # max_cost=None → REPL; one-shot path supplies the cap.
+    state = _SessionState(max_cost_usd=_resolve_max_cost(getattr(args, "max_cost", None)))
 
     tool_names = sorted(runtime.tools.list_tools())
     print(_c(_ANSI_BOLD, f"KAOS Agent | {args.model} | pattern={pattern}"))
@@ -309,12 +392,25 @@ async def _run_repl(args: argparse.Namespace) -> None:
             print(f"  {_c(_ANSI_DIM, f'... and {len(tool_names) - 20} more')}")
     print()
 
+    # Message source: in REPL mode we loop on ``input()``; in one-shot
+    # mode (``--message``) we yield exactly one message and return.
+    # Keeping a single inner loop avoids duplicating the turn / event /
+    # budget-check plumbing between the two modes.
+    one_shot = _one_shot_message(args)
+    one_shot_sent = False
+
     while True:
-        try:
-            user_input = input(_c(_ANSI_GREEN, "> "))
-        except (EOFError, KeyboardInterrupt):
-            print()
-            break
+        if one_shot is not None:
+            if one_shot_sent:
+                break
+            user_input = one_shot
+            one_shot_sent = True
+        else:
+            try:
+                user_input = input(_c(_ANSI_GREEN, "> "))
+            except (EOFError, KeyboardInterrupt):
+                print()
+                break
 
         stripped = user_input.strip()
         if not stripped:
@@ -502,17 +598,15 @@ async def _run_repl(args: argparse.Namespace) -> None:
                     if text_parts:
                         print()
                     # Phase 4.4: Accumulate session cost
-                    session_tokens += event.tokens_used
-                    session_cost += event.cost_usd
-                    session_turns += 1
+                    state.absorb(event.tokens_used, event.cost_usd)
                     n_tools = len(event.tool_calls)
                     if verbose:
                         print(
                             _c(
                                 _ANSI_DIM,
                                 f"[done] {n_tools} tool(s), {event.tokens_used} tokens, "
-                                f"${event.cost_usd:.4f} | session: {session_tokens} tokens, "
-                                f"${session_cost:.4f}, {session_turns} turn(s)",
+                                f"${event.cost_usd:.4f} | session: {state.tokens} tokens, "
+                                f"${state.cost_usd:.4f}, {state.turns} turn(s)",
                             )
                         )
                     elif event.cost_usd > 0:
@@ -531,9 +625,27 @@ async def _run_repl(args: argparse.Namespace) -> None:
 
                 traceback.print_exc()
 
+        # Budget cap — check after every turn. The current turn is allowed
+        # to complete (it may have been the one that pushed us over); the
+        # next one is refused. Exit code 2 in non-interactive mode so
+        # CI / course runnables / scripts can tell budget-exceeded apart
+        # from real errors (exit 1).
+        if state.budget_exceeded():
+            print(
+                _c(
+                    _ANSI_YELLOW,
+                    f"\n[budget] session cost ${state.cost_usd:.4f} "
+                    f"meets or exceeds cap ${state.max_cost_usd:.4f} — "
+                    "refusing further turns.",
+                )
+            )
+            break
+
     if log_file is not None:
         log_file.close()
         print(f"Event log written to: {args.log}")
+
+    return state
 
 
 def _register_tool_modules(runtime: Any, args: argparse.Namespace) -> None:
@@ -562,13 +674,21 @@ def _register_tool_modules(runtime: Any, args: argparse.Namespace) -> None:
             print(f"  (skip) {mod_path}: {exc}")
 
 
-def main(argv: list[str] | None = None) -> None:
+def _build_arg_parser() -> argparse.ArgumentParser:
+    """Construct the ``kaos-agent`` argparse graph.
+
+    Factored out so tests can exercise the flag schema directly
+    without invoking ``main()``.
+    """
     parser = argparse.ArgumentParser(
         prog="kaos-agent",
-        description="Interactive KAOS agent CLI",
+        description="KAOS agent CLI — interactive REPL or one-shot turn.",
     )
     sub = parser.add_subparsers(dest="command")
-    chat = sub.add_parser("chat", help="Start an interactive chat session")
+    chat = sub.add_parser(
+        "chat",
+        help="Chat with the agent (REPL by default; --message for one-shot).",
+    )
     chat.add_argument("--session", help="Session ID (default: auto-generated)")
     from kaos_agents.settings import DEFAULT_MODEL
 
@@ -583,21 +703,52 @@ def main(argv: list[str] | None = None) -> None:
         default="",
         help="Comma-separated file paths or globs to pre-load (e.g. 'docs/*.pdf,*.docx')",
     )
+    # Phase 5.x — non-interactive mode.
+    chat.add_argument(
+        "--message",
+        help=(
+            "Send a single message and exit (non-interactive). Use '-' to "
+            "read the message from stdin. Without --message, starts the REPL."
+        ),
+    )
+    # Phase 5.x — session cost ceiling.
+    chat.add_argument(
+        "--max-cost",
+        type=float,
+        default=None,
+        metavar="USD",
+        help=(
+            "Stop accepting new turns once cumulative session cost reaches "
+            "this value in USD. Falls back to $KAOS_AGENT_MAX_COST_USD when "
+            "unset; disable with --max-cost 0. Non-interactive mode exits "
+            "with code 2 on budget exceeded (distinct from code 1 for errors)."
+        ),
+    )
     chat.add_argument("--with-source", action="store_true")
     chat.add_argument("--with-pdf", action="store_true")
     chat.add_argument("--with-office", action="store_true")
     chat.add_argument("--with-web", action="store_true")
     chat.add_argument("--with-citations", action="store_true")
     chat.add_argument("--with-all", action="store_true", help="Register all tool modules")
+    return parser
 
+
+def main(argv: list[str] | None = None) -> int:
+    """Entry point. Returns an exit code so callers (tests, CI, course
+    runnables) can distinguish budget-exceeded (2) from runtime error
+    (1) from success (0)."""
+    parser = _build_arg_parser()
     args = parser.parse_args(argv)
     if args.command is None:
         parser.print_help()
-        return
+        return _EXIT_OK
 
     if args.command == "chat":
-        asyncio.run(_run_repl(args))
+        state = asyncio.run(_run_repl(args))
+        if state.budget_exceeded():
+            return _EXIT_BUDGET
+    return _EXIT_OK
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
