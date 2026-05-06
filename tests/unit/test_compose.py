@@ -9,7 +9,7 @@ from kaos_llm_core.programs.tool import Tool
 
 from kaos_agents.planning.compose import compose
 from kaos_agents.planning.graph import PlanGraph
-from kaos_agents.planning.types import PlanBudget, Step, StepType, StopReason
+from kaos_agents.types.plan import PlanBudget, Step, StepType, StopReason
 
 # ---------------------------------------------------------------------------
 # Test tools

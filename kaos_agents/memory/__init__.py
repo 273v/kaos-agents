@@ -5,7 +5,7 @@ from __future__ import annotations
 from kaos_agents.memory.sections import Section
 from kaos_agents.memory.session import SessionMemory
 from kaos_agents.memory.store import SessionStore
-from kaos_agents.memory.types import (
+from kaos_agents.types.memory import (
     DEFAULT_SECTIONS,
     EvictionPolicy,
     MemoryItem,

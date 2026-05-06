@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from kaos_agents.memory.session import SessionMemory
-from kaos_agents.memory.types import MemoryType
 from kaos_agents.recipes import (
     format_recipe_for_memory,
     load_builtin_recipes,
     load_recipe,
     recipe_names,
 )
+from kaos_agents.types.memory import MemoryType
 
 
 class TestRecipeLoading:

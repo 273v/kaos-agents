@@ -20,7 +20,7 @@ from kaos_core.vfs.core import VirtualFileSystem
 
 from kaos_agents.errors import SessionCorruptedError, SessionNotFoundError
 from kaos_agents.memory.session import SessionMemory
-from kaos_agents.memory.types import DEFAULT_SECTIONS, MemoryType, SectionConfig
+from kaos_agents.types.memory import DEFAULT_SECTIONS, MemoryType, SectionConfig
 
 logger = get_logger(__name__)
 

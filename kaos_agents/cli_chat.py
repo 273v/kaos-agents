@@ -812,7 +812,7 @@ def _load_files_into_memory(
     """
     from kaos_content import serialize_text
 
-    from kaos_agents.memory.types import MemoryType
+    from kaos_agents.types.memory import MemoryType
 
     n = len(file_paths)
     if n == 0:
@@ -975,8 +975,8 @@ async def _run_repl(args: argparse.Namespace) -> _SessionState:
     runtime = KaosRuntime.default()
 
     from kaos_agents.memory.session import SessionMemory
-    from kaos_agents.memory.types import MemoryType
     from kaos_agents.tools import register_agent_tools
+    from kaos_agents.types.memory import MemoryType
 
     register_agent_tools(runtime)
 

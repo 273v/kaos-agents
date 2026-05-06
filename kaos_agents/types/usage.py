@@ -1,13 +1,10 @@
-"""Per-turn token/cost usage aggregation.
+"""Per-turn token/cost usage value type.
 
 The agent's ``TurnComplete`` event used to ship ``tokens_used=0`` and
-``cost_usd=0.0`` as hard-coded placeholders (see the pre-Phase-5.0
-``# TODO: aggregate from sub-events`` in ``agent.py``). Meanwhile every
-``Call``/``Program`` in kaos-llm-core already returned an ``Invocation``
-with real provider-reported usage on ``invocation.usage``. This module
-is the one-layer-up plumbing that carries those numbers from the LLM
-layer to the agent's turn boundary — no new accounting logic, just a
-tight value type consumers can accumulate.
+``cost_usd=0.0`` as hard-coded placeholders. ``InvocationUsage`` is the
+plumbing that carries provider-reported numbers from the LLM layer to
+the agent's turn boundary — no new accounting logic, just a tight value
+type consumers can accumulate.
 
 ``InvocationUsage`` mirrors ``kaos_llm_core.programs._invocation.TokenUsage``
 field-for-field. We duplicate the type rather than importing it so
@@ -20,10 +17,7 @@ that never make an LLM call.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from kaos_agents.events import AgentEvent, EventEmitter
+from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,7 +26,7 @@ class InvocationUsage:
 
     Frozen so callers can safely cache or pass across awaits. Addition
     is pointwise so accumulating across multiple LLM calls in a single
-    turn is one expression: ``total = sum(usages, InvocationUsage.ZERO)``
+    turn is one expression: ``total = sum(usages, ZERO_USAGE)``
     or ``a + b``.
     """
 
@@ -74,28 +68,3 @@ class InvocationUsage:
 # Identity for addition; ``sum(usages, ZERO_USAGE)`` is the canonical
 # accumulation idiom (single allocation, no None checks).
 ZERO_USAGE = InvocationUsage()
-
-
-def emit_usage_observed(
-    emitter: EventEmitter, usage: InvocationUsage, *, source: str = ""
-) -> AgentEvent:
-    """Build a ``UsageObserved`` event from an ``InvocationUsage``.
-
-    Returns ``AgentEvent`` (not ``UsageObserved``) because ``emitter.emit``
-    is declared to return the common base type. Downstream consumers
-    narrow with ``isinstance(event, UsageObserved)`` as usual.
-
-    Centralized so pattern-level dispatchers (chat, plan, research)
-    don't each re-learn the field mapping. Import lazily to avoid the
-    events → usage → events cycle on module import.
-    """
-    from kaos_agents.events import UsageObserved
-
-    return emitter.emit(
-        UsageObserved,
-        input_tokens=usage.input_tokens,
-        output_tokens=usage.output_tokens,
-        total_tokens=usage.total_tokens,
-        cost_usd=usage.cost_usd,
-        source=source,
-    )

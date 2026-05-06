@@ -1,8 +1,9 @@
 """Permission policy for tool execution control.
 
-Evaluates whether a tool call should be allowed, denied, or require
-human approval before execution. Rules are matched against tool names
-using glob patterns (``fnmatch``).
+The frozen value types (:class:`PermissionRule`, :class:`PermissionDecision`)
+live in :mod:`kaos_agents.types.permissions`. This module owns the
+matching engine — :class:`PermissionPolicy` — which composes them with
+tool annotations to render a decision.
 
 The evaluation order follows the KAOS permission hierarchy:
 1. ``humanConfirmationRequired`` annotation → always ask
@@ -14,54 +15,27 @@ The evaluation order follows the KAOS permission hierarchy:
 
 Usage::
 
+    from kaos_agents.permissions import PermissionPolicy
+    from kaos_agents.types import PermissionDecision, PermissionRule
+
     policy = PermissionPolicy(rules=(
-        PermissionRule(pattern="kaos-web-delete-*", action="deny", reason="No deletions"),
-        PermissionRule(pattern="kaos-source-*", action="allow"),
+        PermissionRule(pattern="kaos-web-delete-*", action=PermissionDecision.DENY,
+                       reason="No deletions"),
+        PermissionRule(pattern="kaos-source-*", action=PermissionDecision.ALLOW),
     ))
 
     decision = policy.evaluate("kaos-web-delete-page", annotations)
-    # -> "deny"
+    # -> PermissionDecision.DENY
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from enum import StrEnum, unique
-from fnmatch import fnmatch
 from typing import TYPE_CHECKING
+
+from kaos_agents.types.permissions import PermissionDecision, PermissionRule
 
 if TYPE_CHECKING:
     from kaos_core.types.annotations import ToolAnnotations
-
-
-@unique
-class PermissionDecision(StrEnum):
-    """Result of a permission policy evaluation."""
-
-    ALLOW = "allow"
-    DENY = "deny"
-    ASK = "ask"
-
-
-@dataclass(frozen=True, slots=True)
-class PermissionRule:
-    """A single permission rule matching tool names by glob pattern.
-
-    Rules are evaluated in order. The first matching rule wins.
-
-    Args:
-        pattern: Glob pattern for tool names (e.g., "kaos-web-delete-*").
-        action: What to do when the pattern matches.
-        reason: Human-readable explanation (shown in approval UI).
-    """
-
-    pattern: str
-    action: PermissionDecision
-    reason: str = ""
-
-    def matches(self, tool_name: str) -> bool:
-        """Check if this rule matches the given tool name."""
-        return fnmatch(tool_name, self.pattern)
 
 
 class PermissionPolicy:

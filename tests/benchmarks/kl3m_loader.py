@@ -120,7 +120,7 @@ def load_into_memory(
         (memory, identifiers) — the SessionMemory and list of identifiers loaded.
     """
     from kaos_agents.memory.session import SessionMemory
-    from kaos_agents.memory.types import MemoryType
+    from kaos_agents.types.memory import MemoryType
 
     docs = load_edgar_agreements(max_docs=max_docs, max_chars_per_doc=max_chars_per_doc)
 

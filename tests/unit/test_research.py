@@ -8,8 +8,8 @@ from kaos_core.vfs.core import VirtualFileSystem
 from kaos_core.vfs.models import VFSConfig
 
 from kaos_agents.memory.session import SessionMemory
-from kaos_agents.memory.types import MemoryType
 from kaos_agents.patterns.research import ResearchAgent, _build_corpus
+from kaos_agents.types.memory import MemoryType
 
 
 def _memory_vfs() -> VirtualFileSystem:

@@ -12,7 +12,7 @@ from kaos_core.vfs.core import IsolationMode, StorageBackend, VFSConfig, Virtual
 from kaos_agents.agent import BaseAgent
 from kaos_agents.context.classify import classify_intent
 from kaos_agents.memory.session import SessionMemory
-from kaos_agents.models import IntentType
+from kaos_agents.types import IntentType
 
 
 def _memory_vfs() -> VirtualFileSystem:

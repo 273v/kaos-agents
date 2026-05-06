@@ -23,8 +23,8 @@ from kaos_core.logging import get_logger
 from kaos_llm_core import InputField, OutputField, Signature
 from pydantic import BaseModel, Field
 
-from kaos_agents.planning.types import Step, StepType
 from kaos_agents.settings import DEFAULT_MODEL
+from kaos_agents.types.plan import Step, StepType
 
 logger = get_logger(__name__)
 

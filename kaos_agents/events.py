@@ -32,9 +32,12 @@ import json
 import re
 import time
 from dataclasses import asdict, dataclass, fields
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from kaos_agents.errors import EventDeserializationError, EventSerializationError
+
+if TYPE_CHECKING:
+    from kaos_agents.types.usage import InvocationUsage
 
 # ---------------------------------------------------------------------------
 # Supporting types (serialized inside events)
@@ -653,3 +656,25 @@ class EventEmitter:
     def sequence(self) -> int:
         """Current sequence counter (next event will have this value)."""
         return self._sequence
+
+
+def emit_usage_observed(
+    emitter: EventEmitter, usage: InvocationUsage, *, source: str = ""
+) -> AgentEvent:
+    """Build a ``UsageObserved`` event from an ``InvocationUsage``.
+
+    Returns ``AgentEvent`` (not ``UsageObserved``) because ``emitter.emit``
+    is declared to return the common base type. Downstream consumers
+    narrow with ``isinstance(event, UsageObserved)`` as usual.
+
+    Centralized so pattern-level dispatchers (chat, plan, research)
+    don't each re-learn the field mapping.
+    """
+    return emitter.emit(
+        UsageObserved,
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        total_tokens=usage.total_tokens,
+        cost_usd=usage.cost_usd,
+        source=source,
+    )

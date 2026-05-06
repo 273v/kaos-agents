@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from kaos_agents.planning.evaluate import evaluate, evaluate_structural
-from kaos_agents.planning.types import EvalMode
+from kaos_agents.types.plan import EvalMode
 
 
 class TestEvaluateStructural:

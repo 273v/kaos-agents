@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Any
 
 from kaos_core.logging import get_logger
 
-from kaos_agents.permissions import PermissionDecision
+from kaos_agents.types import PermissionDecision
 
 if TYPE_CHECKING:
     from kaos_core.base.context import KaosContext

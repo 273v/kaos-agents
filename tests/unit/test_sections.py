@@ -6,7 +6,7 @@ import pytest
 
 from kaos_agents.errors import MemoryBudgetExceededError
 from kaos_agents.memory.sections import Section
-from kaos_agents.memory.types import EvictionPolicy, MemoryType, SectionConfig
+from kaos_agents.types.memory import EvictionPolicy, MemoryType, SectionConfig
 
 
 def _config(

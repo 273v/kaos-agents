@@ -12,13 +12,12 @@ from typing import TYPE_CHECKING, Literal
 from kaos_core.logging import get_logger
 from kaos_llm_core import InputField, OutputField, Signature
 
-from kaos_agents.models import IntentResult, IntentType
 from kaos_agents.settings import DEFAULT_MODEL
-from kaos_agents.usage import InvocationUsage
+from kaos_agents.types import IntentResult, IntentType, InvocationUsage
 
 if TYPE_CHECKING:
     from kaos_agents.memory.session import SessionMemory
-    from kaos_agents.memory.types import MemoryItem
+    from kaos_agents.types.memory import MemoryItem
 
 logger = get_logger(__name__)
 
@@ -136,7 +135,7 @@ async def _classify_with_llm(
     from kaos_llm_core import Call
 
     if not context_text:
-        from kaos_agents.memory.types import MemoryType
+        from kaos_agents.types.memory import MemoryType
 
         recent = memory.get_recent(MemoryType.MESSAGES, 5)
         context_text = (
@@ -186,7 +185,7 @@ def _classify_heuristic(user_message: str, memory: SessionMemory) -> IntentResul
         )
 
     # Question words with loaded documents → research
-    from kaos_agents.memory.types import MemoryType
+    from kaos_agents.types.memory import MemoryType
 
     has_docs = (
         memory.has_section(MemoryType.DOCUMENTS)

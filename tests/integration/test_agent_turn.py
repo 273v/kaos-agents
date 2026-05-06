@@ -15,8 +15,8 @@ from kaos_core.vfs.core import IsolationMode, StorageBackend, VFSConfig, Virtual
 
 from kaos_agents.agent import BaseAgent
 from kaos_agents.memory.store import SessionStore
-from kaos_agents.memory.types import MemoryType
-from kaos_agents.models import IntentResult, IntentType
+from kaos_agents.types import IntentResult, IntentType
+from kaos_agents.types.memory import MemoryType
 
 
 def _memory_vfs() -> VirtualFileSystem:

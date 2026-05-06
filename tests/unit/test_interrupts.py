@@ -241,12 +241,9 @@ class TestRunnerResume:
             load_run_state,
             run_state_path,
         )
-        from kaos_agents.permissions import (
-            PermissionDecision,
-            PermissionPolicy,
-            PermissionRule,
-        )
+        from kaos_agents.permissions import PermissionPolicy
         from kaos_agents.runner import Runner
+        from kaos_agents.types import PermissionDecision, PermissionRule
 
         vfs = VirtualFileSystem(config=VFSConfig(default_backend=StorageBackend.MEMORY))
         policy = PermissionPolicy(

@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 
 from kaos_agents.planning.route import route
-from kaos_agents.planning.types import (
+from kaos_agents.types.plan import (
     Decision,
     EvalMode,
     Judgment,

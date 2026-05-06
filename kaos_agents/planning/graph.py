@@ -20,7 +20,7 @@ from kaos_core.logging import get_logger
 from kaos_graph import Graph
 from kaos_graph.algorithms import critical_path, descendants, find_cycles, topological_sort
 
-from kaos_agents.planning.types import (
+from kaos_agents.types.plan import (
     Judgment,
     Step,
     StepStatus,

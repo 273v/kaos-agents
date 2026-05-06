@@ -10,7 +10,7 @@ from kaos_agents.context.retrieval import (
 )
 from kaos_agents.memory.search import MemorySearchResult
 from kaos_agents.memory.session import SessionMemory
-from kaos_agents.memory.types import MemoryType
+from kaos_agents.types.memory import MemoryType
 
 
 class TestMergeResults:

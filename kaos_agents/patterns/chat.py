@@ -26,10 +26,10 @@ from kaos_agents.events import (
     ToolCallResult,
     ToolCallStart,
     UsageObserved,
+    emit_usage_observed,
 )
-from kaos_agents.memory.types import MemoryType
-from kaos_agents.models import IntentResult, IntentType, ToolCallRecord
-from kaos_agents.usage import ZERO_USAGE, InvocationUsage, emit_usage_observed
+from kaos_agents.types import ZERO_USAGE, IntentResult, IntentType, InvocationUsage, ToolCallRecord
+from kaos_agents.types.memory import MemoryType
 
 _REACT_INSTRUCTION = (
     "Complete the user's request using the available tools. Be thorough and cite your sources."
@@ -41,9 +41,9 @@ if TYPE_CHECKING:
     from kaos_core.vfs.core import VirtualFileSystem
 
     from kaos_agents.memory.session import SessionMemory
-    from kaos_agents.memory.types import MemoryItem
-    from kaos_agents.providers import ProviderConfig
     from kaos_agents.settings import KaosAgentSettings
+    from kaos_agents.types.memory import MemoryItem
+    from kaos_agents.types.providers import ProviderConfig
 
 logger = get_logger(__name__)
 

@@ -119,9 +119,9 @@ async def _run_freeform_agent(
     from kaos_agents.events import RunError, TextDelta, TurnComplete
     from kaos_agents.memory.session import SessionMemory
     from kaos_agents.memory.store import SessionStore
-    from kaos_agents.memory.types import MemoryType
     from kaos_agents.runner import Runner
     from kaos_agents.tools import register_agent_tools
+    from kaos_agents.types.memory import MemoryType
 
     sys.stdout.write(f"Loading {len(documents)} documents from {docs_dir}...\n")
     sys.stdout.flush()

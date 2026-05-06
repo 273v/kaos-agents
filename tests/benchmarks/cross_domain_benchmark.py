@@ -91,7 +91,7 @@ def _load_edgar() -> tuple[Any, dict[str, set[str]], dict[str, str]]:
     gt_coc = compute_ground_truth_coc_acceleration(docs)
 
     from kaos_agents.memory.session import SessionMemory
-    from kaos_agents.memory.types import MemoryType
+    from kaos_agents.types.memory import MemoryType
 
     memory = SessionMemory("bench-edgar")
     for identifier, text in docs:
@@ -116,7 +116,7 @@ def _load_beir(
     from datasets import load_dataset
 
     from kaos_agents.memory.session import SessionMemory
-    from kaos_agents.memory.types import MemoryType
+    from kaos_agents.types.memory import MemoryType
 
     corpus_ds = load_dataset(f"BeIR/{dataset_name}", "corpus", split="corpus")
     queries_ds = load_dataset(f"BeIR/{dataset_name}", "queries", split="queries")
@@ -163,7 +163,7 @@ def run_retrieval_benchmark(
 ) -> DatasetResult:
     """Run adaptive retrieval on all queries and measure recall."""
     from kaos_agents.context.retrieval import adaptive_retrieve
-    from kaos_agents.memory.types import MemoryType
+    from kaos_agents.types.memory import MemoryType
 
     result = DatasetResult(
         dataset=dataset_name,
@@ -270,7 +270,7 @@ def main(argv: list[str] | None = None) -> None:
             memory, qrels, queries = _load_beir(ds_name, max_queries=max_queries)
         t1 = time.perf_counter()
 
-        from kaos_agents.memory.types import MemoryType
+        from kaos_agents.types.memory import MemoryType
 
         n_docs = memory.section_item_count(MemoryType.DOCUMENTS)
         sys.stdout.write(f"Loaded {n_docs} docs in {t1 - t0:.1f}s\n")

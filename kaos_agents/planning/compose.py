@@ -29,7 +29,8 @@ from kaos_agents.planning.act import ActResult, act, make_trace
 from kaos_agents.planning.evaluate import evaluate_semantic, evaluate_structural
 from kaos_agents.planning.graph import PlanGraph
 from kaos_agents.planning.route import route
-from kaos_agents.planning.types import (
+from kaos_agents.settings import DEFAULT_MODEL
+from kaos_agents.types.plan import (
     ComposeResult,
     Decision,
     PlanBudget,
@@ -38,7 +39,6 @@ from kaos_agents.planning.types import (
     StepType,
     StopReason,
 )
-from kaos_agents.settings import DEFAULT_MODEL
 
 if TYPE_CHECKING:
     from kaos_llm_core.programs.tool import Tool

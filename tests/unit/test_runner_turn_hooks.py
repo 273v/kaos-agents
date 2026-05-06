@@ -24,8 +24,8 @@ import pytest
 from kaos_agents.config import Agent
 from kaos_agents.events import IntentClassified, TurnComplete, TurnStart
 from kaos_agents.hooks import BaseHook
-from kaos_agents.models import IntentResult, IntentType
 from kaos_agents.runner import Runner
+from kaos_agents.types import IntentResult, IntentType
 
 
 class _RecordingHook(BaseHook):

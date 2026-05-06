@@ -35,8 +35,8 @@ from kaos_agents.hooks import (
     LoggingHook,
     dispatch_hook,
 )
-from kaos_agents.models import IntentResult, IntentType
 from kaos_agents.runner import Runner
+from kaos_agents.types import IntentResult, IntentType
 
 
 @pytest.mark.unit
@@ -471,7 +471,7 @@ class TestAuditHook:
         from kaos_core.vfs.models import VFSConfig
 
         from kaos_agents.memory.store import SessionStore
-        from kaos_agents.memory.types import MemoryType
+        from kaos_agents.types.memory import MemoryType
 
         vfs = VirtualFileSystem(config=VFSConfig(default_backend=StorageBackend.MEMORY))
         store = SessionStore(vfs)

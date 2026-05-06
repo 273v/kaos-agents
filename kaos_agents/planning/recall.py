@@ -17,7 +17,7 @@ from kaos_core.logging import get_logger
 
 if TYPE_CHECKING:
     from kaos_agents.memory.session import SessionMemory
-    from kaos_agents.memory.types import MemoryType
+    from kaos_agents.types.memory import MemoryType
 
 logger = get_logger(__name__)
 

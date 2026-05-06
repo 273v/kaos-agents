@@ -20,8 +20,8 @@ from dataclasses import dataclass
 from enum import StrEnum, unique
 from typing import Any
 
-from kaos_agents.providers import ProviderConfig
 from kaos_agents.settings import DEFAULT_MODEL, KaosAgentSettings
+from kaos_agents.types.providers import ProviderConfig
 
 
 @unique
@@ -199,7 +199,7 @@ class Agent:
         Otherwise returns ``effective_model()`` for all roles.
         """
         if self.provider is not None:
-            from kaos_agents.providers import ModelRole
+            from kaos_agents.types.providers import ModelRole
 
             try:
                 return self.provider.model_for(ModelRole(role))

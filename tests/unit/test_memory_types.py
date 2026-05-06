@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from kaos_agents.memory.types import (
+from kaos_agents.types.memory import (
     DEFAULT_SECTIONS,
     EvictionPolicy,
     MemoryItem,

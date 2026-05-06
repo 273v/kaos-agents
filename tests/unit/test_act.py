@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from kaos_agents.planning.act import ActResult, act, make_trace
-from kaos_agents.planning.types import StepType
+from kaos_agents.types.plan import StepType
 
 
 class TestActTool:

@@ -11,7 +11,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from kaos_agents.events import ALL_EVENT_TYPES, UsageObserved
-from kaos_agents.usage import ZERO_USAGE, InvocationUsage
+from kaos_agents.types import ZERO_USAGE, InvocationUsage
 
 
 class TestInvocationUsageAlgebra:

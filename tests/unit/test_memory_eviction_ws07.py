@@ -26,7 +26,7 @@ import pytest
 
 from kaos_agents.memory.sections import Section
 from kaos_agents.memory.session import SessionMemory
-from kaos_agents.memory.types import (
+from kaos_agents.types.memory import (
     EvictionPolicy,
     MemoryType,
     SectionConfig,

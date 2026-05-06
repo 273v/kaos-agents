@@ -15,9 +15,9 @@ from kaos_core.vfs.models import VFSConfig
 
 from kaos_agents.memory.session import SessionMemory
 from kaos_agents.memory.store import SessionStore
-from kaos_agents.memory.types import MemoryType
 from kaos_agents.patterns.research import ResearchAgent
 from kaos_agents.settings import KaosAgentSettings
+from kaos_agents.types.memory import MemoryType
 
 MODEL = "anthropic:claude-haiku-4-5"
 

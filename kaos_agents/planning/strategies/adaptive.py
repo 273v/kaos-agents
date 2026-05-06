@@ -16,8 +16,8 @@ from kaos_core.logging import get_logger
 from kaos_agents._constants import COMPLEX_MIN_COMMAS, COMPLEX_MIN_PERIODS, FEW_TOOLS_THRESHOLD
 from kaos_agents.planning.strategies.decompose import execute_decompose
 from kaos_agents.planning.strategies.direct import execute_direct
-from kaos_agents.planning.types import ComposeResult, PlanBudget, StopReason
 from kaos_agents.settings import DEFAULT_MODEL
+from kaos_agents.types.plan import ComposeResult, PlanBudget, StopReason
 
 if TYPE_CHECKING:
     from kaos_llm_core.programs.tool import Tool

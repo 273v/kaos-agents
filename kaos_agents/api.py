@@ -383,7 +383,7 @@ def _register_routes(app: FastAPI) -> None:
     ) -> MemoryQueryResponse:
         """Read a memory section."""
         from kaos_agents.memory.store import SessionStore
-        from kaos_agents.memory.types import MemoryType
+        from kaos_agents.types.memory import MemoryType
 
         store = SessionStore(app.state.vfs)
         try:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from kaos_agents.planning.expand import _parse_steps, expand_from_steps
-from kaos_agents.planning.types import Step, StepType
+from kaos_agents.types.plan import Step, StepType
 
 
 class TestParseSteps:

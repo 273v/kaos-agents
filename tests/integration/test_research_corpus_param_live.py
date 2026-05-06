@@ -21,9 +21,9 @@ from kaos_core.vfs.models import VFSConfig
 
 from kaos_agents.memory.session import SessionMemory
 from kaos_agents.memory.store import SessionStore
-from kaos_agents.memory.types import MemoryType
 from kaos_agents.patterns.research import ResearchAgent
 from kaos_agents.settings import KaosAgentSettings
+from kaos_agents.types.memory import MemoryType
 
 _has_ml_core = importlib.util.find_spec("kaos_ml_core") is not None
 _has_content = importlib.util.find_spec("kaos_content") is not None

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from kaos_agents.context.assemble import assemble_context
 from kaos_agents.memory.session import SessionMemory
-from kaos_agents.memory.types import MemoryType
+from kaos_agents.types.memory import MemoryType
 
 
 def _make_memory_with_docs(n_docs: int, *, topic_prefix: str = "doc") -> SessionMemory:

@@ -16,8 +16,8 @@ from kaos_core.logging import get_logger
 from kaos_agents.planning.act import act
 from kaos_agents.planning.evaluate import evaluate_structural
 from kaos_agents.planning.expand import expand
-from kaos_agents.planning.types import ComposeResult, PlanBudget, StepType, StopReason
 from kaos_agents.settings import DEFAULT_MODEL
+from kaos_agents.types.plan import ComposeResult, PlanBudget, StepType, StopReason
 
 if TYPE_CHECKING:
     from kaos_llm_core.programs.tool import Tool

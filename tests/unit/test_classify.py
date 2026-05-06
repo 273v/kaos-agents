@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from kaos_agents.context.classify import _classify_heuristic
 from kaos_agents.memory.session import SessionMemory
-from kaos_agents.memory.types import MemoryType
-from kaos_agents.models import IntentType
+from kaos_agents.types import IntentType
+from kaos_agents.types.memory import MemoryType
 
 
 class TestHeuristicClassifier:

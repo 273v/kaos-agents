@@ -28,7 +28,7 @@ from kaos_llm_core.programs.tool import Tool
 
 from kaos_agents.planning.compose import compose
 from kaos_agents.planning.graph import PlanGraph
-from kaos_agents.planning.types import PlanBudget, Step, StepType
+from kaos_agents.types.plan import PlanBudget, Step, StepType
 
 
 def _sleep_tool(duration_s: float) -> Tool:
@@ -93,7 +93,7 @@ class TestComposeToolTimeout:
 
         import time
 
-        from kaos_agents.planning.types import StopReason
+        from kaos_agents.types.plan import StopReason
 
         start = time.monotonic()
         result = await compose(
@@ -133,9 +133,9 @@ class TestPlanExecuteAgentForwardsTimeout:
         from kaos_core.vfs.models import VFSConfig
 
         from kaos_agents.memory.store import SessionStore
-        from kaos_agents.models import IntentResult, IntentType
         from kaos_agents.patterns.plan_execute import PlanExecuteAgent
         from kaos_agents.settings import KaosAgentSettings
+        from kaos_agents.types import IntentResult, IntentType
 
         vfs = VirtualFileSystem(
             config=VFSConfig(
@@ -152,7 +152,7 @@ class TestPlanExecuteAgentForwardsTimeout:
 
         async def _fake_adaptive(goal: str, **kwargs: Any):
             captured_kwargs.update(kwargs)
-            from kaos_agents.planning.types import ComposeResult, StopReason
+            from kaos_agents.types.plan import ComposeResult, StopReason
 
             return ComposeResult(
                 plan_json="{}",

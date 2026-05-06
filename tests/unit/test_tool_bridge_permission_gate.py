@@ -30,7 +30,8 @@ from kaos_core.types.metadata import ToolAnnotations, ToolCapability, ToolCatego
 from kaos_core.types.results import ToolResult
 
 from kaos_agents.actions.tool_bridge import kaos_tool_to_llm_tool
-from kaos_agents.permissions import PermissionDecision, PermissionPolicy, PermissionRule
+from kaos_agents.permissions import PermissionPolicy
+from kaos_agents.types import PermissionDecision, PermissionRule
 
 
 class _ObservableTool(KaosTool):

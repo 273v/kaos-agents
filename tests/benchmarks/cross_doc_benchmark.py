@@ -45,7 +45,6 @@ from pathlib import Path
 
 from tests.benchmarks.multiformat_e2e import (
     _DEFAULT_JUDGE_MODEL,
-    BenchmarkResult,
     run_benchmark,
 )
 
@@ -77,16 +76,13 @@ def _load_cross_doc_questions() -> list[dict]:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
     parser.add_argument("--model", default=None)
     parser.add_argument("--json", default=None)
     parser.add_argument(
         "--judge",
         default="fuzzy",
-        help=(
-            "Scoring mode: 'fuzzy', 'llm' (claude-haiku-4-5), "
-            "'llm:<model>', or 'none'."
-        ),
+        help=("Scoring mode: 'fuzzy', 'llm' (claude-haiku-4-5), 'llm:<model>', or 'none'."),
     )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
@@ -101,7 +97,7 @@ def main(argv: list[str] | None = None) -> None:
         judge_mode = "llm"
     elif args.judge.startswith("llm:"):
         judge_mode = "llm"
-        judge_model = args.judge[len("llm:"):]
+        judge_model = args.judge[len("llm:") :]
     else:
         parser.error(f"unknown --judge value: {args.judge!r}")
 
@@ -115,7 +111,7 @@ def main(argv: list[str] | None = None) -> None:
     from tests.benchmarks import multiformat_e2e
 
     multiformat_e2e._CORPUS_DIR = _CROSS_DOC_DIR  # type: ignore[attr-defined]
-    multiformat_e2e._load_questions = _load_cross_doc_questions  # type: ignore[attr-defined]
+    multiformat_e2e._load_questions = _load_cross_doc_questions  # ty: ignore[invalid-assignment]
 
     result = asyncio.run(
         run_benchmark(
@@ -131,9 +127,7 @@ def main(argv: list[str] | None = None) -> None:
     sys.stdout.write(f"\n{'=' * 60}\n")
     sys.stdout.write("CROSS-DOCUMENT SYNTHESIS BENCHMARK\n")
     sys.stdout.write(f"{'=' * 60}\n")
-    sys.stdout.write(
-        f"Documents:        {result.n_documents} ({_CROSS_DOC_DIR.name})\n"
-    )
+    sys.stdout.write(f"Documents:        {result.n_documents} ({_CROSS_DOC_DIR.name})\n")
     sys.stdout.write(f"Questions:        {result.n_questions}\n")
     sys.stdout.write(f"Correct answers:  {result.n_correct_answers}\n")
     sys.stdout.write(f"Correct refusals: {result.n_correct_refusals}\n")
@@ -153,9 +147,7 @@ def main(argv: list[str] | None = None) -> None:
     json_path = args.json
     if json_path is None:
         today = time.strftime("%Y-%m-%d")
-        benchmarks_dir = (
-            Path(__file__).resolve().parent.parent / "docs" / "benchmarks"
-        )
+        benchmarks_dir = Path(__file__).resolve().parent.parent / "docs" / "benchmarks"
         json_path = str(benchmarks_dir / f"cross-doc-{today}.json")
     out_path = Path(json_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)

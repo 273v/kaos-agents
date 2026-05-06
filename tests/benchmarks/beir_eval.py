@@ -96,7 +96,7 @@ def load_beir_dataset(dataset_name: str) -> tuple:
 def build_memory(corpus: dict[str, str]):
     """Load corpus into SessionMemory."""
     from kaos_agents.memory.session import SessionMemory
-    from kaos_agents.memory.types import MemoryType
+    from kaos_agents.types.memory import MemoryType
 
     memory = SessionMemory("beir-eval")
     uri_to_item: dict[str, str] = {}
@@ -111,7 +111,7 @@ def run_bm25_baseline(
 ) -> tuple[dict[str, list[str]], dict[str, float]]:
     """Run plain BM25 (no expansion) and return ranked doc IDs per query."""
     from kaos_agents.memory.search import search_memory
-    from kaos_agents.memory.types import MemoryType
+    from kaos_agents.types.memory import MemoryType
 
     results: dict[str, list[str]] = {}
     latencies: dict[str, float] = {}
@@ -148,7 +148,7 @@ def run_adaptive_pipeline(
 ) -> tuple[dict[str, list[str]], dict[str, float]]:
     """Run adaptive retrieval pipeline and return ranked doc IDs per query."""
     from kaos_agents.context.retrieval import adaptive_retrieve
-    from kaos_agents.memory.types import MemoryType
+    from kaos_agents.types.memory import MemoryType
 
     results: dict[str, list[str]] = {}
     latencies: dict[str, float] = {}

@@ -19,7 +19,8 @@ from kaos_core.logging import get_logger
 
 from kaos_agents.errors import SectionNotConfiguredError
 from kaos_agents.memory.sections import Section
-from kaos_agents.memory.types import (
+from kaos_agents.settings import DEFAULT_MODEL
+from kaos_agents.types.memory import (
     DEFAULT_SECTIONS,
     MemoryItem,
     MemoryType,
@@ -27,7 +28,6 @@ from kaos_agents.memory.types import (
     SummarizationPolicy,
     create_item,
 )
-from kaos_agents.settings import DEFAULT_MODEL
 
 logger = get_logger(__name__)
 

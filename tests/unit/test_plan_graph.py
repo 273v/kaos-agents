@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from kaos_agents.planning.graph import PlanGraph
-from kaos_agents.planning.types import (
+from kaos_agents.types.plan import (
     EvalMode,
     Judgment,
     Step,

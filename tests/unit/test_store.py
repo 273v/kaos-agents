@@ -8,7 +8,7 @@ from kaos_core.vfs.core import VirtualFileSystem
 from kaos_agents.errors import SessionCorruptedError, SessionNotFoundError
 from kaos_agents.memory.session import SessionMemory
 from kaos_agents.memory.store import SessionStore
-from kaos_agents.memory.types import MemoryType
+from kaos_agents.types.memory import MemoryType
 
 
 @pytest.fixture

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from kaos_agents.models import AgentResponse, IntentResult, IntentType, ToolCallRecord
+from kaos_agents.types import AgentResponse, IntentResult, IntentType, ToolCallRecord
 
 
 class TestIntentType:

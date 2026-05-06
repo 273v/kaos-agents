@@ -345,7 +345,7 @@ class BM25SearchTool(KaosTool):
             return ToolResult.create_error(err)
 
         from kaos_agents.memory.search import search_memory
-        from kaos_agents.memory.types import MemoryType
+        from kaos_agents.types.memory import MemoryType
 
         results = search_memory(
             memory, query, sections=[MemoryType.DOCUMENTS], top_k=top_k, expand_relations=[]
@@ -564,7 +564,7 @@ class SynonymSearchTool(KaosTool):
                 memory, _store, err = _get_memory(inputs, context)
                 if not err and memory:
                     from kaos_agents.memory.search import search_memory
-                    from kaos_agents.memory.types import MemoryType
+                    from kaos_agents.types.memory import MemoryType
 
                     results = search_memory(
                         memory,
@@ -688,7 +688,7 @@ class HyDESearchTool(KaosTool):
                 return ToolResult.create_error(err)
 
             from kaos_agents.memory.search import search_memory
-            from kaos_agents.memory.types import MemoryType
+            from kaos_agents.types.memory import MemoryType
 
             results = search_memory(
                 memory,
@@ -785,7 +785,7 @@ class EvaluateCoverageTool(KaosTool):
 
         from kaos_agents.context.retrieval import _reflect_on_coverage
         from kaos_agents.memory.search import MemorySearchResult
-        from kaos_agents.memory.types import MemoryType
+        from kaos_agents.types.memory import MemoryType
 
         fake_results = [
             MemorySearchResult(
@@ -917,7 +917,7 @@ class RerankTool(KaosTool):
                 return ToolResult.create_error(err)
 
             from kaos_agents.memory.search import search_memory
-            from kaos_agents.memory.types import MemoryType
+            from kaos_agents.types.memory import MemoryType
 
             candidates = search_memory(
                 memory, query, sections=[MemoryType.DOCUMENTS], top_k=100, expand_relations=[]
@@ -1105,7 +1105,7 @@ class CorpusInfoTool(KaosTool):
 
         from collections import Counter
 
-        from kaos_agents.memory.types import MemoryType
+        from kaos_agents.types.memory import MemoryType
 
         if not memory.has_section(MemoryType.DOCUMENTS):
             logger.info("retrieval_tools.CorpusInfoTool: no documents section in memory")

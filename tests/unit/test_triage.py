@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from kaos_agents.context.triage import triage_corpus
 from kaos_agents.memory.session import SessionMemory
-from kaos_agents.memory.types import MemoryType
+from kaos_agents.types.memory import MemoryType
 
 
 class TestTriageSmallCorpus:

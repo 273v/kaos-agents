@@ -48,8 +48,8 @@ from kaos_agents.events import (
 )
 from kaos_agents.hooks import BaseHook, CostTrackingHook, HookAction, LoggingHook
 from kaos_agents.permissions import PermissionPolicy
-from kaos_agents.providers import BALANCED, FAST
 from kaos_agents.runner import Runner
+from kaos_agents.types.providers import BALANCED, FAST
 
 pytestmark = pytest.mark.skipif(
     not os.environ.get("ANTHROPIC_API_KEY"),

@@ -55,8 +55,8 @@ from kaos_agents.interrupts import (
     save_run_state,
 )
 from kaos_agents.memory.store import SessionStore
-from kaos_agents.models import AgentResponse
-from kaos_agents.permissions import PermissionDecision, PermissionPolicy
+from kaos_agents.permissions import PermissionPolicy
+from kaos_agents.types import AgentResponse, PermissionDecision
 
 if TYPE_CHECKING:
     from kaos_core.base.context import KaosContext
@@ -386,7 +386,7 @@ class Runner:
             TurnComplete,
             TurnStart,
         )
-        from kaos_agents.models import IntentResult, IntentType, ToolCallRecord
+        from kaos_agents.types import IntentResult, IntentType, ToolCallRecord
 
         text_parts: list[str] = []
         tool_calls: list[ToolCallRecord] = []

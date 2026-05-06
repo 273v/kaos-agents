@@ -16,8 +16,8 @@ import pytest
 
 from kaos_agents.config import Agent, AgentPattern
 from kaos_agents.events import AgentEvent, IntentClassified, TurnComplete, TurnStart
-from kaos_agents.models import AgentResponse, IntentResult, IntentType
 from kaos_agents.runner import Runner
+from kaos_agents.types import AgentResponse, IntentResult, IntentType
 
 
 def _make_runner(pattern: AgentPattern = AgentPattern.CHAT) -> Runner:

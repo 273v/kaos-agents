@@ -9,7 +9,7 @@ from kaos_llm_client.types import ToolDefinition
 from kaos_llm_core.programs.tool import Tool
 
 from kaos_agents.planning.strategies.rolling import execute_rolling
-from kaos_agents.planning.types import PlanBudget, StopReason
+from kaos_agents.types.plan import PlanBudget, StopReason
 
 MODEL = "anthropic:claude-haiku-4-5"
 

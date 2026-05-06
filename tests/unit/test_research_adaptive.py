@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from kaos_agents.memory.session import SessionMemory
-from kaos_agents.memory.types import MemoryType
 from kaos_agents.patterns.research import _build_corpus_bm25
 from kaos_agents.settings import KaosAgentSettings
+from kaos_agents.types.memory import MemoryType
 
 
 class TestBuildCorpusBm25:

@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from kaos_agents.planning.types import (
+from kaos_agents.types.plan import (
     ComposeResult,
     Decision,
     EvalMode,

@@ -53,13 +53,10 @@ from pathlib import Path
 from tests.benchmarks.multiformat_e2e import (
     _CORPUS_DIR,
     _DEFAULT_JUDGE_MODEL,
-    BenchmarkResult,
     run_benchmark,
 )
 
-_HARD_QUESTIONS_PATH = (
-    _CORPUS_DIR / "hard-refusal-questions.jsonl"
-)
+_HARD_QUESTIONS_PATH = _CORPUS_DIR / "hard-refusal-questions.jsonl"
 
 
 def _load_hard_questions() -> list[dict]:
@@ -81,7 +78,7 @@ def _load_hard_questions() -> list[dict]:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
     parser.add_argument("--model", default=None)
     parser.add_argument("--json", default=None)
     parser.add_argument(
@@ -105,7 +102,7 @@ def main(argv: list[str] | None = None) -> None:
         judge_mode = "llm"
     elif args.judge.startswith("llm:"):
         judge_mode = "llm"
-        judge_model = args.judge[len("llm:"):]
+        judge_model = args.judge[len("llm:") :]
     else:
         parser.error(f"unknown --judge value: {args.judge!r}")
 
@@ -121,7 +118,7 @@ def main(argv: list[str] | None = None) -> None:
     # standard multiformat ones. Cleaner than copy-pasting run_benchmark.
     from tests.benchmarks import multiformat_e2e
 
-    multiformat_e2e._load_questions = _load_hard_questions  # type: ignore[attr-defined]
+    multiformat_e2e._load_questions = _load_hard_questions  # ty: ignore[invalid-assignment]
 
     result = asyncio.run(
         run_benchmark(
@@ -137,18 +134,12 @@ def main(argv: list[str] | None = None) -> None:
     sys.stdout.write(f"\n{'=' * 60}\n")
     sys.stdout.write("HARD-REFUSAL BENCHMARK\n")
     sys.stdout.write(f"{'=' * 60}\n")
-    sys.stdout.write(
-        f"Documents:        {result.n_documents} ({_CORPUS_DIR.name})\n"
-    )
+    sys.stdout.write(f"Documents:        {result.n_documents} ({_CORPUS_DIR.name})\n")
     sys.stdout.write(f"Questions:        {result.n_questions}\n")
     sys.stdout.write(f"Correct refusals: {result.n_correct_refusals}\n")
     sys.stdout.write(f"Wrong answers:    {result.n_wrong_answers}\n")
     sys.stdout.write(f"Errors:           {result.n_errors}\n")
-    refusal_recall = (
-        result.n_correct_refusals / result.n_questions
-        if result.n_questions
-        else 0.0
-    )
+    refusal_recall = result.n_correct_refusals / result.n_questions if result.n_questions else 0.0
     sys.stdout.write(f"Refusal recall:   {refusal_recall:.1%}\n")
     sys.stdout.write(f"Avg latency:      {result.avg_latency_s:.1f}s\n")
     sys.stdout.write(f"Judge:            {result.judge_mode}")
@@ -162,9 +153,7 @@ def main(argv: list[str] | None = None) -> None:
     json_path = args.json
     if json_path is None:
         today = time.strftime("%Y-%m-%d")
-        benchmarks_dir = (
-            Path(__file__).resolve().parent.parent / "docs" / "benchmarks"
-        )
+        benchmarks_dir = Path(__file__).resolve().parent.parent / "docs" / "benchmarks"
         json_path = str(benchmarks_dir / f"hard-refusal-{today}.json")
     out_path = Path(json_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)

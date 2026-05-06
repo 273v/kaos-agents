@@ -411,7 +411,7 @@ class AgentMemoryQueryTool(KaosTool):
 
         try:
             from kaos_agents.memory.store import SessionStore
-            from kaos_agents.memory.types import MemoryType
+            from kaos_agents.types.memory import MemoryType
 
             runtime = context.runtime if context else None
             vfs = _get_vfs(runtime)

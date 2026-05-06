@@ -27,7 +27,7 @@ from kaos_agents.events import (
     TurnComplete,
     TurnStart,
 )
-from kaos_agents.models import AgentResponse, IntentResult, IntentType
+from kaos_agents.types import AgentResponse, IntentResult, IntentType
 
 # ---------------------------------------------------------------------------
 # Helpers: mock VFS and memory for unit tests

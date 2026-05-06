@@ -15,7 +15,7 @@ import pytest
 
 from kaos_agents.planning.evaluate import evaluate, evaluate_semantic
 from kaos_agents.planning.expand import expand
-from kaos_agents.planning.types import EvalMode, StepType
+from kaos_agents.types.plan import EvalMode, StepType
 
 MODEL = "anthropic:claude-haiku-4-5"
 

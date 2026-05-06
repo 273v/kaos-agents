@@ -17,7 +17,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from kaos_agents.api import create_app
-from kaos_agents.models import IntentResult, IntentType
+from kaos_agents.types import IntentResult, IntentType
 
 
 @pytest.fixture
@@ -188,7 +188,7 @@ class TestMessageEndpoints:
     async def test_memory_query_endpoint_returns_items(self, client: AsyncClient, app) -> None:
         """GET /memory/messages returns the messages section content."""
         from kaos_agents.memory.store import SessionStore
-        from kaos_agents.memory.types import MemoryType
+        from kaos_agents.types.memory import MemoryType
 
         # Seed a session with a message
         store = SessionStore(app.state.vfs)
@@ -216,7 +216,7 @@ class TestMessageEndpoints:
     async def test_memory_search_endpoint_returns_results(self, client: AsyncClient, app) -> None:
         """GET /memory/search returns BM25 results from seeded session."""
         from kaos_agents.memory.store import SessionStore
-        from kaos_agents.memory.types import MemoryType
+        from kaos_agents.types.memory import MemoryType
 
         store = SessionStore(app.state.vfs)
         memory = await store.load_or_create("search-seeded")

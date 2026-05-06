@@ -14,7 +14,7 @@ from kaos_llm_core.programs.tool import Tool
 from kaos_agents.planning.compose import compose
 from kaos_agents.planning.expand import expand
 from kaos_agents.planning.graph import PlanGraph
-from kaos_agents.planning.types import PlanBudget, StopReason
+from kaos_agents.types.plan import PlanBudget, StopReason
 
 MODEL = "anthropic:claude-haiku-4-5"
 

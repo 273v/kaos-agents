@@ -13,8 +13,8 @@ from typing import TYPE_CHECKING
 from kaos_core.logging import get_logger
 
 from kaos_agents.memory.search import search_memory
-from kaos_agents.memory.types import MemoryType
 from kaos_agents.settings import KaosAgentSettings
+from kaos_agents.types.memory import MemoryType
 
 if TYPE_CHECKING:
     from kaos_agents.memory.session import SessionMemory

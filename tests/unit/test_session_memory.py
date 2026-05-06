@@ -6,7 +6,7 @@ import pytest
 
 from kaos_agents.errors import MemoryBudgetExceededError
 from kaos_agents.memory.session import SessionMemory
-from kaos_agents.memory.types import MemoryType
+from kaos_agents.types.memory import MemoryType
 
 
 class TestSessionMemoryBasic:

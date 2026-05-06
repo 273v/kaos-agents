@@ -18,8 +18,8 @@ from typing import TYPE_CHECKING
 from kaos_core.logging import get_logger
 
 from kaos_agents.memory.search import search_memory
-from kaos_agents.memory.types import MemoryItem, MemoryType
 from kaos_agents.settings import KaosAgentSettings
+from kaos_agents.types.memory import MemoryItem, MemoryType
 
 _DEFAULT_RETRIEVAL_THRESHOLD: int = KaosAgentSettings.model_fields["retrieval_threshold"].default
 _DEFAULT_SEARCH_TOP_K: int = KaosAgentSettings.model_fields["retrieval_top_k"].default

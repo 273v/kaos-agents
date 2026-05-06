@@ -11,7 +11,7 @@ Presets (FAST, BALANCED, STRONG) provide common configurations.
 
 Usage::
 
-    from kaos_agents.providers import BALANCED
+    from kaos_agents.types.providers import BALANCED
 
     agent = Agent(
         instructions="Research assistant.",

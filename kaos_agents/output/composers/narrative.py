@@ -32,7 +32,6 @@ from kaos_content.model.inlines import Text
 from kaos_core.logging import get_logger
 from kaos_llm_core import Call
 
-from kaos_agents.memory.types import MemoryType
 from kaos_agents.output.citations import aggregate_citations
 from kaos_agents.output.deliverables import (
     NarrativeDeliverable,
@@ -43,7 +42,8 @@ from kaos_agents.output.signatures import SectionWriterSignature
 from kaos_agents.output.walks import SpanDedupKey
 from kaos_agents.planning.recall import recall
 from kaos_agents.settings import DEFAULT_MODEL
-from kaos_agents.usage import ZERO_USAGE, InvocationUsage
+from kaos_agents.types import ZERO_USAGE, InvocationUsage
+from kaos_agents.types.memory import MemoryType
 
 if TYPE_CHECKING:
     from kaos_content.model.blocks import Block

@@ -34,7 +34,7 @@ from kaos_core.logging import get_logger
 from kaos_llm_core import InputField, OutputField, Signature
 from kaos_llm_core.programs.call import Call
 
-from kaos_agents.usage import InvocationUsage
+from kaos_agents.types import InvocationUsage
 
 logger = get_logger("benchmarks.llm_judge")
 

@@ -89,7 +89,7 @@ def _evaluate_ranked(
 
 def _resolve_uri(memory, hit) -> str:
     """Get the URI from a search result."""
-    from kaos_agents.memory.types import MemoryType
+    from kaos_agents.types.memory import MemoryType
 
     items = memory.get_by_ids(MemoryType.DOCUMENTS, {hit.item_id})
     if items:
@@ -100,7 +100,7 @@ def _resolve_uri(memory, hit) -> str:
 def run_bm25(memory, queries, test_qids):
     """Plain BM25 — no expansion."""
     from kaos_agents.memory.search import search_memory
-    from kaos_agents.memory.types import MemoryType
+    from kaos_agents.types.memory import MemoryType
 
     all_ranked: dict[str, list[str]] = {}
     latencies: dict[str, float] = {}
@@ -124,7 +124,7 @@ def run_bm25(memory, queries, test_qids):
 def run_lexicon(memory, queries, test_qids):
     """BM25 with Lexicon synonym + inflection expansion."""
     from kaos_agents.memory.search import search_memory
-    from kaos_agents.memory.types import MemoryType
+    from kaos_agents.types.memory import MemoryType
 
     all_ranked: dict[str, list[str]] = {}
     latencies: dict[str, float] = {}
@@ -148,7 +148,7 @@ def run_lexicon(memory, queries, test_qids):
 def run_prf(memory, queries, test_qids):
     """BM25 + Pseudo-Relevance Feedback (re-query with top terms from initial results)."""
     from kaos_agents.memory.search import search_memory
-    from kaos_agents.memory.types import MemoryType
+    from kaos_agents.types.memory import MemoryType
 
     all_ranked: dict[str, list[str]] = {}
     latencies: dict[str, float] = {}
@@ -200,7 +200,7 @@ def run_hyde(memory, queries, test_qids):
     """BM25 with HyDE pseudo-document generation (requires LLM)."""
     from kaos_agents.context.retrieval import _generate_pseudo_document
     from kaos_agents.memory.search import search_memory
-    from kaos_agents.memory.types import MemoryType
+    from kaos_agents.types.memory import MemoryType
 
     all_ranked: dict[str, list[str]] = {}
     latencies: dict[str, float] = {}
@@ -231,7 +231,7 @@ def run_bm25_rerank(memory, queries, test_qids):
     import asyncio
 
     from kaos_agents.memory.search import search_memory
-    from kaos_agents.memory.types import MemoryType
+    from kaos_agents.types.memory import MemoryType
 
     try:
         from kaos_nlp_core.retrieval.protocol import RetrievalResult

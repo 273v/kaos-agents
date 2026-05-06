@@ -271,7 +271,7 @@ class AuditHook(BaseHook):
         """Append a single event to the AUDIT section."""
         # Lazy imports to keep hooks.py import-light
         from kaos_agents.events import serialize_event_json
-        from kaos_agents.memory.types import MemoryType
+        from kaos_agents.types.memory import MemoryType
 
         try:
             memory = await self._store.load_or_create(event.session_id)

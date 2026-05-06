@@ -63,7 +63,7 @@ class TestAdaptiveComplexity:
 class TestRollingBuildResult:
     def test_build_result(self):
         from kaos_agents.planning.strategies.rolling import _build_result
-        from kaos_agents.planning.types import PlanBudget, StopReason
+        from kaos_agents.types.plan import PlanBudget, StopReason
 
         budget = PlanBudget()
         budget.record_step(cost_usd=0.01, tokens=100)
@@ -75,7 +75,7 @@ class TestRollingBuildResult:
 
     def test_build_result_failure(self):
         from kaos_agents.planning.strategies.rolling import _build_result
-        from kaos_agents.planning.types import PlanBudget, StopReason
+        from kaos_agents.types.plan import PlanBudget, StopReason
 
         budget = PlanBudget()
         result = _build_result([], {}, 0, budget, StopReason.FAILURE)

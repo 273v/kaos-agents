@@ -263,7 +263,7 @@ def _chunk_signatures(corpus: object, uris: list[str]) -> list[tuple[str, str]]:
     """
     grouped: dict[str, list[str]] = {}
     seen_order: list[str] = []
-    for passage in corpus:  # type: ignore[attr-defined]
+    for passage in corpus:  # ty: ignore[not-iterable]
         if passage.doc_uri not in grouped:
             grouped[passage.doc_uri] = []
             seen_order.append(passage.doc_uri)
@@ -287,12 +287,8 @@ class TestParallelLoading:
 
     def test_serial_and_parallel_produce_same_chunks(self, tmp_path: Path) -> None:
         paths = _write_corpus(tmp_path, n=6)
-        c_serial, u_serial = _load_files_to_corpus(
-            paths, verbose=False, chunk_size=500, workers=1
-        )
-        c_par, u_par = _load_files_to_corpus(
-            paths, verbose=False, chunk_size=500, workers=4
-        )
+        c_serial, u_serial = _load_files_to_corpus(paths, verbose=False, chunk_size=500, workers=1)
+        c_par, u_par = _load_files_to_corpus(paths, verbose=False, chunk_size=500, workers=4)
         assert c_serial is not None
         assert c_par is not None
         # Same URIs in same order — order preservation is part of the
@@ -305,9 +301,7 @@ class TestParallelLoading:
         we explicitly index back into a slot list to fix this. Sanity-
         check that filenames in the URIs come out in input order."""
         paths = _write_corpus(tmp_path, n=8)
-        corpus, uris = _load_files_to_corpus(
-            paths, verbose=False, chunk_size=500, workers=8
-        )
+        corpus, uris = _load_files_to_corpus(paths, verbose=False, chunk_size=500, workers=8)
         assert corpus is not None
         # Each URI is "file:<name>#chunk-<idx>". Strip the chunk
         # suffix and dedupe to recover the per-file order.
@@ -335,9 +329,7 @@ class TestParallelLoading:
         bad.write_bytes(b"\x00\x01\x02\x03not really a PDF")
         all_paths = [good_paths[0], bad, good_paths[1], good_paths[2], good_paths[3]]
 
-        corpus, uris = _load_files_to_corpus(
-            all_paths, verbose=False, chunk_size=500, workers=4
-        )
+        corpus, uris = _load_files_to_corpus(all_paths, verbose=False, chunk_size=500, workers=4)
         captured = capsys.readouterr()
         assert corpus is not None
         # The good 4 are loaded, the bad 1 is skipped.

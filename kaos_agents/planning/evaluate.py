@@ -16,8 +16,8 @@ from typing import Any
 from kaos_core.logging import get_logger
 from kaos_llm_core import InputField, OutputField, Signature
 
-from kaos_agents.planning.types import EvalMode, Judgment
 from kaos_agents.settings import DEFAULT_MODEL
+from kaos_agents.types.plan import EvalMode, Judgment
 
 logger = get_logger(__name__)
 

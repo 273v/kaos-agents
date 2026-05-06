@@ -46,10 +46,16 @@ from kaos_agents.events import (
 )
 from kaos_agents.memory.session import SessionMemory
 from kaos_agents.memory.store import SessionStore
-from kaos_agents.memory.types import MemoryType
-from kaos_agents.models import AgentResponse, IntentResult, IntentType, ToolCallRecord
 from kaos_agents.settings import KaosAgentSettings
-from kaos_agents.usage import ZERO_USAGE, InvocationUsage
+from kaos_agents.types import (
+    ZERO_USAGE,
+    AgentResponse,
+    IntentResult,
+    IntentType,
+    InvocationUsage,
+    ToolCallRecord,
+)
+from kaos_agents.types.memory import MemoryType
 
 # Default instruction for the respond handler. Module-level constant
 # so it's auditable and overridable (subclasses can replace self._respond_instruction).
@@ -73,7 +79,7 @@ class RespondSignature(Signature):
 if TYPE_CHECKING:
     from kaos_core.vfs.core import VirtualFileSystem
 
-    from kaos_agents.providers import ProviderConfig
+    from kaos_agents.types.providers import ProviderConfig
 
 logger = get_logger(__name__)
 
@@ -135,7 +141,7 @@ class BaseAgent:
           provider is set (backward compat with the pre-provider path).
         """
         if self._provider is not None:
-            from kaos_agents.providers import ModelRole
+            from kaos_agents.types.providers import ModelRole
 
             try:
                 return self._provider.model_for(ModelRole(role))

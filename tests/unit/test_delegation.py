@@ -26,8 +26,8 @@ from kaos_agents.delegation import (
     current_delegation_depth,
 )
 from kaos_agents.events import HandoffStart, SubagentComplete, SubagentStart
-from kaos_agents.models import IntentResult, IntentType
 from kaos_agents.runner import Runner
+from kaos_agents.types import IntentResult, IntentType
 
 
 @pytest.mark.unit

@@ -29,7 +29,7 @@ from kaos_content.model.extraction import ExtractionCell
 from kaos_core.logging import get_logger
 from kaos_llm_core.signatures.grounding import Claim, Span
 
-from kaos_agents.memory.types import MemoryType
+from kaos_agents.types.memory import MemoryType
 
 if TYPE_CHECKING:
     from kaos_agents.memory.session import SessionMemory

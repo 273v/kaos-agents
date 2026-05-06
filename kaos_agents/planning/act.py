@@ -17,8 +17,8 @@ from typing import TYPE_CHECKING, Any
 from kaos_core.logging import get_logger
 from kaos_llm_core import InputField, OutputField, Signature
 
-from kaos_agents.planning.types import PrimitiveTrace, StepType
 from kaos_agents.settings import DEFAULT_MODEL
+from kaos_agents.types.plan import PrimitiveTrace, StepType
 
 if TYPE_CHECKING:
     from kaos_llm_core.programs.tool import Tool

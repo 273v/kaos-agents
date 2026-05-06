@@ -65,9 +65,8 @@ from kaos_agents.memory import (
     SessionStore,
     SummarizationPolicy,
 )
-from kaos_agents.models import AgentResponse, IntentResult, IntentType, ToolCallRecord
 from kaos_agents.otel import OTelHook
-from kaos_agents.permissions import PermissionDecision, PermissionPolicy, PermissionRule
+from kaos_agents.permissions import PermissionPolicy
 from kaos_agents.planning import (
     ComposeResult,
     Decision,
@@ -82,10 +81,18 @@ from kaos_agents.planning import (
     StepType,
     StopReason,
 )
-from kaos_agents.providers import BALANCED, FAST, STRONG, ModelRole, ProviderConfig
 from kaos_agents.runner import Runner
 from kaos_agents.settings import KaosAgentSettings
 from kaos_agents.tools import register_agent_tools
+from kaos_agents.types import (
+    AgentResponse,
+    IntentResult,
+    IntentType,
+    PermissionDecision,
+    PermissionRule,
+    ToolCallRecord,
+)
+from kaos_agents.types.providers import BALANCED, FAST, STRONG, ModelRole, ProviderConfig
 from kaos_agents.wire import events_to_jsonl, events_to_sse
 
 __all__ = [

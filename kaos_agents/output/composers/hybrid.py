@@ -34,7 +34,7 @@ from kaos_agents.output.deliverables import (
 )
 from kaos_agents.output.walks import SpanDedupKey
 from kaos_agents.settings import DEFAULT_MODEL
-from kaos_agents.usage import ZERO_USAGE, InvocationUsage
+from kaos_agents.types import ZERO_USAGE, InvocationUsage
 
 if TYPE_CHECKING:
     from kaos_llm_core.signatures.extraction import ExtractionSchema

@@ -14,7 +14,7 @@ from __future__ import annotations
 import pytest
 
 from kaos_agents.config import Agent
-from kaos_agents.providers import BALANCED, FAST, STRONG, ModelRole, ProviderConfig
+from kaos_agents.types.providers import BALANCED, FAST, STRONG, ModelRole, ProviderConfig
 
 
 @pytest.mark.unit

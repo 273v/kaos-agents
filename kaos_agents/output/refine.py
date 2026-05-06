@@ -53,8 +53,8 @@ from kaos_llm_core.programs.loop_runner import (
     StopReason,
 )
 
-from kaos_agents.memory.types import MemoryType
 from kaos_agents.output.feedback import FeedbackStrategy, format_gap_feedback
+from kaos_agents.types.memory import MemoryType
 
 if TYPE_CHECKING:
     from kaos_agents.memory.session import SessionMemory

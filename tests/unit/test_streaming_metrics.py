@@ -30,8 +30,8 @@ from httpx import ASGITransport, AsyncClient
 from kaos_agents.api import create_app
 from kaos_agents.config import Agent
 from kaos_agents.events import AgentEvent
-from kaos_agents.models import IntentResult, IntentType
 from kaos_agents.runner import Runner
+from kaos_agents.types import IntentResult, IntentType
 
 # Numeric targets in seconds (or bytes for memory).
 TIME_TO_FIRST_EVENT_TARGET_S = 0.500

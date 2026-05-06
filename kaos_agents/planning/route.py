@@ -11,13 +11,13 @@ from __future__ import annotations
 
 from kaos_core.logging import get_logger
 
-from kaos_agents.planning.types import (
+from kaos_agents.settings import KaosAgentSettings as _Settings
+from kaos_agents.types.plan import (
     Decision,
     Judgment,
     PlanBudget,
     RouteResult,
 )
-from kaos_agents.settings import KaosAgentSettings as _Settings
 
 logger = get_logger(__name__)
 

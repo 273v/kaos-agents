@@ -30,7 +30,6 @@ import pytest
 from kaos_llm_core.signatures.grounding import Claim, Span
 
 from kaos_agents.memory.session import SessionMemory
-from kaos_agents.memory.types import MemoryType
 from kaos_agents.output import (
     Deliverable,
     NarrativeDeliverable,
@@ -41,6 +40,7 @@ from kaos_agents.output import (
     aggregate_citations,
     compose_narrative,
 )
+from kaos_agents.types.memory import MemoryType
 
 _HAS_ANTHROPIC_KEY = bool(
     os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("KAOS_LLM_ANTHROPIC_API_KEY")

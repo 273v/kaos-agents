@@ -18,7 +18,7 @@ from kaos_llm_core import InputField, OutputField, Signature
 from kaos_agents.settings import DEFAULT_MODEL
 
 if TYPE_CHECKING:
-    from kaos_agents.memory.types import MemoryItem, MemoryType
+    from kaos_agents.types.memory import MemoryItem, MemoryType
 
 logger = get_logger(__name__)
 

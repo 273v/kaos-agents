@@ -28,13 +28,13 @@ from kaos_agents.events import (
     StepComplete,
     StepStart,
     TextDelta,
+    emit_usage_observed,
 )
-from kaos_agents.memory.types import MemoryType
-from kaos_agents.models import IntentResult, IntentType, ToolCallRecord
 from kaos_agents.patterns.chat import ChatAgent
 from kaos_agents.planning.recall import recall
-from kaos_agents.planning.types import StopReason
-from kaos_agents.usage import ZERO_USAGE, InvocationUsage, emit_usage_observed
+from kaos_agents.types import ZERO_USAGE, IntentResult, IntentType, InvocationUsage, ToolCallRecord
+from kaos_agents.types.memory import MemoryType
+from kaos_agents.types.plan import StopReason
 
 if TYPE_CHECKING:
     from kaos_core.base.context import KaosContext
@@ -42,9 +42,9 @@ if TYPE_CHECKING:
     from kaos_core.vfs.core import VirtualFileSystem
 
     from kaos_agents.memory.session import SessionMemory
-    from kaos_agents.memory.types import MemoryItem
-    from kaos_agents.providers import ProviderConfig
     from kaos_agents.settings import KaosAgentSettings
+    from kaos_agents.types.memory import MemoryItem
+    from kaos_agents.types.providers import ProviderConfig
 
 logger = get_logger(__name__)
 
@@ -136,7 +136,7 @@ class PlanExecuteAgent(ChatAgent):
         from kaos_agents.actions.tool_bridge import bridge_runtime_tools
         from kaos_agents.planning.result_check import is_error_result
         from kaos_agents.planning.strategies.adaptive import execute_adaptive
-        from kaos_agents.planning.types import PlanBudget
+        from kaos_agents.types.plan import PlanBudget
 
         tools_dict: dict[str, Any] = {}
         tool_descriptions: dict[str, str] = {}
