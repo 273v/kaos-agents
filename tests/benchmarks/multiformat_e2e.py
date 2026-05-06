@@ -9,8 +9,17 @@ and get answers?"
 
 Usage::
 
-    # Run all 12 questions
+    # Run all 12 questions with the historical fuzzy-hint scorer
     uv run python tests/benchmarks/multiformat_e2e.py
+
+    # Use the LLM-as-judge scorer (default model claude-haiku-4-5)
+    uv run python tests/benchmarks/multiformat_e2e.py --judge llm
+
+    # LLM judge with explicit model
+    uv run python tests/benchmarks/multiformat_e2e.py --judge llm:anthropic:claude-haiku-4-5
+
+    # Disable scoring entirely (just record agent outputs)
+    uv run python tests/benchmarks/multiformat_e2e.py --judge none
 
     # Save results
     uv run python tests/benchmarks/multiformat_e2e.py --json results.json
@@ -36,6 +45,22 @@ _QUESTIONS_PATH = _CORPUS_DIR / "multiformat-questions.jsonl"
 
 _FUZZY_MATCH_THRESHOLD = 0.5  # BM25 score threshold (hint as query, answer as doc)
 _WORD_OVERLAP_THRESHOLD = 0.5  # Fallback: 50% of hint content words in answer
+
+_DEFAULT_JUDGE_MODEL = "anthropic:claude-haiku-4-5"
+
+# Phrases that count as a refusal in the fuzzy scorer.
+_REFUSAL_PHRASES = (
+    "insufficient",
+    "not find",
+    "not contain",
+    "no information",
+    "not available",
+    "cannot answer",
+    "don't have",
+    "do not have",
+    "unable to answer",
+    "could not find",
+)
 
 
 def _fuzzy_hint_match(answer: str, hint: str) -> bool:
@@ -98,7 +123,14 @@ def _fuzzy_hint_match(answer: str, hint: str) -> bool:
 
 @dataclass(frozen=True, slots=True)
 class QuestionResult:
-    """Result for one question."""
+    """Result for one question.
+
+    ``answer_correct`` is the headline verdict — it tracks whichever
+    judge mode is selected (fuzzy by default, LLM when ``--judge llm``).
+    ``fuzzy_correct`` and ``llm_correct`` always carry both verdicts when
+    available so downstream analysis can compare them; the unused one is
+    ``None``.
+    """
 
     question_id: str
     question: str
@@ -111,7 +143,15 @@ class QuestionResult:
     citations_count: int
     answer_length: int
     latency_s: float
+    answer_text: str = ""
     error_message: str = ""
+    # Per-judge verdicts. None means that judge was not run.
+    fuzzy_correct: bool | None = None
+    llm_correct: bool | None = None
+    llm_confidence: float | None = None
+    llm_reasoning: str = ""
+    llm_model: str = ""
+    llm_cost_usd: float = 0.0
 
 
 @dataclass(slots=True)  # Mutable: accumulated
@@ -128,6 +168,9 @@ class BenchmarkResult:
     n_errors: int = 0
     accuracy: float = 0.0
     avg_latency_s: float = 0.0
+    judge_mode: str = "fuzzy"
+    judge_model: str = ""
+    judge_total_cost_usd: float = 0.0
     questions: list[QuestionResult] = field(default_factory=list)
 
 

@@ -115,10 +115,13 @@ class KaosAgentSettings(ModuleSettings):
 
     # Context retrieval
     retrieval_threshold: int = Field(
-        default=20,
+        default=5,
         ge=1,
         description="When a memory section has >= this many items, use BM25 "
-        "retrieval instead of FIFO for context assembly.",
+        "retrieval instead of FIFO for context assembly. Default 5 — for "
+        "legal corpora, even a small deal room (5-20 docs) benefits from "
+        "BM25 selection over FIFO. Was 20 historically but that meant "
+        "small corpora silently bypassed retrieval.",
     )
 
     # Retrieval: adaptive multi-round
