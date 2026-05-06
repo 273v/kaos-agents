@@ -148,3 +148,32 @@ class KaosEvent(KaosModel):
     # Subclasses that omit a ``type`` ClassVar get the snake-cased default
     # via :meth:`event_type`.
     type: ClassVar[str] = ""
+
+    # --- Auto-registration -------------------------------------------
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        """Register every subclass in the default event registry.
+
+        Powers wire-format dispatch in
+        :func:`kaos_agents.events.deserialize_event`. Importing
+        :mod:`kaos_agents.events` triggers registration of all 19
+        concrete event types as a side effect.
+
+        Intermediate classes (``StreamDelta``, ``LifecycleEvent``)
+        also register, which is fine — they're just additional valid
+        discriminators that downstream code can target. To exclude
+        a subclass from auto-registration (e.g. an abstract internal
+        scaffold), pass ``register=False`` in the class declaration::
+
+            class MyAbstract(KaosEvent, register=False):
+                ...
+        """
+        register = kwargs.pop("register", True)
+        super().__init_subclass__(**kwargs)
+        if not register:
+            return
+        # Local import to avoid a circular dependency between
+        # ``kaos_agents.base.event`` and ``kaos_agents.registry``.
+        from kaos_agents.registry.event_registry import default_event_registry
+
+        default_event_registry.register(cls, force=True)

@@ -40,6 +40,7 @@ from pydantic import ConfigDict, ValidationError
 
 from kaos_agents.base.event import KaosEvent
 from kaos_agents.errors import EventDeserializationError, EventSerializationError
+from kaos_agents.registry.event_registry import default_event_registry as _event_registry
 
 if TYPE_CHECKING:
     from kaos_agents.types.usage import InvocationUsage
@@ -396,11 +397,11 @@ ALL_EVENT_TYPES: tuple[type[KaosEvent], ...] = (
     UsageObserved,
 )
 
-# Map wire-format type names to event classes for deserialization. The
-# canonical resolver is :meth:`KaosEvent.event_type` — this dict is the
-# reverse lookup powering :func:`deserialize_event`. Chunk 3 lifts both
-# directions into :class:`kaos_agents.registry.event_registry.EventRegistry`.
-_NAME_TO_TYPE: dict[str, type[KaosEvent]] = {cls.event_type(): cls for cls in ALL_EVENT_TYPES}
+# Wire-format dispatch is backed by
+# :data:`kaos_agents.registry.event_registry.default_event_registry`
+# (imported at module top). Every :class:`KaosEvent` subclass
+# auto-registers via ``__init_subclass__`` at class-creation time, so
+# importing this module populates the registry as a side effect.
 
 
 def event_type_name(event: KaosEvent) -> str:
@@ -460,9 +461,9 @@ def deserialize_event(data: dict[str, Any]) -> KaosEvent:
             "Use serialize_event() to produce correctly formatted dicts."
         )
 
-    cls = _NAME_TO_TYPE.get(type_name)
+    cls = _event_registry.get(type_name)
     if cls is None:
-        valid = ", ".join(sorted(_NAME_TO_TYPE))
+        valid = ", ".join(_event_registry.list_types())
         raise EventDeserializationError(
             f"Unknown event type '{type_name}'. "
             f"Valid types: {valid}. "
