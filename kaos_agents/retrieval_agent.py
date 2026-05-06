@@ -97,8 +97,14 @@ def create_retrieval_agent(
         model=model or DEFAULT_MODEL,
         pattern=AgentPattern.CHAT,
         tools=("kaos-retrieval-*",),
+        # Retrieval-only sub-agent: 8 tools is the actual count of
+        # kaos-retrieval-* tools, intentional. 30 iterations gives the
+        # agent room to do BM25 → synonyms → HyDE → evaluate → retry
+        # cycles (each is one tool call, often re-tried with different
+        # phrasings). 12 was a 2024-era cap that truncated multi-strategy
+        # retrieval mid-search.
         max_tools=8,
-        max_react_iterations=12,
+        max_react_iterations=30,
     )
 
     return agent_as_tool(

@@ -174,24 +174,37 @@ def create_item(
 # ---------------------------------------------------------------------------
 
 DEFAULT_SECTIONS: tuple[SectionConfig, ...] = (
+    # Section budgets (2026 sizing). Old values were calibrated for the
+    # 8K-context era (Claude 2 / GPT-3.5). Frontier models in 2026 have
+    # 200K+ contexts; allocating only 200-3000 tokens per section meant
+    # the agent threw away most of what it had remembered.
+    #
+    # New sizing fits comfortably within the 200K context budget:
+    # - Explicit (role/playbooks/examples): 2K-16K each — load once,
+    #   the agent keeps it for the whole session.
+    # - Learned (messages/actions/findings): 16K-64K — these are
+    #   what the agent actually uses turn-to-turn.
+    # - Documents/Audit: unlimited (already correct).
+    # Total committed budget: ~200K (matches default_context_budget_tokens).
+    #
     # Explicit (immutable, loaded from config)
     SectionConfig(
         memory_type=MemoryType.ROLE,
-        budget_tokens=200,
+        budget_tokens=2_000,
         eviction_policy=EvictionPolicy.NONE,
         persistence_mode=PersistenceMode.SNAPSHOT,
         explicit_only=True,
     ),
     SectionConfig(
         memory_type=MemoryType.PLAYBOOKS,
-        budget_tokens=1_000,
+        budget_tokens=8_000,
         eviction_policy=EvictionPolicy.NONE,
         persistence_mode=PersistenceMode.SNAPSHOT,
         explicit_only=True,
     ),
     SectionConfig(
         memory_type=MemoryType.PLAN_EXAMPLES,
-        budget_tokens=1_000,
+        budget_tokens=8_000,
         eviction_policy=EvictionPolicy.NONE,
         persistence_mode=PersistenceMode.SNAPSHOT,
         explicit_only=True,
@@ -199,7 +212,7 @@ DEFAULT_SECTIONS: tuple[SectionConfig, ...] = (
     # Learned (agent-written, persistent)
     SectionConfig(
         memory_type=MemoryType.MESSAGES,
-        budget_tokens=3_000,
+        budget_tokens=32_000,
         eviction_policy=EvictionPolicy.FIFO,
         summarization_policy=SummarizationPolicy.ON_OVERFLOW,
         persistence_mode=PersistenceMode.STREAMING,
@@ -207,7 +220,7 @@ DEFAULT_SECTIONS: tuple[SectionConfig, ...] = (
     ),
     SectionConfig(
         memory_type=MemoryType.ACTIONS,
-        budget_tokens=2_000,
+        budget_tokens=16_000,
         eviction_policy=EvictionPolicy.LRU,
         summarization_policy=SummarizationPolicy.ON_OVERFLOW,
         persistence_mode=PersistenceMode.STREAMING,
@@ -222,7 +235,7 @@ DEFAULT_SECTIONS: tuple[SectionConfig, ...] = (
     ),
     SectionConfig(
         memory_type=MemoryType.FINDINGS,
-        budget_tokens=1_500,
+        budget_tokens=16_000,
         eviction_policy=EvictionPolicy.NONE,
         summarization_policy=SummarizationPolicy.MANUAL,
         persistence_mode=PersistenceMode.STREAMING,
@@ -230,21 +243,21 @@ DEFAULT_SECTIONS: tuple[SectionConfig, ...] = (
     ),
     SectionConfig(
         memory_type=MemoryType.PLAN_HISTORY,
-        budget_tokens=1_000,
+        budget_tokens=8_000,
         eviction_policy=EvictionPolicy.LRU,
         summarization_policy=SummarizationPolicy.ON_OVERFLOW,
         persistence_mode=PersistenceMode.SNAPSHOT,
     ),
     SectionConfig(
         memory_type=MemoryType.REFLECTION,
-        budget_tokens=500,
+        budget_tokens=8_000,
         eviction_policy=EvictionPolicy.FIFO,
         summarization_policy=SummarizationPolicy.ON_TURN,
         persistence_mode=PersistenceMode.STREAMING,
     ),
     SectionConfig(
         memory_type=MemoryType.LAST_INTENT,
-        budget_tokens=200,
+        budget_tokens=2_000,
         eviction_policy=EvictionPolicy.LIFO,
         persistence_mode=PersistenceMode.STREAMING,
         max_items=1,
@@ -252,13 +265,13 @@ DEFAULT_SECTIONS: tuple[SectionConfig, ...] = (
     # Ephemeral (cleared between turns)
     SectionConfig(
         memory_type=MemoryType.WORKING,
-        budget_tokens=2_000,
+        budget_tokens=16_000,
         eviction_policy=EvictionPolicy.FIFO,
         persistence_mode=PersistenceMode.NONE,
     ),
     SectionConfig(
         memory_type=MemoryType.PLANNING_CONTEXT,
-        budget_tokens=2_000,
+        budget_tokens=16_000,
         eviction_policy=EvictionPolicy.LIFO,
         persistence_mode=PersistenceMode.NONE,
     ),

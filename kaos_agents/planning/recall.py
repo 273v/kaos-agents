@@ -36,7 +36,11 @@ def recall(
     memory: SessionMemory,
     sections: list[MemoryType],
     *,
-    budget_tokens: int = 8000,
+    # 64K is the per-recall budget, sized to give the agent a generous
+    # slice of available context (out of the 200K
+    # default_context_budget_tokens). Was 8K — fine for GPT-3.5, way
+    # too small for 2026 frontier models with 200K-1M contexts.
+    budget_tokens: int = 64_000,
     priority_order: list[MemoryType] | None = None,
 ) -> Context:
     """Retrieve context from memory for use by other primitives.

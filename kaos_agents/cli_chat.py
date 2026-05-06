@@ -190,19 +190,14 @@ def _print_explain(turn: _ExplainTurn) -> None:
             cost_part = f" — ${cost:.4f}" if cost > 0 else ""
             err_part = " — ERROR" if tc.get("is_error") else ""
             preview = (tc.get("preview") or "")[:80]
-            print(
-                f"    {tc['tool_name']} ({tc.get('duration_ms', 0):.0f}ms){cost_part}{err_part}"
-            )
+            print(f"    {tc['tool_name']} ({tc.get('duration_ms', 0):.0f}ms){cost_part}{err_part}")
             if preview:
                 print(_c(_ANSI_DIM, f"      → {preview}"))
     if turn.citations:
         print(_c(_ANSI_CYAN, f"  ► Citations ({len(turn.citations)}):"))
         for c in turn.citations:
             v = "✓" if c.get("verified") else "?"
-            print(
-                f"    {v} ({c.get('confidence', 0.0):.2f}) — "
-                f"{(c.get('claim') or '')[:80]}"
-            )
+            print(f"    {v} ({c.get('confidence', 0.0):.2f}) — {(c.get('claim') or '')[:80]}")
             uri = c.get("source_uri") or ""
             ref = c.get("node_ref") or ""
             page = c.get("page")
@@ -623,7 +618,7 @@ def _load_files_to_corpus(
     file_paths: list[Path],
     *,
     verbose: bool = False,
-    chunk_size: int = 1500,
+    chunk_size: int = 8000,
     workers: int | None = None,
     cache_dir: Path | None = None,
 ) -> tuple[Any, list[str]]:
@@ -788,7 +783,7 @@ def _load_files_into_memory(
     memory: Any,
     *,
     verbose: bool = False,
-    chunk_size: int = 1500,
+    chunk_size: int = 8000,
     workers: int | None = None,
     cache_dir: Path | None = None,
 ) -> int:
@@ -1023,7 +1018,7 @@ async def _run_repl(args: argparse.Namespace) -> _SessionState:
                 file_paths.extend(Path.cwd().glob(pat))
         if file_paths:
             print(f"Loading {len(file_paths)} file(s)...")
-            chunk_size = getattr(args, "chunk_size", 1500)
+            chunk_size = getattr(args, "chunk_size", 8000)
             workers = getattr(args, "load_workers", None)
             cache_dir = _resolve_corpus_cache(args)
             corpus, uris = _load_files_to_corpus(
@@ -1130,7 +1125,7 @@ async def _run_repl(args: argparse.Namespace) -> _SessionState:
                 # /explain — show the most recent turn.
                 # /explain N — show turn N (1-indexed).
                 # /explain <path> — write all turns as JSON to <path>.
-                rest = stripped[len("/explain"):].strip()
+                rest = stripped[len("/explain") :].strip()
                 if rest and (rest.isdigit() or (rest.startswith("-") and rest[1:].isdigit())):
                     n = int(rest)
                     idx = len(state.explain_turns) + n if n < 0 else n - 1
@@ -1191,7 +1186,7 @@ async def _run_repl(args: argparse.Namespace) -> _SessionState:
                 new_corpus, new_uris = _load_files_to_corpus(
                     paths,
                     verbose=True,
-                    chunk_size=getattr(args, "chunk_size", 1500),
+                    chunk_size=getattr(args, "chunk_size", 8000),
                     workers=getattr(args, "load_workers", None),
                     cache_dir=_resolve_corpus_cache(args),
                 )
@@ -1385,12 +1380,9 @@ async def _run_repl(args: argparse.Namespace) -> _SessionState:
                     # Backfill the per-tool cost into the explain record
                     # before finalizing — TurnComplete carries the
                     # attributed cost the agent layer just computed.
-                    cost_by_call_id = {
-                        s.call_id: float(s.cost_usd) for s in event.tool_calls
-                    }
+                    cost_by_call_id = {s.call_id: float(s.cost_usd) for s in event.tool_calls}
                     tokens_by_call_id = {
-                        s.call_id: int(s.input_tokens + s.output_tokens)
-                        for s in event.tool_calls
+                        s.call_id: int(s.input_tokens + s.output_tokens) for s in event.tool_calls
                     }
                     for tc in explain.tool_calls:
                         cid = tc.get("call_id", "")
@@ -1464,9 +1456,7 @@ async def _run_repl(args: argparse.Namespace) -> _SessionState:
     if explain_path:
         out = Path(explain_path).expanduser().resolve()
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(
-            json.dumps([_explain_to_dict(t) for t in state.explain_turns], indent=2)
-        )
+        out.write_text(json.dumps([_explain_to_dict(t) for t in state.explain_turns], indent=2))
         print(f"Explain records written to: {out} ({len(state.explain_turns)} turn(s))")
 
     return state
@@ -1597,14 +1587,17 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     chat.add_argument(
         "--chunk-size",
         type=int,
-        default=1500,
+        default=8000,
         metavar="N",
         help=(
             "Maximum chunk size in characters for the SectionChunker that "
-            "splits each loaded document before BM25 indexing. Default 1500. "
-            "Set to 0 to disable chunking (one passage per ContentDocument "
-            "paragraph block — legacy behavior, not recommended for legal "
-            "docs because it produces unbounded passages)."
+            "splits each loaded document before BM25 indexing. Default 8000 "
+            "(~2K tokens), matching the SectionChunker default and giving "
+            "the model a coherent section's worth of context per chunk. "
+            "Was 1500 in the GPT-3.5 era. Set to 0 to disable chunking "
+            "(one passage per ContentDocument paragraph block — legacy "
+            "behavior, not recommended for legal docs because it "
+            "produces unbounded passages)."
         ),
     )
     chat.add_argument(

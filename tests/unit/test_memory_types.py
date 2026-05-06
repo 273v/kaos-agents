@@ -155,8 +155,12 @@ class TestDefaultSections:
         assert audit.budget_tokens == 0  # unlimited
 
     def test_messages_budget(self):
+        # MESSAGES is the conversational history section; sized for
+        # 2026 frontier-model contexts (32K). Was 3K in the GPT-3.5 era.
+        # The exact number isn't load-bearing — the property test is
+        # "messages section has a non-trivial budget."
         messages = next(c for c in DEFAULT_SECTIONS if c.memory_type == MemoryType.MESSAGES)
-        assert messages.budget_tokens == 3000
+        assert messages.budget_tokens >= 16_000
 
     def test_working_is_ephemeral(self):
         working = next(c for c in DEFAULT_SECTIONS if c.memory_type == MemoryType.WORKING)

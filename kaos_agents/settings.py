@@ -14,11 +14,20 @@ class KaosAgentSettings(ModuleSettings):
     explicit overrides > context config > KAOS_AGENT_ env vars > .env > defaults.
     """
 
-    # Context budget
+    # Context budget — sized for 2026 frontier models (Claude 4.x: 200K
+    # input, Gemini 2.5/3: 1M input, GPT-5.x: 200K-400K input). 16K was
+    # the GPT-3.5 / Claude 2 era default and silently capped agents that
+    # could have used 10x more context. Set to 200K which fits every
+    # frontier model's input window with comfortable headroom for the
+    # output budget.
     default_context_budget_tokens: int = Field(
-        default=16_000,
+        default=200_000,
         gt=0,
-        description="Default total token budget for context assembly across all sections.",
+        description=(
+            "Default total token budget for context assembly across all "
+            "sections. Sized for 2026 frontier models (200K context "
+            "windows). Override down for cheap/local models."
+        ),
     )
 
     # Persistence
@@ -57,19 +66,33 @@ class KaosAgentSettings(ModuleSettings):
 
     # Tool execution
     max_tools: int = Field(
-        default=30,
+        default=100,
         ge=1,
-        description="Maximum tools bridged for ReAct. Performance degrades above ~30.",
+        description=(
+            "Maximum tools bridged for ReAct. Frontier models in 2026 "
+            "handle large tool inventories well; 100 covers a full KAOS "
+            "deployment (206 tools across 14 servers) with room for "
+            "agents to delegate to most of them. Was 30 in the GPT-4 era."
+        ),
     )
     max_react_iterations: int = Field(
-        default=10,
+        default=50,
         ge=1,
-        description="Maximum iterations in a ReAct tool-calling loop.",
+        description=(
+            "Maximum iterations in a ReAct tool-calling loop. Real "
+            "agentic legal/research workflows often need 20-40 tool "
+            "calls (search → read → search → read → cite → verify). "
+            "10 was a 2023-era cap that truncated long-horizon tasks."
+        ),
     )
     tool_timeout_seconds: float = Field(
-        default=60.0,
+        default=120.0,
         gt=0,
-        description="Timeout for individual tool invocations.",
+        description=(
+            "Timeout for individual tool invocations. Bumped from 60s — "
+            "playwright loads and large-corpus extractions routinely "
+            "take 60-90s on first call."
+        ),
     )
 
     # Planning: route thresholds
@@ -86,31 +109,57 @@ class KaosAgentSettings(ModuleSettings):
         description="Below this confidence, Route triggers DEEPEN instead of REPLAN.",
     )
 
-    # Planning: budget defaults
+    # Planning: budget defaults — sized for realistic agentic tasks in 2026.
+    # A real M&A deal-room review or regulatory research task can easily
+    # need 50+ steps, 10+ replans, 5M tokens across the whole plan. Old
+    # defaults (20 steps, 100K tokens, $1, 120s) were sized for toy
+    # demos and silently capped real workloads.
     plan_max_steps: int = Field(
-        default=20,
+        default=100,
         ge=1,
-        description="Maximum steps in a single plan execution.",
+        description=(
+            "Maximum steps in a single plan execution. Real legal/"
+            "research workflows need 50-100 steps when iterating across "
+            "many documents."
+        ),
     )
     plan_max_replans: int = Field(
-        default=3,
+        default=10,
         ge=0,
-        description="Maximum replan attempts before STOP_FAILURE (circuit breaker).",
+        description=(
+            "Maximum replan attempts before STOP_FAILURE (circuit "
+            "breaker). Long-horizon tasks routinely hit failed steps "
+            "that need replanning; 3 was too tight."
+        ),
     )
     plan_max_tokens: int = Field(
-        default=100_000,
+        default=5_000_000,
         ge=1,
-        description="Maximum tokens across all steps in a plan execution.",
+        description=(
+            "Maximum tokens across all steps in a plan execution. With "
+            "200K-context models making 50+ calls, 100K was orders of "
+            "magnitude too small. 5M = ~$15-25 of cost on Sonnet, "
+            "matches plan_max_cost_usd."
+        ),
     )
     plan_max_cost_usd: float = Field(
-        default=1.0,
+        default=10.0,
         gt=0,
-        description="Maximum cost in USD for a single plan execution.",
+        description=(
+            "Maximum cost in USD for a single plan execution. $1 was "
+            "the toy-demo budget; legal-deal review easily justifies "
+            "$10/task. Hard ceiling — agent stops, never silently "
+            "exceeds."
+        ),
     )
     plan_max_wall_clock_seconds: float = Field(
-        default=120.0,
+        default=900.0,
         gt=0,
-        description="Maximum wall-clock time for a single plan execution.",
+        description=(
+            "Maximum wall-clock time for a single plan execution. 15 "
+            "minutes covers realistic agentic workloads (50+ tool "
+            "calls at 5-15s each). 120s was for toy demos."
+        ),
     )
 
     # Context retrieval
