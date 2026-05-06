@@ -358,7 +358,7 @@ async def run_benchmark(
                 llm_model_used = str(verdict.get("judge_model", "") or "")
                 llm_call_cost = float(verdict.get("judge_cost_usd", 0.0) or 0.0)
                 result.judge_total_cost_usd += llm_call_cost
-            except Exception as exc:  # noqa: BLE001 — defensive
+            except Exception as exc:
                 llm_reasoning_text = f"judge unavailable: {exc!r}"
 
         # Promote whichever verdict the caller requested as the
@@ -451,7 +451,7 @@ def main(argv: list[str] | None = None) -> None:
         judge_mode = "llm"
     elif args.judge.startswith("llm:"):
         judge_mode = "llm"
-        judge_model = args.judge[len("llm:"):]
+        judge_model = args.judge[len("llm:") :]
     else:
         parser.error(f"unknown --judge value: {args.judge!r} (expected fuzzy/llm/llm:<model>/none)")
 
@@ -499,21 +499,19 @@ def main(argv: list[str] | None = None) -> None:
             and q.fuzzy_correct == q.llm_correct
         )
         total = sum(
-            1
-            for q in result.questions
-            if q.fuzzy_correct is not None and q.llm_correct is not None
+            1 for q in result.questions if q.fuzzy_correct is not None and q.llm_correct is not None
         )
         if total:
-            sys.stdout.write(
-                f"Fuzzy↔LLM agree:  {agree}/{total} ({agree / total:.0%})\n"
-            )
+            sys.stdout.write(f"Fuzzy↔LLM agree:  {agree}/{total} ({agree / total:.0%})\n")
     sys.stdout.flush()
 
     # Save results
     json_path = args.json
     if json_path is None:
         today = time.strftime("%Y-%m-%d")
-        benchmarks_dir = Path(__file__).resolve().parent.parent / "docs" / "benchmarks"
+        # __file__ is tests/benchmarks/multiformat_e2e.py — we want
+        # the package's docs/benchmarks/, not tests/docs/benchmarks/.
+        benchmarks_dir = Path(__file__).resolve().parent.parent.parent / "docs" / "benchmarks"
         json_path = str(benchmarks_dir / f"multiformat-e2e-{today}.json")
 
     out_path = Path(json_path)

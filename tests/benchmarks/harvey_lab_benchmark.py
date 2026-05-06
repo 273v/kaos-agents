@@ -481,7 +481,9 @@ def main(argv: list[str] | None = None) -> None:
     if json_path is None:
         today = time.strftime("%Y-%m-%d")
         slug = task_dir.name
-        benchmarks_dir = Path(__file__).resolve().parent.parent / "docs" / "benchmarks"
+        # __file__ is tests/benchmarks/harvey_lab_benchmark.py — we want
+        # the package's docs/benchmarks/, not tests/docs/benchmarks/.
+        benchmarks_dir = Path(__file__).resolve().parent.parent.parent / "docs" / "benchmarks"
         json_path = str(benchmarks_dir / f"harvey-{slug}-{today}.json")
     _save_json(result, json_path)
 
