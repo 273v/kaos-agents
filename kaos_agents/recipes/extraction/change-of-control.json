@@ -1,0 +1,208 @@
+{
+  "name": "change-of-control",
+  "description": "Extract change-of-control provisions from a contract. Designed against Harvey LAB's `extract-change-of-control-provisions` rubric (55 criteria, 8-contract corpus). Per-column field design forces specific assertions the rubric demands (section numbers, exact quotes, risk ratings, cross-references) that free-form prose typically scatters across paragraphs.",
+  "harvey_recall_floor": 0.95,
+  "schema": {
+    "id": "change-of-control-v1",
+    "version": 1,
+    "columns": [
+      {
+        "id": "contract_party",
+        "column_type": "string",
+        "description": "Act as a corporate associate identifying the target's counterparty in this contract. Look at the preamble or signature block. Return the counterparty's exact legal name (the entity that is NOT the target / acquiring company)."
+      },
+      {
+        "id": "contract_type",
+        "column_type": "enum",
+        "constraints": {"values": [
+          "joint_venture",
+          "credit_agreement",
+          "license",
+          "employment",
+          "lease",
+          "supply_agreement",
+          "master_services_agreement",
+          "insurance_policy",
+          "other"
+        ]},
+        "description": "Classify the contract's primary type. Use 'master_services_agreement' (MSA) for ongoing service contracts; 'supply_agreement' for goods supply contracts; 'license' for IP/technology licenses; 'employment' for individual employment agreements (not service contracts). When ambiguous, prefer the document's own self-label in the title."
+      },
+      {
+        "id": "governing_law",
+        "column_type": "string",
+        "description": "Look in the 'Governing Law' section. Return the named jurisdiction (e.g., 'Delaware', 'New York', 'California'). Do NOT include the venue/forum clause if separate. If unstated, omit.",
+        "required": false
+      },
+
+      {
+        "id": "coc_definition_section",
+        "column_type": "string",
+        "description": "Section number where the contract DEFINES 'Change of Control' (e.g., 'Section 1.01', '§ 1.1(c)'). Look in the Definitions section first. If the contract has no separate change-of-control definition (relies on assignment-clause language only), return 'NONE — no separate definition'.",
+        "required": false
+      },
+      {
+        "id": "coc_definition_quote",
+        "column_type": "verbatim_quote",
+        "description": "Verbatim text of the change-of-control definition clause. Include the exact ownership/voting threshold, what counts as a triggering event (merger, consolidation, sale, etc.), and any 'direct or indirect' qualifying language. If no separate definition exists, return the substantive equivalent from the assignment clause.",
+        "required": false
+      },
+      {
+        "id": "coc_includes_indirect",
+        "column_type": "boolean",
+        "description": "True if the change-of-control definition explicitly includes 'indirect' changes of ownership or control (e.g., 'any direct or indirect change in the ultimate ownership'). The presence of 'indirect' creates broader risk because parent-level transactions can trigger. False if only direct changes are covered."
+      },
+
+      {
+        "id": "anti_assignment_section",
+        "column_type": "string",
+        "description": "Section number containing the anti-assignment / consent-to-assignment clause (e.g., 'Section 14.2', '§ 22.1'). This may be DIFFERENT from the change-of-control definition section. Some contracts (commodity supply, MSAs) have only an anti-assignment clause and no separate change-of-control definition.",
+        "required": false
+      },
+      {
+        "id": "anti_assignment_quote",
+        "column_type": "verbatim_quote",
+        "description": "Verbatim text of the anti-assignment clause. CRITICAL: include any 'whether by operation of law or otherwise' phrasing — this language is the test for whether reverse-triangular mergers trigger the clause. Also capture the consent standard if embedded ('not to be unreasonably withheld', 'in the sole discretion of', etc.).",
+        "required": false
+      },
+      {
+        "id": "anti_assignment_includes_operation_of_law",
+        "column_type": "boolean",
+        "description": "True if the anti-assignment clause explicitly includes 'operation of law' or equivalent. This is the key legal test: under a reverse-triangular merger (where the target survives), 'operation of law' phrasing triggers the clause; absence of such phrasing typically does NOT trigger. False if the clause only covers voluntary/direct assignments."
+      },
+
+      {
+        "id": "triggers_consent",
+        "column_type": "boolean",
+        "description": "True if the contract requires the counterparty's consent before a change of control / assignment closes. False otherwise. This determines whether Apex needs to negotiate consent before signing the merger."
+      },
+      {
+        "id": "consent_section",
+        "column_type": "string",
+        "description": "Section number granting / requiring consent (e.g., 'Section 22.1'). May be the same as anti_assignment_section.",
+        "required": false
+      },
+      {
+        "id": "consent_standard",
+        "column_type": "enum",
+        "constraints": {"values": [
+          "absolute_discretion",
+          "reasonableness",
+          "good_faith",
+          "objective_standards",
+          "unspecified"
+        ]},
+        "description": "The standard for granting / withholding consent. 'reasonableness' = 'not to be unreasonably withheld'. 'absolute_discretion' = 'in the sole and absolute discretion of'. 'objective_standards' = consent tied to specified financial / operational metrics. 'unspecified' = the section requires consent but does not state a standard.",
+        "required": false
+      },
+
+      {
+        "id": "triggers_termination",
+        "column_type": "boolean",
+        "description": "True if a change of control gives the counterparty the right to terminate the contract. False otherwise. This is distinct from triggers_consent — some contracts allow assignment with consent but ALSO allow termination if consent is withheld."
+      },
+      {
+        "id": "termination_section",
+        "column_type": "string",
+        "description": "Section number granting the termination right on change of control (e.g., 'Section 9.1', 'Section 22.4'). If termination is conditional on consent being withheld, name the section that conditions it.",
+        "required": false
+      },
+      {
+        "id": "termination_notice_days",
+        "column_type": "integer",
+        "description": "Number of days' notice required before termination becomes effective. E.g., '120 days' notice' → 120. If termination is immediate, return 0. If unstated, omit.",
+        "required": false
+      },
+      {
+        "id": "cure_period_days",
+        "column_type": "integer",
+        "description": "Days the target has to cure a triggered termination. E.g., '30-day cure period' → 30. CRITICAL: a no-cure-period clause (cure_period_days=0) is significantly higher risk than a 30+ day cure. If unstated, omit.",
+        "required": false
+      },
+
+      {
+        "id": "termination_fee_amount",
+        "column_type": "money",
+        "description": "Dollar amount of any early-termination fee triggered on change-of-control termination. E.g., a $3,240,000 lease early-termination fee. Return as money (amount + currency). If no termination fee, omit.",
+        "required": false
+      },
+      {
+        "id": "buyout_formula",
+        "column_type": "verbatim_quote",
+        "description": "Verbatim text of any buyout / forced-sale formula triggered on change of control. E.g., '4.5x trailing twelve-month EBITDA' from a JV agreement. Capture the multiple, the base metric (EBITDA / revenue / book value), and the trailing-period definition. Forced-buyout provisions often represent the largest financial exposure in a deal.",
+        "required": false
+      },
+      {
+        "id": "revenue_exposure_usd",
+        "column_type": "money",
+        "description": "The annual revenue exposure if this contract is lost (terminated, not renewed) post-closing. Look for the contract's revenue contribution in disclosure schedules, supplier-of-record reports, or stated dollar amounts in the contract itself. E.g., '$36.2 million in trailing twelve-month revenue' for the Northland MSA. CRITICAL for risk-rating concentration analysis — the target's largest customer / supplier exposures drive the deal-killer risks.",
+        "required": false
+      },
+      {
+        "id": "revenue_concentration_pct",
+        "column_type": "number",
+        "description": "Percentage of the target's total revenue that this contract represents. E.g., '19.3' for a contract producing 19.3% of total revenue. If only a dollar exposure is stated and total revenue is computable from elsewhere in the corpus, do that calculation. If neither is computable, omit. Concentration > 10% generally elevates risk.",
+        "required": false
+      },
+
+      {
+        "id": "equity_acceleration_value_usd",
+        "column_type": "money",
+        "description": "For employment / equity contracts: dollar value of equity that accelerates on change of control. E.g., '$967,230' from an executive's RSU acceleration on a single-trigger CoC clause. Capture the methodology if visible (units * VWAP, etc.). Omit for non-employment contracts.",
+        "required": false
+      },
+      {
+        "id": "single_trigger_acceleration",
+        "column_type": "boolean",
+        "description": "For employment / equity contracts: True if equity vesting accelerates SOLELY on the change-of-control event (single-trigger). False if the acceleration also requires a qualifying termination after CoC (double-trigger). Single-trigger is significantly higher risk because it forces value transfer regardless of post-closing intentions.",
+        "required": false
+      },
+
+      {
+        "id": "dependent_systems",
+        "column_type": "list",
+        "constraints": {"inner": "string"},
+        "description": "List of THIRD-PARTY systems, software, or services that this contract depends on or references but are NOT themselves under review as separate contracts. E.g., a Hendricks License Agreement that embeds the FlowLogic algorithm in the AX-7000 product line — return ['FlowLogic algorithm', 'AX-7000 product line']. A JV agreement mentioning 'Crestline ERP Platform' as a critical IT system → return ['Crestline ERP Platform']. CRITICAL: this column surfaces cross-document dependencies that downstream cross-reference checks will flag as separate review items.",
+        "required": false
+      },
+      {
+        "id": "cross_referenced_contracts",
+        "column_type": "list",
+        "constraints": {"inner": "string"},
+        "description": "List of OTHER contracts referenced by this one (e.g., 'Master Services Agreement dated 2019-04-12' or 'Schedule 3.07 of the Credit Agreement'). Each entry is a contract identifier or short description. Used by cross-document KG queries to find dependency chains and conflicting provisions.",
+        "required": false
+      },
+
+      {
+        "id": "reverse_triangular_analysis",
+        "column_type": "string",
+        "description": "Apply the legal test: under a reverse-triangular merger (Merger Sub merges into target, target survives as wholly-owned subsidiary of Acquirer), does this contract's anti-assignment / change-of-control clause TRIGGER? Decision rules: (1) If the contract has 'operation of law or otherwise' phrasing AND the contract is a sales-of-goods MSA, cite UCC § 2-210 and conclude 'jurisdiction-dependent — likely TRIGGERS in many states'. (2) If the contract has explicit 'change of control' definition with ownership-threshold language, conclude 'TRIGGERS regardless of merger structure'. (3) If only voluntary-assignment language without 'operation of law', conclude 'likely DOES NOT TRIGGER under reverse-triangular structure'. Return a short paragraph applying these rules to THIS contract's clause."
+      },
+
+      {
+        "id": "risk_rating",
+        "column_type": "enum",
+        "constraints": {"values": ["critical", "high", "medium", "low"]},
+        "description": "Assign one of four risk ratings to this contract. CRITICAL = deal-killer or > $25M exposure, no-cure single-trigger, mandatory consent the counterparty can withhold absolutely. HIGH = significant financial exposure (> $5M) OR a hard termination right with limited cure. MEDIUM = consent required but with reasonableness standard, < $5M exposure. LOW = no CoC trigger, only consent for assignment of specific rights, immaterial exposure. Default to the HIGHER rating when uncertain — undisclosed risks are far more costly than over-flagging."
+      },
+      {
+        "id": "risk_rating_rationale",
+        "column_type": "string",
+        "description": "One- or two-sentence justification for the risk_rating. Cite the specific clause sections + dollar exposures that drove the rating. E.g., 'CRITICAL — single-trigger termination on 30-day notice (Section 9.1) plus $52.3M revenue exposure (FlowLogic embedded in AX-7000 product line).'"
+      },
+
+      {
+        "id": "key_action_items",
+        "column_type": "list",
+        "constraints": {"inner": "string"},
+        "description": "Pre-closing or post-closing action items required. E.g., ['Obtain landlord consent under Section 22.1 prior to closing', 'Negotiate waiver of single-trigger acceleration', 'Confirm UCC § 2-210 jurisdictional analysis']. Each item is a specific imperative naming the section / clause / counterparty involved. These items feed the closing-checklist deliverable downstream."
+      }
+    ]
+  },
+  "metadata": {
+    "purpose": "M&A change-of-control review",
+    "produces": "per-contract structured record + cross-contract risk roll-up via downstream graph queries",
+    "harvey_corpus": "extract-change-of-control-provisions"
+  },
+  "notes": "Schema field design notes:\n\n- The 28 columns map to Harvey's 55 criteria as roughly 1-to-2 (one column → 1-2 specific rubric items). The richness comes from forcing the LLM to fill SPECIFIC fields rather than write free-form prose.\n- Sections are split into definition_section + assignment_section + consent_section + termination_section because contracts often reference all four for the same triggering event. Free-form prose collapses these into 'the change-of-control provision' and loses the specificity rubrics demand.\n- `dependent_systems` and `cross_referenced_contracts` are the cross-reference fields. Downstream kaos-graph queries find systems that appear here but aren't themselves under review (catches Crestline-ERP class failures).\n- `reverse_triangular_analysis` is required (not optional) — forcing this analysis on every contract closes the cross-cutting gap that free-form Sonnet missed.\n- `risk_rating` is required + enum-constrained. Solves Harvey's risk-rating completeness criteria (C-048: rate every contract).\n- `revenue_concentration_pct` may need calculation post-extraction (e.g., revenue_exposure / total_revenue across the corpus). Downstream code can compute this from extracted cells.\n\nCalibration: Harvey's published recall floors for analogous schemas are 96.49% (court-opinion) to 99.66% (merger-agreement). 95% is the conservative initial floor for a 28-column M&A-review schema; will be re-calibrated after live runs.",
+  "golden_sets": []
+}

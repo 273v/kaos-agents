@@ -1,0 +1,521 @@
+{
+  "timestamp": "2026-05-06T16:51:51",
+  "fixture_dir": "/home/mjbommar/projects/273v/kaos-modules/kaos-agents/tests/fixtures/harvey-lab/extract-change-of-control-provisions",
+  "task_title": "Change of Control Provision Extraction and Risk Analysis for Reverse Triangular Merger",
+  "n_documents": 8,
+  "summary": {
+    "n_criteria": 55,
+    "n_passed": 26,
+    "n_failed": 29,
+    "n_judge_unavailable": 0,
+    "pooled_pass_rate": 0.4727272727272727,
+    "all_pass_score": 0.0,
+    "agent_model": "openai:gpt-5.4-mini",
+    "judge_model": "anthropic:claude-haiku-4-5",
+    "agent_latency_s": 35.90012174588628,
+    "judge_latency_s": 39.870704712113366,
+    "agent_cost_usd": 0.031139600000000003,
+    "judge_cost_usd": 0.3861928,
+    "deliverable_chars": 28318,
+    "agent_errored": false,
+    "error_message": ""
+  },
+  "deliverable": "CHANGE-OF-CONTROL EXTRACTION REPORT\n\nScope: I reviewed the contracts in the data room for change-of-control / change-in-control provisions, including express definitions, notice obligations, consent rights, termination rights, buy-out / acceleration rights, assignment carve-outs, and lender / landlord / counterparty protections. I also noted where a contract does not contain a relevant change-of-control provision. This report addresses each contract provided in the record.\n\n1) JOINT VENTURE AGREEMENT \u2014 Apex-Kenji Precision JV, LLC\n\nRelevant provisions:\n\nA. Definition of Change of Control\n- Section 1 (Definitions)\n- Operative language: \u201c\\\"Change of Control\\\" means, with respect to any Member, the acquisition, directly or indirectly, by any Person or group of Persons acting in concert (other than such Member's existing Affiliates as of the Effective Date), of fifty percent (50%) or more of the issued and outstanding voting equity interests of such Member, whether by purchase, merger, consolidation, recapitalization, reorganization, or otherwise, or any transaction or series of related transactions that results in a change in the power to direct or cause the direction of the management and policies of such Member.\u201d\n- Risk: Broad definition captures indirect changes and governance control shifts, not just stock sales.\n\nB. Notice of Change of Control\n- Section 12.1\n- Operative language: \u201cEach Member shall provide the other Member with written notice of any Change of Control of such Member promptly, and in any event within ten (10) business days, after the execution of any definitive agreement with respect to such Change of Control, and again within five (5) business days following the consummation of such Change of Control.\u201d\n- Risk: Tight notice timeline; failure to notify is a breach risk.\n\nC. Change of Control not treated as a Transfer under Article XI\n- Section 12.2\n- Operative language: \u201ca Change of Control of a Member shall not be deemed a Transfer of such Member's Membership Interest for purposes of Article XI. Accordingly, a Change of Control shall not require the consent of the non-affected Member under Section 11.1. However, a Change of Control shall be subject to the buy-out option set forth in Section 12.3 of this Agreement.\u201d\n- Risk: No consent requirement, but buy-out option still applies.\n\nD. Buy-Out Option upon Change of Control\n- Section 12.3(a)\n- Operative language: \u201cIf either Member undergoes a Change of Control \u2026 the other Member \u2026 shall have the right, but not the obligation \u2026 to purchase all (but not less than all) of the Affected Member's Membership Interest in the Company.\u201d\n- Risk: All-or-nothing forced exit right; could be economically significant.\n\nE. Successor Entity Carve-Out (limits buy-out right if both conditions are satisfied)\n- Section 12.3(b)\n- Operative language: Buy-out option is not exercisable if: \u201c(i) the Successor Entity commits, in writing \u2026 to maintain the Affected Member's existing senior management team (including, at a minimum, the Affected Member's chief executive officer and chief technology officer) \u2026 for a period of not less than eighteen (18) months \u2026; AND (ii) the Successor Entity's consolidated annual revenue derived from fluid control products \u2026 exceeds Five Hundred Million Dollars ($500,000,000).\u201d\n- Risk: Carve-out is narrow and condition-based; if either condition fails, buy-out remains fully exercisable.\n\nF. Buy-Out Price\n- Section 12.3(c)\n- Operative language: \u201cthe purchase price \u2026 shall be equal to four and one-half times (4.5x) the Company's trailing twelve-month EBITDA \u2026\u201d\n- Risk: Fixed multiple may be above or below market depending on performance; can be highly material in a control transaction.\n\nG. Closing mechanics / mandatory transfer\n- Section 12.3(d)\n- Operative language: closing within 60 days after notice, cash at closing, and delivery of assignment and customary title reps.\n- Risk: Accelerated closing timetable; execution risk if financing or regulatory approvals lag.\n\nH. Post-Change-of-Control continuing obligations\n- Section 12.4\n- Operative language: \u201call obligations of such Member under this Agreement shall remain in full force and effect and shall be binding upon the Successor Entity\u201d; Successor Entity must execute joinder within 30 days.\n- Risk: Successor is pulled into JV agreement obligations automatically; failure to joinder is a breach risk.\n\nI. Amended / restatement / merger reserved matters\n- Section 6.3(g)\n- Operative language: \u201cany merger, consolidation, or other business combination of the Company with or into any other entity\u201d is a Reserved Matter requiring unanimous approval of all five Managers.\n- Risk: Company-level transaction requires unanimity; highly protective of both members.\n\nJ. Transfer restrictions generally (not change-of-control-specific, but relevant)\n- Sections 11.1\u201311.4\n- Operative language: general transfer consent right, affiliate transfer carve-out, ROFR, and Apex-only tag-along if Apex transfers a majority interest.\n- Risk: Even though Change of Control is carved out from Article XI, these provisions show strong overall anti-transfer posture.\n\nMissing / not found:\n- No separate \u201cchange in law\u201d or MAC-based control provision.\n- No automatic termination upon change of control.\n\nOverall risk assessment:\n- High risk to a control buyer: a Member-level change of control triggers notice, potential buy-out by the other member, and joinder obligations for the successor. The buy-out right is broad and economically meaningful.\n\n2) SENIOR SECURED REVOLVING CREDIT AGREEMENT \u2014 Apex Industrial Technologies, Inc.\n\nRelevant provisions:\n\nA. Definition of Change of Control\n- Section 1.01\n- Operative language: \u201c\\\"Change of Control\\\" shall mean \u2026 (a) any \u2018person\u2019 or \u2018group\u2019 \u2026 shall acquire \u2026 beneficial ownership \u2026 of more than 50% of the outstanding shares of Voting Stock of the Borrower; or (b) the Borrower shall cease to own \u2026 100% of the Equity Interests of each of its Subsidiaries (other than Apex-Kenji Precision JV, LLC, in which the Borrower shall at all times maintain an ownership interest of not less than 51%).\u201d\n- Risk: Two-prong definition includes equity control and loss of 100% subsidiary ownership, with a JV exception.\n\nB. Mandatory prepayment upon Change of Control\n- Section 2.09(d)\n- Operative language: \u201cUpon the occurrence of a Change of Control \u2026 the Borrower shall, within thirty (30) days following such Change of Control, prepay all outstanding Revolving Loans in full \u2026 and all Commitments shall automatically terminate.\u201d\n- Risk: Major liquidity event; all debt due within 30 days and revolver terminates.\n\nC. Borrower notice of Change of Control\n- Section 2.09(d)\n- Operative language: \u201cThe Borrower shall deliver written notice to the Administrative Agent of the occurrence of a Change of Control promptly, and in any event within five (5) Business Days, following the date on which the Borrower becomes aware of such occurrence.\u201d\n- Risk: Short notice period; failure could itself be a default.\n\nD. Reporting covenant notice of Change of Control\n- Section 5.07(c)\n- Operative language: Borrower must notify of \u201cany Change of Control or Change in Control (as those terms are defined herein).\u201d\n- Risk: Duplicate notice covenant increases compliance risk.\n\nE. Fundamental changes covenant\n- Section 6.03\n- Operative language: Borrower may not \u201cmerge into or consolidate with any other Person \u2026 or sell all or substantially all of its assets,\u201d subject to limited exceptions; and \u201cnothing in this Section 6.03 shall be deemed to constitute a waiver of \u2026 Section 2.09(d) or Section 8.01(j) \u2026 in connection with any transaction that constitutes a Change of Control.\u201d\n- Risk: Even permitted mergers can still trigger control default / payoff if they are Change of Control transactions.\n\nF. Change in Control Event of Default\n- Section 8.01(j)\n- Operative language: \u201cA \u2018Change in Control\u2019 shall constitute an Event of Default.\u201d Defined as \u201c(x) the acquisition \u2026 of beneficial ownership of more than 35% of the outstanding Voting Stock of the Borrower, or (y) \u2026 the Board of Directors \u2026 ceasing to constitute a majority\u2026\u201d\n- Risk: This is materially broader than the Section 1.01 \u201cChange of Control\u201d definition. A transaction can trigger EoD at 35% or board change even if it does not meet the 50% control definition. This creates significant accidental-default risk.\n\nG. Amendment protection for Change of Control definition / change in control provisions\n- Section 10.02(e)\n- Operative language: No amendment may \u201camend the definition of \u2018Change of Control\u2019 set forth in Section 1.01 or the definition of \u2018Change in Control\u2019 (as defined in Section 8.01(j)), or amend Section 2.09(d) or Section 8.01(j), in each case without the written consent of each Lender.\u201d\n- Risk: These terms are tightly locked; borrower cannot negotiate them unilaterally.\n\nH. Material Contract termination notice covenant\n- Section 5.07(d)\n- Operative language: notice of \u201cany termination or material modification of any Material Contract.\u201d\n- Risk: Not a change-of-control clause per se, but relevant because a control transaction can affect key contracts and trigger notices/defaults.\n\nMissing / not found:\n- No lender consent right for Change of Control as such; instead, automatic mandatory prepayment and EoD regime.\n- No express equity purchaser assumption mechanics beyond general debt payoff.\n\nOverall risk assessment:\n- Very high risk. The agreement has both a broad \u201cChange of Control\u201d mandatory prepayment and a separate, even broader \u201cChange in Control\u201d Event of Default. A control transaction can trigger accelerated repayment and default remedies.\n\n3) TECHNOLOGY LICENSE AGREEMENT \u2014 Hendricks Automation Systems, Inc. / Apex\n\nRelevant provisions:\n\nA. Definition of Change of Control\n- Section 1.3\n- Operative language: \u201c\\\"Change of Control\\\" means, with respect to Licensee, (a) any merger, consolidation, or reorganization involving Licensee, whether or not Licensee is the surviving entity; (b) the sale, transfer, or other disposition of all or substantially all of Licensee's assets; (c) the acquisition by any person or group \u2026 of beneficial ownership of more than fifty percent (50%) of the outstanding voting securities of Licensee; or (d) any other transaction or series \u2026 that results in a change in the identity of the person or persons who ultimately control Licensee.\u201d\n- Risk: Broad, standard licensee control definition; includes asset sale and ultimate control changes.\n\nB. Change of Control consequences\n- This agreement does not include a standalone express consent, termination, assignment, step-in, or fee provision tied specifically to Change of Control in the extracted text.\n- Missing / not found: No express licensor consent right or automatic termination upon Change of Control in the provided text.\n- However, note that the license is \u201cnon-transferable\u201d and \u201cmay not be transferred, sublicensed, or assigned except as expressly permitted,\u201d Section 2.1, which can create transfer-risk in a transaction.\n\nC. Assignment restriction (transaction overlap risk)\n- Section 2.1\n- Operative language: \u201cThis license is personal to Licensee and may not be transferred, sublicensed, or assigned except as expressly permitted herein.\u201d\n- Risk: Even if Change of Control is not expressly called out in the extracted text, M&A counsel should verify whether any control transaction is treated as an assignment elsewhere in the unextracted portions or related schedules.\n\nD. No modification / derivative works\n- Section 2.4 and 5.2\n- Not directly change-of-control-related, but relevant because successor entities will be bound by ownership/assignment restrictions on improvements.\n\nOverall risk assessment:\n- Moderate. The extracted text contains a broad control definition, but no express change-of-control consent/termination right in the excerpts provided. The core transaction risk is the license\u2019s personal, non-transferable nature.\n\n4) EMPLOYMENT AGREEMENT \u2014 Executive (CTO) / Apex\n\nRelevant provisions:\n\nA. Definition of Change of Control\n- Section 1 (Definitions)\n- Operative language: \u201c\\\"Change of Control\\\" means the occurrence of any of the following events: (i) the consummation of any merger, consolidation, reorganization, or similar business combination involving the Company in which the Company is not the surviving entity or in which the holders of the Company's outstanding voting securities immediately prior to such transaction hold less than fifty percent (50%) of the outstanding voting securities of the surviving or resulting entity immediately following such transaction; (ii) the sale, transfer, or other disposition of all or substantially all of the assets of the Company; (iii) the acquisition by any person or group \u2026 of beneficial ownership of more than fifty percent (50%) of the combined voting power of the Company's then-outstanding voting securities; or (iv) during any period of twenty-four (24) consecutive months, the individuals who at the beginning of such period constituted the Board cease for any reason to constitute a majority of the Board.\u201d\n- Risk: Broad and standard executive golden-parachute style definition.\n\nB. Single-trigger vesting on Change of Control\n- Section 5.4 is referenced in the Side Letter recitals and operative text.\n- Operative language from Side Letter recital / acknowledgment: \u201cSection 5.4 of the Employment Agreement provides that, upon the consummation of a Change of Control (as defined in the Employment Agreement), all of Executive's then-unvested Equity Awards shall immediately and automatically vest and, to the extent applicable, become exercisable in full.\u201d\n- Risk: Strong single-trigger acceleration risk; can materially increase transaction cost.\n\nC. Side Letter conflict / no waiver\n- Side Letter Section 3 and Section 5\n- Operative language: \u201cPending such resolution, Section 5.4 of the Employment Agreement remains in full force and effect and has not been amended or waived by this Side Letter.\u201d and \u201cNothing in this Side Letter shall be deemed to amend, modify, supplement, or waive any provision of the Employment Agreement.\u201d\n- Risk: The acceleration right remains live unless separately waived or amended; M&A closing condition may depend on Executive consent.\n\nD. Merger agreement consent requirement\n- Side Letter Section 4\n- Operative language: \u201cExecutive's consent to the RSU Rollover Treatment, or a waiver by Executive of the single-trigger acceleration right under Section 5.4 of the Employment Agreement, may constitute a Required Consent under Section 7.03(c) of the Merger Agreement.\u201d\n- Risk: Potential closing condition risk if consent is not obtained.\n\nMissing / not found:\n- No standalone change-of-control severance package was provided in the extracted text beyond the acceleration mechanics and side letter.\n\nOverall risk assessment:\n- High. The executive\u2019s equity acceleration could be a material cost item and a transaction condition issue.\n\n5) SIDE LETTER RE: MERGER / EMPLOYMENT AGREEMENT\n\nRelevant provisions:\n\nA. Explicit conflict acknowledgment between single-trigger vesting and RSU rollover\n- Section 1\n- Operative language: \u201cThe parties acknowledge and agree that Section 5.4 of the Employment Agreement provides for the immediate and automatic vesting of all of Executive's unvested Equity Awards upon the consummation of a Change of Control, and that the RSU Rollover Treatment under Section 3.05 of the Merger Agreement contemplates that unvested Company RSUs will be converted into unvested Parent RSUs subject to the same vesting schedule\u2026\u201d\n- Risk: Direct conflict creates closing uncertainty.\n\nB. Good-faith negotiation obligation to resolve before closing\n- Section 3\n- Operative language: \u201cThe Company and Executive agree to negotiate in good faith, prior to the Closing Date \u2026 to resolve the conflict\u2026\u201d\n- Risk: No guaranteed resolution; deadline pressure.\n\nC. Consent requirement under merger agreement\n- Section 4\n- Operative language: \u201cExecutive's consent to the RSU Rollover Treatment, or a waiver \u2026 may constitute a Required Consent under Section 7.03(c) of the Merger Agreement.\u201d\n- Risk: If not obtained, could jeopardize closing.\n\nD. No amendment / ratification of employment agreement\n- Section 5\n- Operative language: \u201cthe Employment Agreement remains in full force and effect and is hereby ratified and confirmed in all respects.\u201d\n- Risk: Maintains the pre-existing CoC acceleration unless separately modified.\n\nOverall risk assessment:\n- High closing-risk document due to unresolved equity treatment conflict.\n\n6) LEASE \u2014 Crescent Ridge Realty Partners, LP / Apex\n\nRelevant provisions:\n\nA. Deemed assignment upon change of control\n- Section 22.2(a) and (b)\n- Operative language: \u201cAny change in control of Tenant, including without limitation any merger, consolidation, or transfer of a controlling interest in Tenant's equity \u2026 [and] any transfer, issuance, or redemption of equity interests \u2026 that results in a change in the identity of the person or group of persons that controls Tenant\u201d is deemed an assignment.\n- Risk: Broad; captures direct and indirect control shifts and equity recap transactions.\n\nB. No affiliate carve-out\n- Section 22.2\n- Operative language: \u201cthis Section 22 does not contain any exception or carve-out for Transfers or Deemed Assignments to or involving Affiliates of Tenant. Any Transfer or Deemed Assignment involving an Affiliate shall require Landlord's prior written consent\u2026\u201d\n- Risk: Even intra-group reorganizations require consent.\n\nC. Consent standard and deemed denial\n- Section 22.3\n- Operative language: Landlord\u2019s consent \u201cshall not be unreasonably withheld,\u201d but if Landlord fails to respond in 20 business days, \u201cLandlord shall be deemed to have withheld its consent.\u201d\n- Risk: Practical veto power through silence; transaction timing risk.\n\nD. Remedies for unauthorized transfer / change of control deemed assignment\n- Section 22.4\n- Operative language: Landlord may terminate on 120 days\u2019 notice; tenant owes an early termination fee equal to 18 months of base rent; Landlord may recapture the premises.\n- Risk: Very significant economic and operational risk in a control transaction.\n\nE. Material Event of Default linkage\n- Section 22.4 and Section 12.2 cross-reference in the extracted text\n- Operative language: \u201can unauthorized Transfer or Deemed Assignment that constitutes an Event of Default \u2026 may give rise to both the remedies set forth in this Section 22.4 and the remedies set forth in Section 12.2\u201d\n- Risk: Dual remedies increase exposure.\n\nMissing / not found:\n- The lease excerpt does not separately use the phrase \u201cChange of Control\u201d in an independent defined term; instead it uses deemed assignment / control change language in Section 22.2.\n\nOverall risk assessment:\n- High. Any control transaction or recast of ownership can be treated as an assignment, requiring landlord consent and potentially triggering termination, recapture, and a substantial early termination fee.\n\n7) MASTER SUPPLY AGREEMENT \u2014 Northland Refining Corporation / Apex\n\nRelevant provisions:\n\nA. Change of Control definition\n- Section 1.1(c)\n- Operative language: \u201c\\\"Change of Control\\\" shall mean (i) any merger, consolidation, or reorganization of Supplier with or into another entity, (ii) the sale or transfer of all or substantially all of the assets of Supplier, (iii) any transaction or series of related transactions resulting in any person or group \u2026 acquiring beneficial ownership of more than fifty percent (50%) of the outstanding voting securities of Supplier, or (iv) any direct or indirect change in the ultimate ownership or control of Supplier.\u201d\n- Risk: Broad definition, including indirect control shifts.\n\nB. Change of Control notice\n- Section 10.5(a)\n- Operative language: \u201cApex shall provide written notice to PacWest of any Change of Control within ten (10) business days of the consummation thereof.\u201d\n- Note: This excerpt is internally inconsistent with the contract caption because the supply agreement is with Northland; the extracted text nevertheless expressly says \u201cPacWest.\u201d I have not corrected it because the source text uses that term.\n- Risk: Timing notice requirement.\n\nC. Customer consent / termination right upon Change of Control\n- Section 10.5(b)\n- Operative language: \u201cPacWest shall have the right, in its sole discretion, to either (i) consent to the continuation of this Agreement with the successor entity \u2026 or (ii) terminate this Agreement upon ninety (90) days' written notice to Apex (or its successor).\u201d\n- Risk: Counterparty has unilateral termination right after a control transaction.\n\nD. Failure to obtain consent within 60 days preserves termination right\n- Section 10.5(c)\n- Operative language: \u201cIf PacWest's consent \u2026 is not obtained within sixty (60) days following the closing of the Change of Control, PacWest may exercise its termination right\u2026\u201d\n- Risk: Consent timing risk and no deemed consent.\n\nE. Continued performance during notice period\n- Section 10.5(d)\n- Operative language: \u201cDuring any notice period under this Section 10.5, Apex (or its successor) shall continue to fulfill all outstanding Purchase Orders\u2026\u201d\n- Risk: Operational burden continues even while termination is pending.\n\nF. Change of Control not an assignment\n- Section 12.2\n- Operative language: \u201cany Change of Control \u2026 shall be subject to the provisions of Section 10.5 and shall not be deemed an assignment for purposes of this Section 12.2\u201d\n- Risk: Prevents using anti-assignment clause to avoid the control-change regime.\n\nOverall risk assessment:\n- High. The supplier\u2019s customer has a direct post-closing consent/termination right, which can materially impair contract value.\n\n8) SUPPLY AGREEMENT \u2014 PacWest Water Authority / Apex\n\nRelevant provisions:\n\nA. Change of Control definition\n- Section 1.1(c)\n- Operative language: \u201c\\\"Change of Control\\\" shall mean (i) any merger, consolidation, or reorganization of Supplier with or into another entity, (ii) the sale or transfer of all or substantially all of the assets of Supplier, (iii) any transaction or series of related transactions resulting in any person or group \u2026 acquiring beneficial ownership of more than fifty percent (50%) of the outstanding voting securities of Supplier, or (iv) any direct or indirect change in the ultimate ownership or control of Supplier.\u201d\n- Risk: Broad and indirect control-inclusive.\n\nB. Change of Control notice to PacWest\n- Section 10.5(a)\n- Operative language: \u201cApex shall provide written notice to PacWest of any Change of Control within ten (10) business days of the consummation thereof.\u201d\n- Risk: Prompt notice required.\n\nC. PacWest consent or termination right\n- Section 10.5(b)\n- Operative language: PacWest may \u201cconsent to the continuation\u201d or \u201cterminate this Agreement upon ninety (90) days' written notice.\u201d\n- Risk: Material post-closing termination risk.\n\nD. Sixty-day consent failure rule\n- Section 10.5(c)\n- Operative language: if consent not obtained within 60 days, PacWest may terminate thereafter; silence is not consent.\n- Risk: No automatic approval.\n\nE. Continuing performance pending termination\n- Section 10.5(d)\n- Operative language: Apex (or successor) must continue to fulfill all Purchase Orders during notice period.\n- Risk: Operational continuity obligation while termination risk is unresolved.\n\nF. Change of Control not assignment\n- Section 12.2\n- Operative language: \u201cany Change of Control \u2026 shall be subject to the provisions of Section 10.5 and shall not be deemed an assignment\u2026\u201d\n- Risk: Contract specifically routes control changes into Section 10.5 rather than anti-assignment law.\n\nOverall risk assessment:\n- High, for the same reasons as the Northland agreement: counterparty consent and unilateral termination rights post-closing.\n\n9) INSURANCE POLICY \u2014 Great Lakes Indemnity Company / Apex (Product Liability Policy)\n\nRelevant provisions:\n\nA. Tail coverage / run-off option upon cancellation, non-renewal, or conversion to Run-Off Basis\n- Endorsement \u201cEXTENDED REPORTING PERIOD (TAIL COVERAGE) OPTION\u201d\n- Operative language: \u201cUpon cancellation, non-renewal, or conversion to Run-Off Basis \u2026 the Named Insured shall have the right to purchase an Extended Reporting Period (\u2018Tail\u2019) by providing written notice \u2026 within thirty (30) days\u2026\u201d\n- Risk: In a transaction causing policy cancellation or non-renewal, tail coverage may be needed to protect legacy claims.\n\nB. Tail premiums and coverage limitations\n- Endorsement\n- Operative language: tail premiums range from 75% to 175% of expiring annual premium; tail covers only claims first made and reported during the extended period for products manufactured before run-off.\n- Risk: Costly and not automatic; no new limits created.\n\nC. No express change-of-control provision found\n- The extracted policy text does not contain a standalone change-of-control clause.\n- Risk note: A change of control may indirectly trigger cancellation/non-renewal or underwriting changes, but that is not expressly stated in the extracted text.\n\nOverall risk assessment:\n- Moderate. Not a direct change-of-control contract, but tail coverage should be checked in any transaction where the policy is canceled or not renewed.\n\n10) OTHER MATERIAL CONTRACTS IDENTIFIED IN THE DATA ROOM\n\nThe materials also reference or describe the following contracts as material contracts of Apex, but the provided text does not include their full terms:\n- Technology License Agreement with Hendricks Automation Systems, Inc. \u2014 summarized above.\n- Employment Agreement with Dr. Miriam Hesse \u2014 summarized above.\n- Lease Agreement with Crescent Ridge Realty Partners, LP \u2014 summarized above.\n- Lease Agreement for R&D facility at 780 Innovation Drive, Fairfield, OH \u2014 no substantive text provided beyond listing in the material contracts schedule.\n- Product Liability Insurance Policy with Great Lakes Indemnity Company \u2014 summarized above.\n- Software License Agreement with Crestline Software Solutions, LLC \u2014 referenced in the recitals and material contracts list, but no standalone license text was provided in the data room excerpts. I therefore cannot confirm whether it contains a change-of-control provision.\n\nKey risk themes across the data room\n\n1. High transaction friction from third-party consent rights\n- Lease: landlord consent required for deemed assignment / control change.\n- Northland and PacWest supply agreements: customer consent or termination rights on change of control.\n- Hendricks technology license: no explicit CoC clause in the provided text, but transfer restrictions create potential friction.\n\n2. Acceleration / forced payoff / mandatory exit consequences\n- Credit agreement: mandatory debt prepayment within 30 days of change of control; separate broader EoD for \u201cChange in Control.\u201d\n- JV agreement: member buy-out option upon change of control.\n- Employment agreement / side letter: equity acceleration and consent issues.\n\n3. Broad / indirect change-of-control definitions\n- Several contracts capture indirect control shifts, recapitalizations, reorganizations, or board changes.\n- Credit agreement is especially sensitive because \u201cChange in Control\u201d Event of Default is broader than \u201cChange of Control.\u201d\n\n4. Transaction-document coordination risk\n- The side letter indicates a conflict between executive equity acceleration and merger rollover mechanics.\n- The credit agreement and customer contracts may require pre-closing notices, consents, or waivers.\n\n5. Compliance / timing risk\n- Several provisions require notice within 5\u201310 business days.\n- Failure to timely notify can itself create default or remedy rights.\n\nPractical M&A implications\n- A control transaction involving Apex will likely trigger multiple parallel approval / notice streams: lender, landlord, key customers, JV partner, and executive equity-holder.\n- The most acute economic risks are:\n  (i) mandatory debt paydown and EoD under the credit facility;\n  (ii) customer termination rights under the Northland and PacWest agreements;\n  (iii) lease assignment / termination / early termination fee exposure;\n  (iv) JV partner buy-out rights;\n  (v) equity acceleration / closing consent risk for the CTO.\n\nIf you want, I can convert this into a .docx-ready report structure (headings, tables, and issue flags) for direct insertion into change-of-control-extraction-report.docx.",
+  "criteria": [
+    {
+      "criterion_id": "C-001",
+      "title": "ISSUE_001: Identifies Northland anti-assignment clause in Section 14.2",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The deliverable explicitly identifies and references the Northland anti-assignment clause in Section 14.2, though with a critical caveat. Under item 7 (MASTER SUPPLY AGREEMENT \u2014 Northland Refining Corporation / Apex), subsection F states: \"Change of Control not an assignment \u2014 Section 12.2 \u2014 Operative language: 'any Change of Control \u2026 shall be subject to the provisions of Section 10.5 and shall not be deemed an assignment for purposes of this Section 12.2'.\" However, the criterion requires identification of \"Section 14.2\" specifically, and the deliverable cites \"Section 12.2\" instead. The deliverable does accurately reference the substance of an anti-assignment provision prohibiting assignment without consent (implied through the control-change consent requirement in Section 10.5), but fails the strict requirement to identify the specific section number 14.2 as mandated by decision rule 3. The absence of explicit reference to the exact phrase 'whether by operation of law or otherwise' further weakens compliance with the criterion's specific factual requirement.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0073328
+    },
+    {
+      "criterion_id": "C-002",
+      "title": "ISSUE_001: Flags absence of explicit change of control definition in Northland MSA",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The deliverable explicitly identifies that the Northland Refining Master Supply Agreement contains a defined 'Change of Control' provision in Section 1.1(c) and notes that Section 12.2 treats Change of Control as distinct from assignment, stating it 'shall not be deemed an assignment for purposes of this Section 12.2.' The report clearly documents the defined change-of-control provision and the anti-assignment clause as separate mechanisms, satisfying the criterion's requirement to note both the presence of a change-of-control definition and its relationship to the anti-assignment provision. The criterion asks the report to flag the 'absence' of an explicit definition, but the deliverable shows the opposite\u2014that an explicit definition exists in Section 1.1(c)\u2014which means the criterion's FAIL condition is not triggered.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0070712000000000014
+    },
+    {
+      "criterion_id": "C-003",
+      "title": "ISSUE_001: Analyzes whether reverse triangular merger constitutes 'assignment by operation of law'",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The deliverable does not analyze the specific ambiguity of whether a reverse triangular merger (where Apex survives) constitutes an 'assignment by operation of law' under Section 14.2. While the report extensively discusses change-of-control provisions, assignment restrictions, and various merger scenarios across multiple contracts, it never identifies or addresses Section 14.2 specifically, nor does it examine the jurisdictional or doctrinal uncertainty about reverse triangular mergers and assignment-by-operation-of-law doctrine. The criterion requires analysis of this specific structural and legal ambiguity, which is absent from the deliverable.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0069112
+    },
+    {
+      "criterion_id": "C-004",
+      "title": "ISSUE_001: Flags Northland revenue concentration risk (~19.3% / ~$36.2M)",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The deliverable is a comprehensive change-of-control extraction report that does not address the criterion at all. The criterion requires the report to identify Northland as representing approximately 19.3% of Apex's revenue (or approximately $36.2 million) and use this to support a high or critical risk rating. While the deliverable mentions Northland Refining Corporation in section 7 (Master Supply Agreement) and flags it as a high-risk contract due to customer consent/termination rights, it does not quantify Northland's revenue concentration relative to Apex's total revenue, nor does it cite the 19.3% or $36.2M figure. The report treats Northland as one of several material contracts but does not elevate it based on revenue dependency metrics.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.007048
+    },
+    {
+      "criterion_id": "C-005",
+      "title": "ISSUE_002: Identifies Section 1.01 'Change of Control' definition with >50% voting stock threshold",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The deliverable explicitly identifies the Summit National Bank credit agreement (labeled 'SENIOR SECURED REVOLVING CREDIT AGREEMENT \u2014 Apex Industrial Technologies, Inc.') and clearly states in Section A that the 'Change of Control' definition is located in 'Section 1.01' with operative language specifying '(a) any 'person' or 'group' \u2026 shall acquire \u2026 beneficial ownership \u2026 of more than 50% of the outstanding shares of Voting Stock of the Borrower.' This directly satisfies the criterion's requirement to identify the section reference and the >50% voting stock threshold.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0068856
+    },
+    {
+      "criterion_id": "C-006",
+      "title": "ISSUE_002: Identifies Section 8.01(j) 'Change in Control' definition with >35% threshold OR board replacement",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The deliverable clearly identifies Section 8.01(j) as containing a 'Change in Control' Event of Default definition with a >35% voting stock threshold OR board replacement requirement. The agent states: 'Section 8.01(j) - Operative language: \"A 'Change in Control' shall constitute an Event of Default.\" Defined as \"(x) the acquisition \u2026 of beneficial ownership of more than 35% of the outstanding Voting Stock of the Borrower, or (y) \u2026 the Board of Directors \u2026 ceasing to constitute a majority\u2026\"' This directly satisfies the criterion's requirement to identify the second change of control definition in Section 8.01(j) with its >35% threshold and board replacement alternative.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0070232
+    },
+    {
+      "criterion_id": "C-007",
+      "title": "ISSUE_002: Flags inconsistency between the two credit agreement CoC definitions",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The deliverable explicitly flags the inconsistency between the two credit agreement change of control definitions in Section 2 (SENIOR SECURED REVOLVING CREDIT AGREEMENT), subsection F. It clearly states: 'This is materially broader than the Section 1.01 \"Change of Control\" definition. A transaction can trigger EoD at 35% or board change even if it does not meet the 50% control definition.' The report identifies both the different thresholds (50% vs. 35%) and different naming conventions ('Change of Control' vs. 'Change in Control'), and explicitly flags this as a notable issue creating 'significant accidental-default risk.' This directly satisfies the criterion's requirement to flag the inconsistency between the two definitions.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.007033600000000001
+    },
+    {
+      "criterion_id": "C-008",
+      "title": "ISSUE_002: Notes that merger triggers both credit agreement definitions",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The deliverable explicitly analyzes both change-of-control definitions in the credit agreement and concludes that the Voltan merger triggers both. In Section 2.A, it identifies the 50% threshold in Section 1.01(a), and in Section 2.F, it identifies the 35% threshold in Section 8.01(j), noting that 'This is materially broader than the Section 1.01 \"Change of Control\" definition.' The report further states: 'A transaction can trigger EoD at 35% or board change even if it does not meet the 50% control definition,' confirming that both thresholds would be exceeded and triggered by a 100% acquisition. The analysis is explicit and unambiguous.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0070248
+    },
+    {
+      "criterion_id": "C-009",
+      "title": "ISSUE_002: Identifies mandatory prepayment consequence under Section 2.09",
+      "passed": true,
+      "confidence": 1.0,
+      "reasoning": "The deliverable explicitly identifies mandatory prepayment under Section 2.09 as a consequence of the credit agreement's change of control provisions. Specifically, under 'SENIOR SECURED REVOLVING CREDIT AGREEMENT \u2014 Apex Industrial Technologies, Inc.', Section B states: 'Section 2.09(d)' with operative language 'Upon the occurrence of a Change of Control \u2026 the Borrower shall, within thirty (30) days following such Change of Control, prepay all outstanding Revolving Loans in full \u2026 and all Commitments shall automatically terminate.' This directly satisfies the criterion's requirement to identify mandatory prepayment under Section 2.09 as a change-of-control consequence.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0069624000000000005
+    },
+    {
+      "criterion_id": "C-010",
+      "title": "ISSUE_002: Identifies event of default consequence under Section 8.01",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The deliverable clearly identifies event of default as a consequence of change of control provisions under Section 8.01. Specifically, it states under the Credit Agreement section: 'Section 8.01(j)' contains a 'Change in Control' Event of Default provision, and the operative language is quoted: \"A 'Change in Control' shall constitute an Event of Default.\" The report also notes that this is 'materially broader than the Section 1.01 Change of Control definition' and discusses the 'accidental-default risk' created by the 35% threshold. The connection between change of control and event of default under Section 8.01(j) is unambiguous and explicitly identified.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0069559999999999995
+    },
+    {
+      "criterion_id": "C-011",
+      "title": "ISSUE_002: Quantifies credit facility exposure at $42.5M drawn amount",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The criterion requires the report to state that $42.5 million is currently drawn on the credit facility (out of $75 million total commitment) as the financial exposure from the mandatory prepayment obligation. The deliverable does not mention the $42.5 million drawn amount, the $75 million total commitment, or any quantified credit facility exposure. While the report discusses the mandatory prepayment obligation in Section 2.09(d) of the credit agreement, it provides no financial figures whatsoever.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0068024
+    },
+    {
+      "criterion_id": "C-012",
+      "title": "ISSUE_003: Identifies Kenji buy-out option triggered by change of control in Section 12.3",
+      "passed": true,
+      "confidence": 1.0,
+      "reasoning": "The deliverable unambiguously identifies the Kenji buy-out option triggered by change of control in Section 12.3 of the Apex-Kenji JV Agreement. Under section 'D. Buy-Out Option upon Change of Control,' it states: 'Section 12.3(a)' with operative language 'If either Member undergoes a Change of Control \u2026 the other Member \u2026 shall have the right, but not the obligation \u2026 to purchase all (but not less than all) of the Affected Member's Membership Interest in the Company.' The deliverable also identifies the trigger (acquisition of 50% or more voting equity) in section 'A. Definition of Change of Control' where it quotes the operative language defining Change of Control as 'the acquisition, directly or indirectly, by any Person or group of Persons acting in concert... of fifty percent (50%) or more of the issued and outstanding voting equity interests.' All required elements\u2014Section 12.3, the buy-out option, and the 50%+ trigger\u2014are clearly and specifically identified.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0073112
+    },
+    {
+      "criterion_id": "C-013",
+      "title": "ISSUE_003: Identifies carve-out condition (i) \u2014 maintaining Apex management team for 18 months",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The deliverable clearly identifies the Section 12.3(b) carve-out condition requiring maintenance of Apex's existing management team for 18 months post-closing. Under Section E (Successor Entity Carve-Out), it states: 'Buy-out option is not exercisable if: \"(i) the Successor Entity commits, in writing \u2026 to maintain the Affected Member's existing senior management team (including, at a minimum, the Affected Member's chief executive officer and chief technology officer) \u2026 for a period of not less than eighteen (18) months \u2026\"' This directly matches the criterion's requirement to identify that Section 12.3(b) requires maintaining Apex's existing management team for 18 months post-closing.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0070048
+    },
+    {
+      "criterion_id": "C-014",
+      "title": "ISSUE_003: Identifies carve-out condition (ii) \u2014 successor entity >$500M fluid control products revenue",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The deliverable explicitly identifies Section 12.3(b) of the Joint Venture Agreement and clearly states both carve-out conditions: '(i) the Successor Entity commits, in writing \u2026 to maintain the Affected Member's existing senior management team \u2026 for a period of not less than eighteen (18) months \u2026; AND (ii) the Successor Entity's consolidated annual revenue derived from fluid control products \u2026 exceeds Five Hundred Million Dollars ($500,000,000).' The second condition directly matches the criterion's requirement that the successor entity's consolidated annual revenue from 'fluid control products' must exceed $500 million.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.006896800000000001
+    },
+    {
+      "criterion_id": "C-015",
+      "title": "ISSUE_003: Concludes carve-out does not apply \u2014 Voltan's ~$410M falls short of $500M",
+      "passed": false,
+      "confidence": 1.0,
+      "reasoning": "The deliverable does not address the specific carve-out analysis required by criterion C-015. The criterion requires the report to conclude that the carve-out in Section 12.3(b) of the JV agreement does NOT apply because Voltan's flow control division generates approximately $410 million in revenue, which falls short of the $500 million threshold. The deliverable identifies Section 12.3(b) and the $500 million condition but contains no analysis of Voltan's actual revenue, no mention of the $410 million figure, and no conclusion about whether the carve-out applies or does not apply to this transaction. The carve-out analysis is completely absent.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.006981600000000001
+    },
+    {
+      "criterion_id": "C-016",
+      "title": "ISSUE_004: Identifies Hendricks termination right in Section 9.1 upon change of control",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The criterion requires identifying the termination right in Section 9.1 of the Hendricks Automation Systems license agreement allowing Hendricks to terminate 'immediately upon written notice' if Apex undergoes a change of control. The deliverable addresses the Hendricks agreement in Section 3 and identifies a broad Change of Control definition in Section 1.3, but explicitly states 'This agreement does not include a standalone express consent, termination, assignment, step-in, or fee provision tied specifically to Change of Control in the extracted text' and 'Missing / not found: No express licensor consent right or automatic termination upon Change of Control in the provided text.' The deliverable does not identify or reference Section 9.1 or any immediate-termination-upon-notice right.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0070576
+    },
+    {
+      "criterion_id": "C-017",
+      "title": "ISSUE_004: Flags absence of cure period in Hendricks license",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The deliverable clearly flags the absence of a cure period in the Hendricks license and identifies that termination is at the licensor's discretion. Under section 3.B, the report states: 'This agreement does not include a standalone express consent, termination, assignment, step-in, or fee provision tied specifically to Change of Control in the extracted text' and notes 'No express licensor consent right or automatic termination upon Change of Control in the provided text.' Critically, the report's overall assessment concludes 'The core transaction risk is the license's personal, non-transferable nature,' establishing that Hendricks (the licensor) controls the termination mechanism through its discretionary transfer restrictions. The criterion is satisfied by the combined statement that there is no express termination clause with cure period and the implicit recognition that Hendricks' non-transfer clause gives it discretionary control.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0071056
+    },
+    {
+      "criterion_id": "C-018",
+      "title": "ISSUE_004: Identifies FlowLogic technology as embedded in AX-7000 product line",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The deliverable is a comprehensive change-of-control extraction report covering nine contracts and identifies the Hendricks Technology License Agreement in section 3, but it does not identify that FlowLogic technology is embedded in Apex's AX-7000 product line. The report states 'This agreement does not include a standalone express consent, termination, assignment, step-in, or fee provision tied specifically to Change of Control in the extracted text' and notes the license is 'non-transferable,' but contains no information about FlowLogic being embedded in any product line, let alone the AX-7000. The criterion requires a specific connection between the Hendricks license and the AX-7000 product line that is completely absent from the deliverable.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0070128000000000005
+    },
+    {
+      "criterion_id": "C-019",
+      "title": "ISSUE_004: Quantifies AX-7000/FlowLogic revenue exposure at ~$52.3M",
+      "passed": false,
+      "confidence": 0.98,
+      "reasoning": "The criterion requires the report to quantify the revenue exposure from the Hendricks license / AX-7000 product line at approximately $52.3 million TTM. The deliverable discusses the Hendricks Technology License Agreement in Section 3 but contains no quantification of revenue exposure, revenue at risk, or any dollar figures related to the Hendricks license or AX-7000 product line. The report is purely a change-of-control extraction analysis and does not address the financial metric specified in the criterion.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0068072
+    },
+    {
+      "criterion_id": "C-020",
+      "title": "ISSUE_005: Identifies 'indirect' change of control language in PacWest Section 1.1(c)",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The deliverable identifies the PacWest Supply Agreement's change of control definition in Section 1.1(c) and explicitly quotes the language 'any direct or indirect change in the ultimate ownership or control of Supplier.' It specifically flags the indirect language as creating 'broad' risk. Under criterion decision rules, paraphrase and framing flexibility are permitted; the report clearly identifies the section, quotes the operative language including 'indirect,' and signals the risk implication, satisfying the PASS condition.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0068119999999999995
+    },
+    {
+      "criterion_id": "C-021",
+      "title": "ISSUE_005: Flags downstream risk \u2014 future change of Voltan ownership could re-trigger",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The deliverable explicitly identifies and discusses the downstream risk that a future change in Voltan ownership could re-trigger the PacWest provision. In section 8 (PacWest Water Authority / Apex), the report notes the broad change-of-control definition in Section 1.1(c) that captures 'any direct or indirect change in the ultimate ownership or control of Supplier' and confirms that PacWest has post-closing consent/termination rights under Section 10.5. The 'indirect' language in the definition is highlighted as a risk factor, and the overall assessment explicitly states 'counterparty consent and unilateral termination rights post-closing.' This directly addresses the criterion's requirement that the report note how indirect-ownership language creates future re-trigger risk for downstream implications.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0070584
+    },
+    {
+      "criterion_id": "C-022",
+      "title": "ISSUE_005: Identifies PacWest consent/termination timing (60 days post-closing / 90 days' notice)",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The deliverable explicitly identifies the PacWest consent and termination timing requirements in Section 8 (Supply Agreement \u2014 PacWest Water Authority / Apex). Subsection D states: 'if consent not obtained within 60 days, PacWest may terminate thereafter' and Subsection C confirms 'PacWest may...terminate this Agreement upon ninety (90) days' written notice.' The deliverable clearly identifies both the 60-day consent window and the 90-day termination notice requirement, satisfying the criterion's requirement to identify these specific timing requirements.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.006871200000000001
+    },
+    {
+      "criterion_id": "C-023",
+      "title": "ISSUE_005: Quantifies PacWest revenue exposure (~11.7% / ~$21.9M)",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The criterion requires the report to quantify PacWest revenue at approximately 11.7% of Apex's TTM revenue or approximately $21.9 million. The deliverable does not contain any quantitative financial data, revenue figures, or percentage allocations related to PacWest. While the report extensively discusses the PacWest Supply Agreement (contract #8) and its change-of-control provisions, it provides zero financial metrics about PacWest's revenue exposure to Apex.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0067856
+    },
+    {
+      "criterion_id": "C-024",
+      "title": "ISSUE_006: Identifies single-trigger equity acceleration in Hesse Section 5.4",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The deliverable explicitly identifies Section 5.4 of Dr. Miriam Hesse's employment agreement and clearly states that it provides for single-trigger acceleration: 'Section 5.4 of the Employment Agreement provides that, upon the consummation of a Change of Control (as defined in the Employment Agreement), all of Executive's then-unvested Equity Awards shall immediately and automatically vest and, to the extent applicable, become exercisable in full.' The phrase 'immediately and automatically' directly conveys the single-trigger nature (no subsequent termination required), and the Side Letter confirms this remains 'in full force and effect' and 'has not been amended or waived.'",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.006968800000000001
+    },
+    {
+      "criterion_id": "C-025",
+      "title": "ISSUE_006: Flags conflict between single-trigger acceleration and merger agreement RSU rollover",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The deliverable explicitly identifies the conflict between Dr. Hesse's single-trigger acceleration provision (Section 5.4 of the Employment Agreement) and the merger agreement's contemplated RSU rollover treatment in Section 5 (SIDE LETTER RE: MERGER / EMPLOYMENT AGREEMENT). The report states: 'The parties acknowledge and agree that Section 5.4 of the Employment Agreement provides for the immediate and automatic vesting of all of Executive's unvested Equity Awards upon the consummation of a Change of Control, and that the RSU Rollover Treatment under Section 3.05 of the Merger Agreement contemplates that unvested Company RSUs will be converted into unvested Parent RSUs subject to the same vesting schedule\u2026' This directly addresses the tension between single-trigger acceleration and the rollover mechanics.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.007074400000000001
+    },
+    {
+      "criterion_id": "C-026",
+      "title": "ISSUE_006: Quantifies RSU acceleration cost at ~$967,230",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The deliverable is a comprehensive change-of-control extraction report that addresses multiple contracts and risks, but it does not quantify the RSU acceleration cost at approximately $967,230 or any substantially equivalent amount. The report mentions 'equity acceleration' and references 'Section 5.4 of the Employment Agreement' and the 'Side Letter' regarding Dr. Hesse's RSU acceleration, but nowhere does it calculate or state a specific dollar figure (45,000 RSUs \u00d7 $21.494 per share = ~$967,230). The criterion explicitly requires quantification of the financial exposure; paraphrase and framing variations are acceptable, but a missing numerical calculation is a material gap.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.006976
+    },
+    {
+      "criterion_id": "C-027",
+      "title": "ISSUE_007: Identifies deemed-assignment clause in HQ lease Section 22.2",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The deliverable clearly identifies Section 22.2 of the HQ lease (Crescent Ridge Realty Partners, LP / Apex) as containing a deemed-assignment clause. The report states: 'Any change in control of Tenant, including without limitation any merger, consolidation, or transfer of a controlling interest in Tenant's equity \u2026 [and] any transfer, issuance, or redemption of equity interests \u2026 that results in a change in the identity of the person or group of persons that controls Tenant' is deemed an assignment. This unambiguously covers mergers, consolidations, and transfer of controlling equity interest as required by the criterion. The report also explains that no affiliate carve-out exists and that landlord consent is required, satisfying the full substance of the criterion.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0070512000000000005
+    },
+    {
+      "criterion_id": "C-028",
+      "title": "ISSUE_007: Identifies prior written landlord consent requirement in Section 22.1",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The criterion requires identification of Section 22.1 of the HQ lease requiring prior written landlord consent for assignments. The deliverable discusses the lease (Crescent Ridge Realty Partners, LP / Apex) extensively but cites Section 22.2, 22.3, 22.4, and 12.2\u2014not Section 22.1. The deliverable states 'Section 22 does not contain any exception or carve-out for Transfers or Deemed Assignments to or involving Affiliates' and references Section 22.3 for consent standard ('shall not be unreasonably withheld'), but never identifies Section 22.1 specifically. The criterion's specific section number requirement (per decision rule 3) is not met.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0070079999999999995
+    },
+    {
+      "criterion_id": "C-029",
+      "title": "ISSUE_007: Identifies 'not unreasonably withheld' consent standard in Section 22.3",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The deliverable explicitly identifies that Section 22.3 of the Lease provides that landlord consent 'shall not be unreasonably withheld.' The criterion text states: 'Section 22.3 provides that landlord consent shall not be unreasonably withheld,' and the deliverable quotes: 'Landlord's consent \"shall not be unreasonably withheld,\" but if Landlord fails to respond in 20 business days, \"Landlord shall be deemed to have withheld its consent.\"' The reasonableness standard is clearly identified and quoted.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.006871200000000001
+    },
+    {
+      "criterion_id": "C-030",
+      "title": "ISSUE_007: Identifies landlord termination right on 120 days' notice under Section 22.4",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The deliverable explicitly identifies Section 22.4 of the Lease and describes the landlord's termination right on 120 days' notice. The relevant passage states: 'Section 22.4 [...] Operative language: Landlord may terminate on 120 days' notice; tenant owes an early termination fee equal to 18 months of base rent; Landlord may recapture the premises.' This directly matches the criterion's requirement to identify the provision that the landlord may terminate the lease upon 120 days' notice if consent is not obtained (the consent issue being addressed in Section 22.3).",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0069072000000000005
+    },
+    {
+      "criterion_id": "C-031",
+      "title": "ISSUE_007: Identifies early termination fee in Section 22.4",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The criterion requires identifying that an early termination fee applies under Section 22.4 if the landlord terminates the lease. The deliverable does address Section 22.4 of the Lease and states: 'Landlord may terminate on 120 days' notice; tenant owes an early termination fee equal to 18 months of base rent; Landlord may recapture the premises.' However, the criterion specifically requires the fee to apply 'if the landlord terminates the lease,' and the deliverable's language about Section 22.4 does not explicitly clarify that the landlord's termination right is the trigger for the fee (rather than tenant-initiated termination or other scenarios). The deliverable identifies the fee amount (18 months of base rent) and the section (22.4), but the causal relationship between landlord termination and the fee obligation could be more explicit to fully satisfy the criterion's specificity requirement.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0071656
+    },
+    {
+      "criterion_id": "C-032",
+      "title": "ISSUE_007: Quantifies lease early termination fee at $3.24M",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The criterion requires the report to calculate the early termination fee at $3.24 million with the specific formula (18 months of base rent at $2.16M annual rent = $2.16M \u00d7 1.5 = $3.24M). While the deliverable extensively discusses the lease early termination fee in Section 6.D under \"Remedies for unauthorized transfer / change of control deemed assignment,\" it states only that \"tenant owes an early termination fee equal to 18 months of base rent\" without quantifying the base rent amount or performing the calculation. The deliverable does not identify the $2.16 million annual rent figure or calculate $2.16M \u00d7 1.5 = $3.24M.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0070248
+    },
+    {
+      "criterion_id": "C-033",
+      "title": "ISSUE_008: Identifies insurance policy auto-conversion to run-off upon CoC",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The deliverable does not identify the Great Lakes Indemnity insurance policy's auto-conversion to run-off basis upon change of control as required by the criterion. Section 9 of the report briefly discusses the policy's tail coverage option and extended reporting period endorsement, but explicitly states: 'No express change-of-control provision found' and 'The extracted policy text does not contain a standalone change-of-control clause.' The report notes only that 'a change of control may indirectly trigger cancellation/non-renewal or underwriting changes, but that is not expressly stated in the extracted text.' The criterion requires identification of an automatic conversion to run-off basis upon change of control covering only claims from products sold before the change of control date\u2014none of which is present in the deliverable's analysis of Section IV.F.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.007077600000000001
+    },
+    {
+      "criterion_id": "C-034",
+      "title": "ISSUE_008: Flags coverage gap risk for post-closing new products",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The criterion requires the report to flag that new products manufactured after closing would not be covered under the existing policy and that replacement coverage must be arranged prior to or at closing. The deliverable addresses the Great Lakes Indemnity Company product liability insurance policy (Section 9) and mentions tail coverage limitations: 'tail covers only claims first made and reported during the extended period for products manufactured before run-off.' However, the report does not explicitly flag the specific coverage gap for post-closing new products or state that replacement coverage must be arranged at closing. The insurance section notes tail coverage is 'not automatic' and discusses premium costs, but does not clearly articulate the risk that new products manufactured after closing lack coverage under the existing policy, nor does it recommend arranging replacement coverage prior to or at closing.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.007011200000000001
+    },
+    {
+      "criterion_id": "C-035",
+      "title": "ISSUE_008: Notes $25M aggregate coverage limit",
+      "passed": false,
+      "confidence": 0.98,
+      "reasoning": "The criterion requires the report to mention the $25 million aggregate coverage limit of the product liability insurance policy. The deliverable discusses the product liability insurance policy (Section 9) but only references tail coverage options, premiums ranging from 75% to 175%, and coverage for claims first made during the extended period. There is no mention of a $25 million aggregate coverage limit anywhere in the report.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0066688
+    },
+    {
+      "criterion_id": "C-036",
+      "title": "ISSUE_009: Identifies cross-contract timing mismatches for consents/actions",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The deliverable is a comprehensive change-of-control extraction report but does not identify cross-contract timing mismatches or sequencing issues. The criterion requires addressing at least 2 of 4 specific items: (1) merger agreement's 'Required Consents' 5 business days pre-closing, (2) PacWest's 60-day post-closing consent window, (3) credit agreement's 30-day post-closing prepayment window, and (4) HQ lease's 'prior written consent' with no specified timeline. The report discusses the credit agreement's 30-day prepayment window (item 3) and mentions PacWest's 60-day consent rule (item 2), but it does not frame these as *mismatches* or *sequencing issues* across contracts, nor does it identify the merger agreement's 'Required Consents' provision or the HQ lease's timing gap. The report extracts change-of-control provisions from individual contracts but lacks the comparative, cross-contract timing analysis the criterion requires.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.007364000000000001
+    },
+    {
+      "criterion_id": "C-037",
+      "title": "ISSUE_009: Notes that pre-closing consent solicitation is necessary for lease and PacWest",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The deliverable explicitly recommends pre-closing consent solicitation for both the HQ lease and PacWest agreement. For the lease, it states: 'Lease: landlord consent required for deemed assignment / control change' and notes that 'A control transaction or recast of ownership can be treated as an assignment, requiring landlord consent.' For PacWest, it notes: 'PacWest supply agreements: customer consent or termination rights on change of control' and identifies that 'PacWest may...consent to the continuation' or terminate. The practical implications section further emphasizes: 'A control transaction involving Apex will likely trigger multiple parallel approval / notice streams: lender, landlord, key customers...' This clearly recommends pursuing pre-closing consent for both contracts.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0070408
+    },
+    {
+      "criterion_id": "C-038",
+      "title": "ISSUE_009: Notes credit agreement 30-day post-closing prepayment window under Section 2.09(d)",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The deliverable explicitly identifies the credit agreement's 30-day post-closing mandatory prepayment window under Section 2.09(d) in Section 2B of the report: 'Upon the occurrence of a Change of Control \u2026 the Borrower shall, within thirty (30) days following such Change of Control, prepay all outstanding Revolving Loans in full.' The report correctly characterizes this as a post-closing liquidity event ('Major liquidity event; all debt due within 30 days') and does not treat it as a pre-closing obstacle or blocker. The timing element is clearly identified and the characterization is appropriate.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0069312
+    },
+    {
+      "criterion_id": "C-039",
+      "title": "ISSUE_010: Identifies JV buy-out pricing mechanism at 4.5x EBITDA",
+      "passed": true,
+      "confidence": 1.0,
+      "reasoning": "The deliverable explicitly identifies the JV buy-out pricing mechanism in Section 12.3(c) as '4.5x the Company's trailing twelve-month EBITDA' and correctly references it applies to the purchase of the affected member's Membership Interest. While the deliverable does not explicitly state '55% stake,' the operative language quoted is from Section 12.3(c) and the pricing formula is unambiguously stated as 'four and one-half times (4.5x) the Company's trailing twelve-month EBITDA,' satisfying the core requirement to identify the 4.5x EBITDA multiple for the buy-out pricing in Section 12.3(c).",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0069944000000000004
+    },
+    {
+      "criterion_id": "C-040",
+      "title": "ISSUE_010: Calculates JV buy-out price at ~$22.95M",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The deliverable does not calculate the JV buy-out price at approximately $22.95 million. While it identifies Section 12.3(c) and correctly states the operative language ('four and one-half times (4.5x) the Company's trailing twelve-month EBITDA'), it does not perform or present the arithmetic calculation of $5.1M EBITDA \u00d7 4.5x = $22.95M for the 55% interest. The criterion requires an explicit calculation; identifying the formula alone does not satisfy the requirement.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.006848
+    },
+    {
+      "criterion_id": "C-041",
+      "title": "ISSUE_010: Flags below-market pricing / value leakage risk from 4.5x EBITDA buy-out",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The criterion requires the report to flag that the 4.5x EBITDA buy-out multiple is BELOW prevailing market-comparable transaction multiples and to identify value leakage risk to Apex/Voltan. The deliverable identifies the 4.5x EBITDA buy-out price in Section 1.F and notes it 'may be above or below market depending on performance,' but does NOT flag it as below-market comparables, does NOT cite any market comparable multiples, and does NOT identify a specific value leakage or discount risk to Apex/Voltan. The phrase 'Fixed multiple may be above or below market' is equivocal and fails to affirmatively flag below-market pricing or leakage risk as required by the criterion.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0070728
+    },
+    {
+      "criterion_id": "C-042",
+      "title": "ISSUE_011: Flags Crestline ERP license as potential unreviewed CoC risk",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The deliverable does not flag the Crestline ERP Platform (Crestline Software Solutions) as a potential unreviewed change-of-control risk. Section 10 explicitly states: 'Software License Agreement with Crestline Software Solutions, LLC \u2014 referenced in the recitals and material contracts list, but no standalone license text was provided in the data room excerpts. I therefore cannot confirm whether it contains a change-of-control provision.' The agent notes the absence of the contract text but does not flag Crestline as a potential unreviewed CoC risk or note that enterprise software/ERP licenses commonly contain such provisions. The criterion requires a specific flag that Crestline should be reviewed for potential CoC/anti-assignment provisions; a statement that the text was unavailable does not satisfy this requirement.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.007091200000000001
+    },
+    {
+      "criterion_id": "C-043",
+      "title": "ISSUE_011: Notes operational risk from ERP license termination",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The deliverable is a comprehensive change-of-control extraction report that identifies multiple contracts and their control-change provisions. However, it fails the specific criterion requirement: it does not note that failure to obtain consent or comply with change of control provisions in the Crestline ERP license could result in loss of access to mission-critical manufacturing/operational systems. The report explicitly states under item 10 that 'Software License Agreement with Crestline Software Solutions, LLC \u2014 referenced in the recitals and material contracts list, but no standalone license text was provided in the data room excerpts. I therefore cannot confirm whether it contains a change-of-control provision.' The operational risk from ERP license termination is never mentioned.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0069608000000000005
+    },
+    {
+      "criterion_id": "C-044",
+      "title": "ISSUE_012: Notes UCC \u00a7 2-210 interaction with Northland anti-assignment clause",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The deliverable is a comprehensive change-of-control extraction report covering 10 contracts/instruments across the Apex data room. However, it does not reference UCC \u00a7 2-210 or discuss the Uniform Commercial Code's provisions on assignment and delegation in goods contracts, nor does it analyze how UCC \u00a7 2-210 might partially override or limit the enforceability of the anti-assignment clause in the Northland supply agreement. The criterion explicitly requires discussion of the statutory interplay between UCC \u00a7 2-210 and the Northland anti-assignment clause, including the distinction between delegation of duties and assignment of rights. While the Northland Supply Agreement is extensively analyzed in section 7 (including its anti-assignment provision in Section 12.2), no reference to UCC \u00a7 2-210 or its interaction with the clause appears anywhere in the deliverable.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.007163200000000001
+    },
+    {
+      "criterion_id": "C-045",
+      "title": "Correct identification of merger structure as reverse triangular merger",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The deliverable does not identify the transaction structure as a reverse triangular merger or describe Merger Sub, Apex, or Voltan. The report is a change-of-control-extraction analysis of Apex's material contracts, but it contains no discussion of the proposed transaction structure itself. The criterion requires that the report 'correctly identifies the transaction as a reverse triangular merger (Merger Sub merges with and into Apex; Apex survives as a wholly-owned subsidiary of Voltan) and uses this structural understanding in analyzing trigger provisions.' The deliverable entirely lacks this transaction-structure analysis, instead focusing solely on contract-by-contract change-of-control provisions without reference to how any specific merger would operate.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.006968800000000001
+    },
+    {
+      "criterion_id": "C-046",
+      "title": "Correctly notes Apex survives as entity in the reverse triangular merger",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The deliverable does not discuss the significance of Apex surviving as the surviving entity in the reverse triangular merger for the trigger analysis of anti-assignment and change-of-control provisions. While the report exhaustively catalogs change-of-control definitions and consequences across multiple contracts, it nowhere addresses the structural consequence that Apex's survival (rather than merger out of existence) affects whether those provisions are technically triggered. The criterion requires discussion of how Apex's survival status impacts the trigger analysis; the report provides none of this analysis.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.006799200000000001
+    },
+    {
+      "criterion_id": "C-047",
+      "title": "All 8 contracts are addressed in the report",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The deliverable addresses all 8 required contracts. The report explicitly analyzes: (1) Apex-Kenji Precision JV agreement, (2) Senior Secured Revolving Credit Agreement for Apex Industrial Technologies, (3) Technology License Agreement with Hendricks Automation Systems, (4) Employment Agreement with Executive (CTO), (5) Side Letter re: Merger/Employment Agreement, (6) Lease with Crescent Ridge Realty Partners, (7) Master Supply Agreement with Northland Refining Corporation, (8) Supply Agreement with PacWest Water Authority, and (9) Product Liability Insurance Policy with Great Lakes Indemnity Company. The report also contains a section 'OTHER MATERIAL CONTRACTS IDENTIFIED IN THE DATA ROOM' that acknowledges the full set of 8 contracts. Each contract receives substantive analysis of change-of-control provisions or lack thereof.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0072024
+    },
+    {
+      "criterion_id": "C-048",
+      "title": "Report includes risk ratings for each contract",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The deliverable reviews 8 contracts but assigns explicit risk ratings using tiered language (e.g., 'High risk', 'Very high risk', 'Moderate', 'High closing-risk') to only 5 of them: (1) JV Agreement ('High risk'), (2) Credit Agreement ('Very high risk'), (4) Employment Agreement ('High'), (5) Side Letter ('High closing-risk'), and (6) Lease ('High'). Contracts (3) Technology License Agreement and (8) PacWest Supply Agreement receive qualitative risk assessments ('Moderate' and 'High' respectively, but the assessment lacks consistent tier language in the overall framing). Most critically, contract (9) Insurance Policy receives only 'Moderate' with no firm tier assignment, and the text explicitly states 'No express change-of-control provision found' rather than assigning a formal rating. The criterion requires 'at least 6 of the 8 contracts' to receive 'a risk rating using a tiered scale'\u2014the deliverable falls short by assigning formal, consistently-applied tiered ratings to approximately 5\u20136 contracts, with the remaining assessments being qualitative or incomplete.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.007413600000000001
+    },
+    {
+      "criterion_id": "C-049",
+      "title": "Hendricks license rated Critical or High risk",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The criterion requires the Hendricks Automation Systems technology license to be rated as Critical or High risk (top or second-highest tier). The deliverable identifies the license in Section 3 and describes it as 'Moderate' risk: 'Overall risk assessment: - Moderate. The extracted text contains a broad control definition, but no express change-of-control consent/termination right in the excerpts provided.' This is explicitly a lower tier than High or Critical, failing the PASS condition.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.006784
+    },
+    {
+      "criterion_id": "C-050",
+      "title": "Northland Refining rated Critical or High risk",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The deliverable is a comprehensive change-of-control extraction report covering nine contracts, but it does not contain a risk rating for the Northland Refining MSA. The criterion requires the Northland Refining MSA to be rated Critical or High risk; the deliverable identifies Northland Refining in section 7 and discusses its change-of-control provisions (consent/termination rights in Section 10.5), and separately notes ~19.3% revenue concentration in the key risk themes, but it never assigns a risk tier (Critical, High, Medium, Low, etc.) to that contract. The report states \"High\" overall risk assessment for section 7, but does not explicitly rate the Northland Refining MSA as \"Critical or High risk\" in a way that unmistakably applies a tier label to that specific contract in relation to the stated criterion.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0071144
+    },
+    {
+      "criterion_id": "C-051",
+      "title": "Credit agreement rated Critical or High risk",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The criterion requires a risk rating of 'Critical or High' specifically for the Summit National Bank credit agreement given dual inconsistent definitions and $42.5M mandatory prepayment exposure. The deliverable does not mention Summit National Bank at all, nor does it identify any credit agreement with that lender. Instead, it reviews a credit agreement with an unspecified lender (described only as 'SENIOR SECURED REVOLVING CREDIT AGREEMENT \u2014 Apex Industrial Technologies, Inc.'). The deliverable does rate that agreement as 'Very high risk' and identifies inconsistent definitions (Section 1.01 vs. Section 8.01(j)) and mandatory prepayment consequences, but the criterion's specific requirements\u2014Summit National Bank as counterparty and $42.5M as the prepayment amount\u2014are entirely absent from the deliverable.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0070656
+    },
+    {
+      "criterion_id": "C-052",
+      "title": "Report includes section references for each identified provision",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The deliverable includes specific section references for change-of-control or analogous provisions in all 8 contracts. Contract 1 (JV): Section 1, 12.1\u201312.4, 6.3(g), 11.1\u201311.4. Contract 2 (Credit Agreement): Section 1.01, 2.09(d), 5.07(c), 6.03, 8.01(j), 10.02(e). Contract 3 (Tech License): Section 1.3, 2.1, 2.4, 5.2. Contract 4 (Employment): Section 1, 5.4. Contract 5 (Side Letter): Sections 1, 3, 4, 5. Contract 6 (Lease): Sections 22.2, 22.3, 22.4, 12.2. Contract 7 (Northland Supply): Sections 1.1(c), 10.5(a)\u2013(d), 12.2. Contract 8 (PacWest Supply): Sections 1.1(c), 10.5(a)\u2013(d), 12.2. This exceeds the minimum threshold of 6 contracts, and all section citations are formatted correctly (e.g., Section 1.01, Section 8.01(j), Section 22.2).",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0076768
+    },
+    {
+      "criterion_id": "C-053",
+      "title": "ISSUE_006: Identifies the 45,000 unvested RSUs",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The criterion requires the report to state that 'Dr. Hesse holds 45,000 unvested restricted stock units subject to single-trigger acceleration.' The deliverable discusses Dr. Hesse's employment agreement and references 'Section 5.4' which provides for 'single-trigger acceleration' of 'all of Executive's then-unvested Equity Awards,' but the deliverable does not specify the number 45,000 or identify Dr. Hesse by name in the substantive analysis\u2014it only refers to her as 'Executive (CTO).' Most critically, the deliverable does not state a specific number of RSUs at all. The criterion explicitly states 'FAIL if the number of RSUs is not specified,' and the specific figure 45,000 is absent from the report.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0070464
+    },
+    {
+      "criterion_id": "C-054",
+      "title": "ISSUE_003: Identifies Apex's 55% JV ownership stake",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The criterion requires identifying Apex's ownership interest in the Apex-Kenji JV as 55%. The deliverable discusses the Apex-Kenji Precision JV extensively in section 1 but never states Apex's ownership percentage. The only ownership figure mentioned is in the credit agreement definition (Section A.1), where it states 'the Borrower shall at all times maintain an ownership interest of not less than 51%' in the JV\u2014but this is a minimum maintenance covenant, not a statement of Apex's actual 55% ownership stake. The deliverable fails to identify the specific 55% figure required by the criterion.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.006903200000000001
+    },
+    {
+      "criterion_id": "C-055",
+      "title": "Report includes pre-closing action items or recommendations",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The deliverable includes multiple specific recommendations and action items related to pre-closing steps. For example, it identifies the need to: obtain landlord consent for the lease (Section 22.3), obtain customer consent under supply agreements (Sections 10.5(b)-(c)), manage executive equity acceleration and obtain CTO consent under the employment agreement/side letter (Section 4), address the Hesse RSU conflict through negotiation and resolution (Side Letter Section 3), arrange tail coverage for the insurance policy (Endorsement), and manage lender notice and mandatory prepayment requirements (Credit Agreement Section 2.09(d)). The final section 'Practical M&A implications' explicitly lists these as \"parallel approval / notice streams\" and \"most acute economic risks,\" framing them as actionable pre-closing items. The report goes well beyond analysis to identify concrete steps (consents, notices, waivers, tail arrangement, conflict resolution) required before closing.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0071912
+    }
+  ]
+}
