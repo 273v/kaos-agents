@@ -7,12 +7,14 @@ loaded documents) to determine the user's intent.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from kaos_core.logging import get_logger
+from kaos_llm_core import InputField, OutputField, Signature
 
 from kaos_agents.models import IntentResult, IntentType
 from kaos_agents.settings import DEFAULT_MODEL
+from kaos_agents.usage import InvocationUsage
 
 if TYPE_CHECKING:
     from kaos_agents.memory.session import SessionMemory
@@ -30,24 +32,55 @@ _ACTION_WORDS = frozenset(
 )
 _PLAN_PHRASES = ("then", "after that", "first", "step by step", "steps to")
 
-# System instruction for the classifier
-_CLASSIFY_INSTRUCTION = """Classify the user's intent into one of these categories:
 
-- respond: Simple conversational response, greeting, or acknowledgment. No tools needed.
-- tool_use: The user wants to perform an action that requires calling
-  tools (extract data, search the web, analyze a file, etc.).
-- research: The user is asking a question about loaded documents that
-  requires retrieval and reasoning over document content.
-- plan: The user wants a multi-step workflow (analyze a document, then
-  extract specific data, then summarize findings).
-- clarify: The user's request is ambiguous and you need more information before proceeding.
+class ClassifyIntentSignature(Signature):
+    """Classify the user's intent for routing to the appropriate handler.
 
-Consider the conversation history and available context when classifying.
-If documents are loaded and the question relates to their content, prefer "research".
-If the user mentions specific tools or actions, prefer "tool_use".
-If the request involves multiple sequential steps, prefer "plan".
-When in doubt between tool_use and research, prefer tool_use (it's more general).
-"""
+    Choose ONE category:
+
+    * **respond** — simple conversational response, greeting, or
+      acknowledgement. No tools needed.
+    * **tool_use** — the user wants to perform an action that
+      requires calling tools (extract data, search the web,
+      analyze a file, etc.).
+    * **research** — the user is asking a question about loaded
+      documents that requires retrieval and reasoning over
+      document content.
+    * **plan** — the user wants a multi-step workflow (analyze a
+      document, then extract specific data, then summarize
+      findings).
+    * **clarify** — the user's request is ambiguous and you need
+      more information before proceeding.
+
+    Routing heuristics:
+
+    * If documents are loaded and the question relates to their
+      content, prefer ``research``.
+    * If the user mentions specific tools or actions, prefer
+      ``tool_use``.
+    * If the request involves multiple sequential steps, prefer
+      ``plan``.
+    * When in doubt between ``tool_use`` and ``research``, prefer
+      ``tool_use`` (it's more general).
+    """
+
+    message: str = InputField(description="The user's message to classify.")
+    conversation_context: str = InputField(
+        description="Recent conversation history and assembled memory context."
+    )
+    intent: Literal["respond", "tool_use", "research", "plan", "clarify"] = OutputField(
+        description=(
+            "Routing category. Constrained to the five values above so "
+            "malformed model output triggers codec validation retry "
+            "rather than silent fallback to RESPOND."
+        )
+    )
+    confidence: float = OutputField(
+        description="Confidence in the classification, in [0.0, 1.0].",
+        ge=0.0,
+        le=1.0,
+    )
+    reasoning: str = OutputField(description="One-sentence explanation of the classification.")
 
 
 async def classify_intent(
@@ -90,24 +123,18 @@ async def _classify_with_llm(
     model: str,
     context_text: str = "",
 ) -> IntentResult:
-    """LLM-based intent classification."""
+    """LLM-based intent classification.
+
+    Uses ``Call.invoke()`` (not ``Call.__call__``) so the per-classification
+    cost/usage flows through the standard ``Invocation`` path. The bare
+    ``__call__`` form would silently discard ``Invocation.usage``, leaving a
+    hole in the ``--max-cost`` ceiling that fires every turn.
+    """
     from kaos_agents._llm_imports import require_llm_core
 
     require_llm_core()
-    from kaos_llm_core import Call, InputField, OutputField, Signature
+    from kaos_llm_core import Call
 
-    class ClassifyIntent(Signature):
-        """Classify the user's intent for routing to the appropriate handler."""
-
-        message: str = InputField(description="The user's message to classify")
-        conversation_context: str = InputField(
-            description="Recent conversation history and assembled memory context"
-        )
-        intent: str = OutputField(description="One of: respond, tool_use, research, plan, clarify")
-        confidence: float = OutputField(description="Confidence score 0.0 to 1.0")
-        reasoning: str = OutputField(description="Brief explanation of the classification")
-
-    # Use provided context, or build from memory if not provided
     if not context_text:
         from kaos_agents.memory.types import MemoryType
 
@@ -116,29 +143,28 @@ async def _classify_with_llm(
             "\n".join(item.content for item in recent) if recent else "(no prior messages)"
         )
 
-    call = Call(ClassifyIntent, model=model, instructions=_CLASSIFY_INSTRUCTION)
-    result = await call(message=user_message, conversation_context=context_text)
+    call = Call(ClassifyIntentSignature, model=model)
+    invocation = await call.invoke(message=user_message, conversation_context=context_text)
 
-    # Parse the intent string with validation logging
-    raw_intent = result.intent.lower().strip()
-    try:
-        intent_type = IntentType(raw_intent)
-    except ValueError:
-        logger.warning(
-            "classify_intent: LLM returned invalid intent '%s', falling back to RESPOND",
-            raw_intent,
-        )
-        intent_type = IntentType.RESPOND
-
-    raw_confidence = float(result.confidence)
-    if not 0.0 <= raw_confidence <= 1.0:
-        logger.debug("classify_intent: LLM confidence %.2f out of [0,1], clamping", raw_confidence)
-    confidence = max(0.0, min(1.0, raw_confidence))
+    out = invocation.output
+    # `intent` is now Literal-typed at the Signature level; the codec's
+    # validation retry path enforces the constraint upstream. We still
+    # do `IntentType(...)` to lift str → enum, but we no longer need a
+    # silent except-fallback — a mis-typed value would have raised
+    # `ValidationRetryExhaustedError` in `call.invoke`.
+    intent_type = IntentType(out.intent)
+    confidence = max(0.0, min(1.0, float(out.confidence)))
 
     return IntentResult(
         intent=intent_type,
         confidence=confidence,
-        reasoning=result.reasoning,
+        reasoning=out.reasoning,
+        # Plumb per-classification usage through to the agent's
+        # `TurnComplete.usage` / the session cost ceiling. Was missing
+        # before — every classification's tokens went unattributed,
+        # leaving a hole in `--max-cost` enforcement that fired every
+        # turn.
+        usage=InvocationUsage.from_invocation(invocation),
     )
 
 

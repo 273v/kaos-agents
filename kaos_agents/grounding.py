@@ -64,20 +64,32 @@ def apply_refusal_policy(
     if refusal_policy is None:
         return grounded_answer, None
 
-    kind = getattr(grounded_answer, "kind", None)
-    if kind != "answer":
+    # Use isinstance against the typed Answer / InsufficientEvidence
+    # discriminated union from kaos-llm-core, not duck-typed
+    # ``getattr("kind")`` checks. Duck-typing here was a real safety
+    # bug: an unexpected type with a ``kind`` attribute but no
+    # ``confidence`` field would default to confidence=1.0 via the
+    # second ``getattr`` and silently pass the policy threshold —
+    # exactly the failure mode the policy exists to prevent.
+    try:
+        from kaos_llm_core.signatures.grounding import (
+            Answer,
+            InsufficientEvidence,
+        )
+    except ImportError:
         return grounded_answer, None
 
-    confidence = getattr(grounded_answer, "confidence", 1.0)
+    if not isinstance(grounded_answer, Answer):
+        # Already InsufficientEvidence (no policy work to do) or an
+        # unexpected type (cannot safely apply the policy — pass
+        # through unchanged so downstream code handles the
+        # type mismatch explicitly rather than via a silent default).
+        return grounded_answer, None
+
+    confidence = float(grounded_answer.confidence)
     min_conf = getattr(refusal_policy, "min_confidence", 0.7)
 
     if confidence >= min_conf:
-        return grounded_answer, None
-
-    # Collapse to InsufficientEvidence.
-    try:
-        from kaos_llm_core.signatures.grounding import InsufficientEvidence
-    except ImportError:
         return grounded_answer, None
 
     reason = (
@@ -86,7 +98,7 @@ def apply_refusal_policy(
     )
     collapsed = InsufficientEvidence(
         reason=reason,
-        attempted_claims=getattr(grounded_answer, "claims", []),
+        attempted_claims=list(grounded_answer.claims),
     )
     import time as _time
 

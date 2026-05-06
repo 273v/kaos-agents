@@ -170,9 +170,7 @@ class ResearchAgent(ChatAgent):
         self._rag_top_k = rag_top_k
         self._rag_max_retries = rag_max_retries
         self._corpus = _unwrap_corpus_arg(corpus)
-        self._documents: tuple[Any, ...] = (
-            tuple(documents) if documents is not None else ()
-        )
+        self._documents: tuple[Any, ...] = tuple(documents) if documents is not None else ()
         self._show_outline: Literal["yes", "no", "auto"] = show_outline
         # N4 — derive a verifier-confidence policy from settings if the
         # caller hasn't passed an explicit one. KaosAgentSettings.
@@ -189,7 +187,7 @@ class ResearchAgent(ChatAgent):
         # Cache the rendered outline string. Computed lazily on first turn
         # because rendering walks every document's heading tree (O(n_docs *
         # n_blocks)), and the outline is identical across turns of the same
-        # corpus. Re-rendering per turn would burn 5–50 ms on a 50-doc deal
+        # corpus. Re-rendering per turn would burn 5-50 ms on a 50-doc deal
         # room for no benefit.
         self._outline_cache: str | None = None
 
@@ -466,8 +464,10 @@ class ResearchAgent(ChatAgent):
         outline_prefix = self._resolve_outline_prefix()
         outline_block = f"\n\n{outline_prefix}" if outline_prefix else ""
         self._instructions = (
-            saved_instructions + "\n\n" if saved_instructions else ""
-        ) + _RESEARCH_REACT_INSTRUCTION + outline_block
+            (saved_instructions + "\n\n" if saved_instructions else "")
+            + _RESEARCH_REACT_INSTRUCTION
+            + outline_block
+        )
 
         react_intent = IntentResult(
             intent=IntentType.TOOL_USE,
@@ -571,17 +571,13 @@ class ResearchAgent(ChatAgent):
             # conversation history).
             outline_prefix = self._resolve_outline_prefix()
             decorated_question = (
-                f"{outline_prefix}\n\n[QUESTION]\n{message}"
-                if outline_prefix
-                else message
+                f"{outline_prefix}\n\n[QUESTION]\n{message}" if outline_prefix else message
             )
 
             # ``.invoke()`` returns the full Invocation so we can emit
             # real usage. ``rag.query()``/``rag(...)`` are thin unwrappers
             # around the same pipeline that throw usage on the floor.
-            rag_invocation = await rag.invoke(
-                question=decorated_question, documents=corpus
-            )
+            rag_invocation = await rag.invoke(question=decorated_question, documents=corpus)
             result = rag_invocation.output
             yield emit_usage_observed(
                 emitter,
@@ -635,19 +631,14 @@ class ResearchAgent(ChatAgent):
                             "KAOS_AGENT_REFUSE_UNVERIFIED_ANSWERS=false to "
                             "downgrade to a warning instead)."
                         ),
-                        attempted_claims=getattr(
-                            result.grounded_answer, "claims", []
-                        ),
+                        attempted_claims=getattr(result.grounded_answer, "claims", []),
                     )
                     try:
-                        result = result.model_copy(
-                            update={"grounded_answer": collapsed}
-                        )
+                        result = result.model_copy(update={"grounded_answer": collapsed})
                     except Exception:
                         result.grounded_answer = collapsed  # type: ignore[attr-defined]
                     logger.info(
-                        "research_agent: refused unverified answer "
-                        "(refuse_unverified_answers=True)"
+                        "research_agent: refused unverified answer (refuse_unverified_answers=True)"
                     )
                 except ImportError:
                     pass
@@ -674,30 +665,31 @@ class ResearchAgent(ChatAgent):
                             verified=result.is_verified,
                         )
 
-                    # Also store in memory (side effect)
+                    # Also store in memory (side effect). Use Pydantic's
+                    # canonical JSON-mode serialisation rather than
+                    # hand-flattening fields — manual `list(s.char_span)`
+                    # erases the `tuple[int, int]` typing and
+                    # `str(claim.claim_type)` erases the ClaimType enum.
+                    # `model_dump(mode="json")` gives us a round-trippable
+                    # representation of the typed grounding model.
                     sources = ", ".join(span.source_uri for span in claim.supporting_spans)
                     finding = (
                         f"[{claim.claim_type}] {claim.statement} "
                         f"(confidence={claim.confidence:.2f}, sources={sources})"
                     )
+                    claim_payload = claim.model_dump(mode="json")
                     memory.add(
                         MemoryType.FINDINGS,
                         finding,
                         metadata={
-                            "claim_type": str(claim.claim_type),
-                            "statement": claim.statement,
-                            "confidence": claim.confidence,
+                            "claim": claim_payload,
                             "verified": result.is_verified,
-                            "sources": [s.source_uri for s in claim.supporting_spans],
-                            "spans": [
-                                {
-                                    "source_uri": s.source_uri,
-                                    "quote": s.quote,
-                                    "char_span": list(s.char_span),
-                                    "page": s.page,
-                                }
-                                for s in claim.supporting_spans
-                            ],
+                            # Convenience accessors for callers that
+                            # don't want to walk the full claim payload.
+                            "claim_type": claim_payload["claim_type"],
+                            "statement": claim_payload["statement"],
+                            "confidence": claim_payload["confidence"],
+                            "sources": [s["source_uri"] for s in claim_payload["supporting_spans"]],
                         },
                     )
 
@@ -1288,9 +1280,7 @@ def _outline_from_corpus_passages(corpus: Any) -> list[_DocOutline]:
         # ``file:contract.pdf#chunk-1`` collapse to one outline entry.
         base_uri = uri.split("#chunk-", 1)[0]
         if base_uri not in by_uri:
-            by_uri[base_uri] = _DocOutline(
-                display_name=_strip_uri_scheme(base_uri), headings=[]
-            )
+            by_uri[base_uri] = _DocOutline(display_name=_strip_uri_scheme(base_uri), headings=[])
             seen_titles[base_uri] = set()
             order.append(base_uri)
         outline = by_uri[base_uri]

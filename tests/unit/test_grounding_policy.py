@@ -1,42 +1,74 @@
 """Unit tests for FUND-8 grounding policy enforcement.
 
-Exercises ``apply_refusal_policy`` with canned Answer and
-InsufficientEvidence objects — no live LLM calls. Verifies:
+Exercises ``apply_refusal_policy`` with real :class:`Answer` /
+:class:`InsufficientEvidence` instances from kaos-llm-core — duck-typed
+fakes are deliberately rejected by the policy now (the
+``isinstance(grounded_answer, Answer)`` check is the safety property
+the test must respect). No live LLM calls.
+
+Verifies:
 
 1. No policy → pass-through.
 2. Answer above threshold → pass-through.
 3. Answer below threshold → collapse to InsufficientEvidence + event.
 4. InsufficientEvidence input → pass-through (already refused).
 5. Agent.refusal_policy field propagates correctly.
+6. Duck-typed objects with a ``kind="answer"`` attribute but no real
+   ``Answer`` lineage pass through unchanged (bug-fix regression).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 import pytest
+from kaos_llm_core.signatures.grounding import Answer, Claim, InsufficientEvidence, Span
 
 from kaos_agents.config import Agent
 from kaos_agents.events import GroundingRefusalTriggered
 from kaos_agents.grounding import apply_refusal_policy
 
-# ------------------------------------------------------------------
-# Fake GroundedAnswer shapes (matches kaos-llm-core's discriminants)
-# ------------------------------------------------------------------
+
+def _make_answer(confidence: float, value: str = "x") -> Answer[str]:
+    """Construct a real Answer[str] with one Claim. Pydantic-validated.
+
+    ClaimType is a Literal in kaos-llm-core; pass the string
+    discriminant directly. ``supporting_spans`` requires at least one
+    Span (the safety property "claims must cite something"). Build a
+    minimal Span pointing at a synthetic source.
+    """
+    span = Span(
+        source_uri="doc:test",
+        quote=value,
+        char_span=(0, len(value)),
+    )
+    claim = Claim(
+        statement=value,
+        claim_type="factual",
+        supporting_spans=[span],
+        confidence=confidence,
+    )
+    return Answer[str](
+        value=value,
+        claims=[claim],
+        confidence=confidence,
+    )
 
 
 @dataclass
-class FakeAnswer:
+class _DuckTypedFakeAnswer:
+    """A fake that LOOKS like an Answer but isn't one.
+
+    This is the regression fixture for the duck-typing bug:
+    ``getattr(answer, "kind", None) == "answer"`` was True for this
+    fake, so the prior implementation applied the confidence policy
+    to it. With ``isinstance(answer, Answer)`` it's correctly
+    pass-through.
+    """
+
     kind: str = "answer"
-    confidence: float = 0.9
-    claims: list[Any] = field(default_factory=list)
-
-
-@dataclass
-class FakeInsufficientEvidence:
-    kind: str = "insufficient_evidence"
-    reason: str = "not found"
+    confidence: float = 0.0
+    claims: tuple = ()
 
 
 @dataclass
@@ -53,32 +85,33 @@ class FakeRefusalPolicy:
 
 class TestApplyRefusalPolicy:
     def test_no_policy_passes_through(self) -> None:
-        answer = FakeAnswer(confidence=0.3)
+        answer = _make_answer(confidence=0.3)
         result, event = apply_refusal_policy(answer, None)
         assert result is answer
         assert event is None
 
     def test_answer_above_threshold_passes(self) -> None:
         policy = FakeRefusalPolicy(min_confidence=0.7)
-        answer = FakeAnswer(confidence=0.85)
+        answer = _make_answer(confidence=0.85)
         result, event = apply_refusal_policy(answer, policy)
         assert result is answer
         assert event is None
 
     def test_answer_at_threshold_passes(self) -> None:
         policy = FakeRefusalPolicy(min_confidence=0.7)
-        answer = FakeAnswer(confidence=0.7)
+        answer = _make_answer(confidence=0.7)
         result, event = apply_refusal_policy(answer, policy)
         assert result is answer
         assert event is None
 
     def test_answer_below_threshold_collapses(self) -> None:
         policy = FakeRefusalPolicy(min_confidence=0.7)
-        answer = FakeAnswer(confidence=0.5)
+        answer = _make_answer(confidence=0.5)
         result, event = apply_refusal_policy(
             answer, policy, sequence=42, session_id="s1", run_id="r1"
         )
 
+        assert isinstance(result, InsufficientEvidence)
         assert result.kind == "insufficient_evidence"
         assert "confidence 0.50" in result.reason
         assert "threshold 0.70" in result.reason
@@ -91,17 +124,32 @@ class TestApplyRefusalPolicy:
 
     def test_insufficient_evidence_input_passes_through(self) -> None:
         policy = FakeRefusalPolicy(min_confidence=0.7)
-        ie = FakeInsufficientEvidence(reason="already refused")
+        ie = InsufficientEvidence(reason="already refused")
         result, event = apply_refusal_policy(ie, policy)
         assert result is ie
         assert event is None
 
     def test_zero_confidence_collapses(self) -> None:
         policy = FakeRefusalPolicy(min_confidence=0.1)
-        answer = FakeAnswer(confidence=0.0)
+        answer = _make_answer(confidence=0.0)
         result, event = apply_refusal_policy(answer, policy, session_id="s1", run_id="r1")
+        assert isinstance(result, InsufficientEvidence)
         assert result.kind == "insufficient_evidence"
         assert event is not None
+
+    def test_duck_typed_fake_passes_through(self) -> None:
+        """Regression: duck-typed objects with a ``kind`` attribute but
+        no real ``Answer`` lineage must pass through unchanged. The
+        prior implementation applied the confidence policy to anything
+        with ``getattr(obj, "kind") == "answer"``, which silently
+        defaulted ``confidence`` to 1.0 on objects missing the field.
+        """
+        policy = FakeRefusalPolicy(min_confidence=0.7)
+        fake = _DuckTypedFakeAnswer(confidence=0.0)  # 0 ≤ threshold 0.7
+        result, event = apply_refusal_policy(fake, policy)
+        # With the isinstance fix: not an Answer, so pass through.
+        assert result is fake
+        assert event is None
 
 
 # ------------------------------------------------------------------

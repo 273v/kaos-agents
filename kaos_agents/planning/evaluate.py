@@ -14,11 +14,41 @@ from __future__ import annotations
 from typing import Any
 
 from kaos_core.logging import get_logger
+from kaos_llm_core import InputField, OutputField, Signature
 
 from kaos_agents.planning.types import EvalMode, Judgment
 from kaos_agents.settings import DEFAULT_MODEL
 
 logger = get_logger(__name__)
+
+
+class EvalSemanticSignature(Signature):
+    """Judge whether a step's actual result satisfies the expected output.
+
+    Decision rules:
+
+    * Be generous on framing — partial matches count if the substance
+      is there.
+    * Be strict on facts — if the expectation calls out a specific
+      number, name, or section reference, that must appear (or be
+      unambiguously implied) in the result.
+    * Extract any KEY facts from the result that future steps might
+      need to reference. Empty list if nothing notable.
+    """
+
+    result_text: str = InputField(description="The actual result produced.")
+    expected_description: str = InputField(description="What was expected.")
+    additional_context: str = InputField(description="Additional context for judgment.")
+    matched: bool = OutputField(description="Whether the result satisfies the expectation.")
+    confidence: float = OutputField(
+        description="Confidence in this judgment, in [0.0, 1.0].",
+        ge=0.0,
+        le=1.0,
+    )
+    reasoning: str = OutputField(description="One or two sentences explaining the verdict.")
+    new_facts: list[str] = OutputField(
+        description="Key facts extracted from the result. Empty list if none."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -107,34 +137,21 @@ async def evaluate_semantic(
     from kaos_agents._llm_imports import require_llm_core
 
     require_llm_core()
-    from kaos_llm_core import Call, InputField, OutputField, Signature
+    from kaos_llm_core import Call
 
-    class EvalSig(Signature):
-        """Judge whether a result satisfies an expectation."""
-
-        result_text: str = InputField(description="The actual result produced")
-        expected_description: str = InputField(description="What was expected")
-        additional_context: str = InputField(description="Additional context for judgment")
-        matched: bool = OutputField(description="Does the result satisfy the expectation?")
-        confidence: float = OutputField(description="Confidence in this judgment, 0.0 to 1.0")
-        reasoning: str = OutputField(description="Why this judgment was made")
-        new_facts: list[str] = OutputField(
-            description="Key facts extracted from the result (empty list if none)"
-        )
-
-    call = Call(
-        EvalSig,
-        model=model,
-        instructions="Judge whether the result satisfies the expected output. "
-        "Be generous — partial matches count. Extract any key facts.",
-    )
+    call = Call(EvalSemanticSignature, model=model)
 
     try:
-        output = await call(
+        # ``invoke`` (not bare ``__call__``) so per-step semantic-eval
+        # cost flows through ``Invocation.usage`` into the
+        # ``PlanBudget``. Was a hole — semantic-eval cost never
+        # counted against the per-plan budget.
+        invocation = await call.invoke(
             result_text=str(result)[:2000],
             expected_description=expected,
             additional_context=context[:1000],
         )
+        output = invocation.output
         return Judgment(
             matched=output.matched,
             confidence=max(0.0, min(1.0, output.confidence)),

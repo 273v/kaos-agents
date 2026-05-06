@@ -19,11 +19,36 @@ Usage::
 from __future__ import annotations
 
 from kaos_core.logging import get_logger
+from kaos_llm_core import InputField, OutputField, Signature
 
 logger = get_logger(__name__)
 
 _DOC_PREVIEW_CHARS = 3000  # Chars of document text sent to LLM for query prediction
 _MAX_PREDICTED_QUERIES = 7  # Max queries to generate per document
+
+
+class PredictDocumentQueriesSignature(Signature):
+    """Predict the search queries a researcher or analyst might submit for this doc.
+
+    Given a document excerpt, predict 5-7 specific questions that a
+    researcher or analyst might ask about this document. Focus on:
+
+    (a) key findings, claims, or provisions
+    (b) entities and their relationships
+    (c) dates, quantities, and measurements
+    (d) conditions, exceptions, and caveats
+    (e) implications and significance
+
+    Use both the document's own terminology AND simpler paraphrases
+    that a non-expert might search for.
+    """
+
+    document_excerpt: str = InputField(
+        description=f"First ~{_DOC_PREVIEW_CHARS} characters of the document."
+    )
+    predicted_queries: list[str] = OutputField(
+        description="5-7 specific questions someone might search for about this document."
+    )
 
 
 async def expand_document_with_queries(
@@ -67,34 +92,28 @@ async def generate_document_queries(
         List of predicted query strings.
     """
     try:
-        from kaos_llm_core import Call, InputField, OutputField, Signature
-
-        class PredictDocumentQueries(Signature):
-            """Given a document excerpt, predict 5-7 specific questions that
-            a researcher or analyst might ask about this document. Focus on:
-            (a) key findings, claims, or provisions, (b) entities and their
-            relationships, (c) dates, quantities, and measurements,
-            (d) conditions, exceptions, and caveats, (e) implications and
-            significance.
-
-            Use both the document's own terminology AND simpler paraphrases
-            that a non-expert might search for."""
-
-            document_excerpt: str = InputField(description="First ~3000 characters of the document")
-            predicted_queries: list[str] = OutputField(
-                description="5-7 specific questions someone might search for about this document"
-            )
+        from kaos_llm_core import Call
 
         from kaos_agents.settings import DEFAULT_MODEL
 
-        call = Call(PredictDocumentQueries, model=model or DEFAULT_MODEL)
-        result = await call(document_excerpt=text[:_DOC_PREVIEW_CHARS])
+        call = Call(PredictDocumentQueriesSignature, model=model or DEFAULT_MODEL)
+        # Use ``invoke`` (not bare ``__call__``) so per-doc indexing
+        # cost flows through the standard ``Invocation`` path. Without
+        # ``.invoke()``, large corpus loads silently breach the
+        # session ``--max-cost`` budget — the cost-attribution leak
+        # documented in
+        # ``docs/design/architecture-audit-raw-llm-calls.md``.
+        invocation = await call.invoke(document_excerpt=text[:_DOC_PREVIEW_CHARS])
+        result = invocation.output
 
-        queries = result.predicted_queries if hasattr(result, "predicted_queries") else []
+        queries = result.predicted_queries
+        usage = invocation.usage
         logger.debug(
-            "doc2query.generated: doc_len=%d queries=%d",
+            "doc2query.generated: doc_len=%d queries=%d cost_usd=%.6f tokens=%d",
             len(text),
             len(queries),
+            float(getattr(usage, "cost_usd", 0.0) or 0.0),
+            int(getattr(usage, "total_tokens", 0) or 0),
         )
         return queries[:max_queries]
     except Exception as exc:

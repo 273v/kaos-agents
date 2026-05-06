@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 from kaos_core.logging import get_logger
+from kaos_llm_core import InputField, OutputField, Signature
 
 from kaos_agents.memory.search import MemorySearchResult, _load_lexicon, search_memory
 from kaos_agents.memory.types import MemoryType
@@ -38,6 +39,79 @@ from kaos_agents.settings import KaosAgentSettings
 
 if TYPE_CHECKING:
     from kaos_agents.memory.session import SessionMemory
+
+
+class ReflectOnCoverageSignature(Signature):
+    """Identify what aspects of a query are NOT covered by retrieved docs.
+
+    Look at the original query and the summaries of documents found so
+    far. Identify what specific topics, subtopics, or perspectives are
+    MISSING from the retrieved results. Generate 2-3 highly targeted
+    search queries that would find documents covering those specific
+    gaps.
+
+    If the results already provide good coverage, return an empty list.
+    """
+
+    original_query: str = InputField(description="The original search query.")
+    document_summaries: str = InputField(description="Summaries of the top documents found so far.")
+    gap_queries: list[str] = OutputField(
+        description=(
+            "2-3 targeted queries for MISSING aspects, or an empty list if coverage is sufficient."
+        )
+    )
+
+
+class GeneratePseudoDocumentSignature(Signature):
+    """Generate a hypothetical document excerpt for HyDE retrieval.
+
+    Write a 150-250 word excerpt from a professional document that
+    would be relevant to the search query. Use the domain-specific
+    vocabulary and terminology that real source documents use — the
+    precise technical terms, jargon, and phrasing that experts in the
+    field would use, not the simplified language of the query.
+
+    The output is then BM25-matched against the corpus, bridging
+    terminology gaps between user queries and source documents
+    (Query2Doc / HyDE technique).
+    """
+
+    search_query: str = InputField(description="The search query to generate a passage for.")
+    hypothetical_passage: str = OutputField(
+        description=(
+            "A realistic 150-250 word excerpt using domain-specific "
+            "terminology relevant to the query."
+        )
+    )
+
+
+class SuggestQueriesSignature(Signature):
+    """Suggest alternative search queries with different vocabulary.
+
+    Given a search query that found some but not all relevant
+    documents, generate 3-5 alternative queries using DIFFERENT
+    terminology. Consider:
+
+    (a) technical/scientific vs. plain language terms
+    (b) acronyms and abbreviations vs. expanded forms
+    (c) synonyms and related concepts that domain experts would use
+    (d) different phrasings that describe the same phenomenon
+    (e) broader or narrower terms (hypernyms/hyponyms) that might
+        capture documents the original query missed
+
+    Each alternative should use substantially different vocabulary
+    from the original query and from each other.
+    """
+
+    original_query: str = InputField(description="The original search query.")
+    results_found: int = InputField(description="Number of documents found so far.")
+    alternative_queries: list[str] = OutputField(
+        description=(
+            "3-5 alternative search queries, each using different "
+            "domain terminology and vocabulary."
+        )
+    )
+
 
 logger = get_logger(__name__)
 
@@ -607,30 +681,7 @@ def _reflect_on_coverage(
         return []
 
     try:
-        from kaos_llm_core import Call, InputField, OutputField, Signature
-
-        class ReflectOnCoverage(Signature):
-            """You are evaluating whether a set of retrieved documents
-            adequately covers all aspects of a search query.
-
-            Look at the query and the summaries of documents found so far.
-            Identify what specific topics, subtopics, or perspectives are
-            MISSING from the retrieved results. Then generate 2-3 highly
-            targeted search queries that would find documents covering
-            those specific gaps.
-
-            If the results already provide good coverage, return an empty list."""
-
-            original_query: str = InputField(description="The original search query")
-            document_summaries: str = InputField(
-                description="Summaries of the top documents found so far"
-            )
-            gap_queries: list[str] = OutputField(
-                description=(
-                    "2-3 targeted queries for MISSING aspects, or empty "
-                    "list if coverage is sufficient"
-                )
-            )
+        from kaos_llm_core import Call
 
         top_summaries = []
         for r in results[:15]:
@@ -640,7 +691,7 @@ def _reflect_on_coverage(
 
         from kaos_agents.settings import DEFAULT_MODEL
 
-        call = Call(ReflectOnCoverage, model=model or DEFAULT_MODEL)
+        call = Call(ReflectOnCoverageSignature, model=model or DEFAULT_MODEL)
 
         import asyncio
 
@@ -822,27 +873,11 @@ def _generate_pseudo_document(
     passage against the corpus, bridging terminology gaps.
     """
     try:
-        from kaos_llm_core import Call, InputField, OutputField, Signature
-
-        class GeneratePseudoDocument(Signature):
-            """You are generating a hypothetical excerpt from a professional
-            document that would be relevant to the search query below. Write
-            150-250 words using the domain-specific vocabulary and terminology
-            that would appear in the actual source documents. Use the precise
-            technical terms, jargon, and phrasing that experts in this field
-            would use — not the simplified language of the query."""
-
-            search_query: str = InputField(description="The search query to generate a passage for")
-            hypothetical_passage: str = OutputField(
-                description=(
-                    "A realistic 150-250 word excerpt using domain-specific "
-                    "terminology relevant to the query"
-                )
-            )
+        from kaos_llm_core import Call
 
         from kaos_agents.settings import DEFAULT_MODEL
 
-        call = Call(GeneratePseudoDocument, model=model or DEFAULT_MODEL)
+        call = Call(GeneratePseudoDocumentSignature, model=model or DEFAULT_MODEL)
 
         import asyncio
 
@@ -881,35 +916,11 @@ def _generate_llm_queries(
     might find documents the original query missed.
     """
     try:
-        from kaos_llm_core import Call, InputField, OutputField, Signature
-
-        class SuggestQueries(Signature):
-            """You are a document retrieval expert. Given a search query that
-            found some but not all relevant documents, generate 3-5 alternative
-            search queries using DIFFERENT terminology and vocabulary.
-
-            Consider: (a) technical/scientific vs. plain language terms,
-            (b) acronyms and abbreviations vs. expanded forms,
-            (c) synonyms and related concepts that domain experts would use,
-            (d) different phrasings that describe the same phenomenon,
-            (e) broader or narrower terms (hypernyms/hyponyms) that might
-            capture documents the original query missed.
-
-            Each alternative should use substantially different vocabulary from
-            the original query and from each other."""
-
-            original_query: str = InputField(description="The original search query")
-            results_found: int = InputField(description="Number of documents found so far")
-            alternative_queries: list[str] = OutputField(
-                description=(
-                    "3-5 alternative search queries, each using different "
-                    "domain terminology and vocabulary"
-                )
-            )
+        from kaos_llm_core import Call
 
         from kaos_agents.settings import DEFAULT_MODEL
 
-        call = Call(SuggestQueries, model=model or DEFAULT_MODEL)
+        call = Call(SuggestQueriesSignature, model=model or DEFAULT_MODEL)
 
         import asyncio
 

@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from kaos_core.logging import get_logger
+from kaos_llm_core import InputField, OutputField, Signature
 
 from kaos_agents.planning.types import PrimitiveTrace, StepType
 from kaos_agents.settings import DEFAULT_MODEL
@@ -23,6 +24,18 @@ if TYPE_CHECKING:
     from kaos_llm_core.programs.tool import Tool
 
 logger = get_logger(__name__)
+
+
+class LLMStepSignature(Signature):
+    """Execute a single LLM reasoning step inside a plan.
+
+    The Plan's :class:`Compose` primitive owns the bigger structure
+    (sequencing, retries, replanning); this Signature is the I/O
+    contract for one ``LLM``-typed step.
+    """
+
+    instruction: str = InputField(description="What to do for this reasoning step.")
+    response: str = OutputField(description="The reasoning step's result.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,15 +146,9 @@ async def _act_llm(prompt: str, model: str) -> dict[str, Any]:
     from kaos_agents._llm_imports import require_llm_core
 
     require_llm_core()
-    from kaos_llm_core import Call, InputField, OutputField, Signature
+    from kaos_llm_core import Call
 
-    class LLMStep(Signature):
-        """Execute a reasoning step."""
-
-        instruction: str = InputField(description="What to do")
-        response: str = OutputField(description="The result")
-
-    call = Call(LLMStep, model=model)
+    call = Call(LLMStepSignature, model=model)
     invocation = await call.invoke(instruction=prompt)
 
     token_count = 0

@@ -14,6 +14,7 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
 from kaos_core.logging import get_logger
+from kaos_llm_core import InputField, OutputField, Signature
 
 from kaos_agents._constants import FALLBACK_RECENT_MESSAGES
 from kaos_agents.actions.tool_bridge import bridge_runtime_tools
@@ -45,6 +46,19 @@ if TYPE_CHECKING:
     from kaos_agents.settings import KaosAgentSettings
 
 logger = get_logger(__name__)
+
+
+class ToolTaskSignature(Signature):
+    """Complete the user's request using the available tools.
+
+    The actual reasoning loop lives in :class:`ReAct` (which consumes
+    this Signature). Treat this as the I/O contract: question + context
+    in, final answer out. Tool selection is emergent from ReAct.
+    """
+
+    question: str = InputField(description="The user's request.")
+    context: str = InputField(description="Conversation context.")
+    answer: str = OutputField(description="Your final answer to the user.")
 
 
 class ChatAgent(BaseAgent):
@@ -150,15 +164,7 @@ class ChatAgent(BaseAgent):
         from kaos_agents._llm_imports import require_llm_core
 
         require_llm_core()
-        from kaos_llm_core import InputField, OutputField, Signature
         from kaos_llm_core.programs.react import ReAct
-
-        class ToolTask(Signature):
-            """Complete the user's request using the available tools."""
-
-            question: str = InputField(description="The user's request")
-            context: str = InputField(description="Conversation context")
-            answer: str = OutputField(description="Your final answer to the user")
 
         tools: list[Any] = []
         if self._runtime is not None:
@@ -214,7 +220,7 @@ class ChatAgent(BaseAgent):
             else _REACT_INSTRUCTION
         )
         react = ReAct(
-            ToolTask,
+            ToolTaskSignature,
             tools=tools,
             model=self._model_for_role("respond"),
             max_iterations=self._max_react_iterations,

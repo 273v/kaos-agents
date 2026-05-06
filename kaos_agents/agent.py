@@ -26,6 +26,7 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
 from kaos_core.logging import get_logger
+from kaos_llm_core import InputField, OutputField, Signature
 
 from kaos_agents._constants import FALLBACK_RECENT_MESSAGES
 from kaos_agents.context.classify import classify_intent
@@ -53,6 +54,21 @@ from kaos_agents.usage import ZERO_USAGE, InvocationUsage
 # Default instruction for the respond handler. Module-level constant
 # so it's auditable and overridable (subclasses can replace self._respond_instruction).
 _DEFAULT_RESPOND_INSTRUCTION = "You are a helpful assistant."
+
+
+class RespondSignature(Signature):
+    """Generate a conversational response to the user's message.
+
+    The agent's voice + tone is governed by the ``instructions=`` kwarg
+    passed to the :class:`Call` (defaults to "You are a helpful
+    assistant."). Subclasses or callers override the instructions to
+    project a different persona without changing the I/O contract here.
+    """
+
+    message: str = InputField(description="The user's message.")
+    conversation_history: str = InputField(description="Recent conversation history for context.")
+    response: str = OutputField(description="Your response to the user.")
+
 
 if TYPE_CHECKING:
     from kaos_core.vfs.core import VirtualFileSystem
@@ -280,9 +296,7 @@ class BaseAgent:
                     src = (event.source or "").strip()
                     if src:
                         usage = InvocationUsage.from_llm_usage(event)
-                        per_tool_usage[src] = (
-                            per_tool_usage.get(src, ZERO_USAGE) + usage
-                        )
+                        per_tool_usage[src] = per_tool_usage.get(src, ZERO_USAGE) + usage
         except Exception as exc:
             logger.warning("agent.run: dispatch failed: %s", exc)
             yield emitter.emit(
@@ -576,14 +590,7 @@ class BaseAgent:
         from kaos_agents._llm_imports import require_llm_core
 
         require_llm_core()
-        from kaos_llm_core import Call, InputField, OutputField, Signature
-
-        class Respond(Signature):
-            """You are a helpful assistant. Respond to the user's message."""
-
-            message: str = InputField(description="The user's message")
-            conversation_history: str = InputField(description="Recent conversation for context")
-            response: str = OutputField(description="Your response to the user")
+        from kaos_llm_core import Call
 
         # Use pre-assembled context if available, otherwise build from memory
         if context_items:
@@ -602,7 +609,9 @@ class BaseAgent:
         if extra_instruction:
             instructions = f"{instructions} {extra_instruction}"
 
-        call = Call(Respond, model=self._model_for_role("respond"), instructions=instructions)
+        call = Call(
+            RespondSignature, model=self._model_for_role("respond"), instructions=instructions
+        )
         # ``.invoke()`` returns the full Invocation so we can read
         # ``invocation.usage`` — the bare ``await call(...)`` path is
         # slightly cheaper but throws the usage record on the floor.

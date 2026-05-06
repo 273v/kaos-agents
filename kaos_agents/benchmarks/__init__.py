@@ -9,13 +9,21 @@ and unit-tested without going through ``sys.path`` gymnastics.
 from __future__ import annotations
 
 from kaos_agents.benchmarks.llm_judge import (
-    JudgeUnavailable,
     JudgeVerdict,
+    QAJudgeSignature,
     llm_judge,
+)
+from kaos_agents.benchmarks.rubric_judge import (
+    RubricVerdict,
+    RubricVerdictSignature,
+    rubric_judge,
 )
 
 __all__ = [
-    "JudgeUnavailable",
     "JudgeVerdict",
+    "QAJudgeSignature",
+    "RubricVerdict",
+    "RubricVerdictSignature",
     "llm_judge",
+    "rubric_judge",
 ]

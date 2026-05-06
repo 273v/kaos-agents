@@ -20,12 +20,56 @@ import uuid
 from typing import Any
 
 from kaos_core.logging import get_logger
+from kaos_llm_core import InputField, OutputField, Signature
 from pydantic import BaseModel, Field
 
 from kaos_agents.planning.types import Step, StepType
 from kaos_agents.settings import DEFAULT_MODEL
 
 logger = get_logger(__name__)
+
+
+class PlanExpandSignature(Signature):
+    """Generate a structured plan to accomplish a goal.
+
+    Each step uses one of the available tools or is an LLM reasoning
+    step. Steps can depend on previous steps by referencing their
+    step numbers in ``depends_on``.
+
+    Decision rules:
+
+    * Generate a concrete, actionable plan using ONLY the listed tools.
+    * Each step must reference a specific tool by its exact name, or
+      use ``llm`` for reasoning steps.
+    * Keep plans focused — use the minimum number of steps needed.
+    * Respect the ``max_steps`` cap from the input.
+    * If ``prior_failures`` is non-empty, do not repeat those failed
+      approaches — try a different decomposition.
+    """
+
+    goal: str = InputField(description="The goal to accomplish.")
+    tools: str = InputField(description="Available tools and their descriptions.")
+    context: str = InputField(description="Conversation context and prior knowledge.")
+    max_steps: int = InputField(description="Hard cap on the number of steps to generate.", ge=1)
+    prior_failures: str = InputField(
+        description=(
+            "Description of previous failed attempts (Reflexion feedback). "
+            "Empty string when no prior failures exist."
+        )
+    )
+    steps: list[dict[str, Any]] = OutputField(
+        description=(
+            "List of plan steps. Each step is a dict with: "
+            "``step_number`` (int, 1-indexed), "
+            "``description`` (str, what this step does), "
+            "``tool_name`` (str, name of the tool to use, or 'llm' for a "
+            "reasoning step), "
+            "``input_description`` (str, what input to provide), "
+            "``expected_output`` (str, what output to expect), "
+            "``depends_on`` (list[int], step numbers this depends on; "
+            "empty list for no deps)."
+        )
+    )
 
 
 async def expand(
@@ -53,7 +97,7 @@ async def expand(
     from kaos_agents._llm_imports import require_llm_core
 
     require_llm_core()
-    from kaos_llm_core import Call, InputField, OutputField, Signature
+    from kaos_llm_core import Call
 
     tool_descriptions = ""
     if available_tools:
@@ -63,47 +107,21 @@ async def expand(
     else:
         tool_descriptions = "(no tools available — generate LLM-only steps)"
 
-    failure_context = ""
-    if prior_failures:
-        failure_context = f"\n\nPREVIOUS FAILED ATTEMPTS (avoid repeating these):\n{prior_failures}"
-
-    class PlanExpand(Signature):
-        """Generate a structured plan to accomplish a goal.
-
-        Each step should use one of the available tools or be an LLM reasoning step.
-        Steps can depend on previous steps by referencing their step numbers.
-        """
-
-        goal: str = InputField(description="The goal to accomplish")
-        tools: str = InputField(description="Available tools and their descriptions")
-        context: str = InputField(description="Conversation context and prior knowledge")
-        steps: list[dict[str, Any]] = OutputField(
-            description="List of plan steps. Each step is a dict with: "
-            "step_number (int, 1-indexed), "
-            "description (str, what this step does), "
-            "tool_name (str, name of the tool to use, or 'llm' for a reasoning step), "
-            "input_description (str, what input to provide), "
-            "expected_output (str, what output to expect), "
-            "depends_on (list of int, step numbers this depends on, empty list for no deps)"
-        )
-
-    instructions = (
-        "Generate a concrete, actionable plan using ONLY the listed tools. "
-        "Each step must reference a specific tool by its exact name, or "
-        "use 'llm' for reasoning steps. "
-        "Keep plans focused — use the minimum number of steps needed. "
-        f"Maximum {max_steps} steps."
-        f"{failure_context}"
-    )
-
-    call = Call(PlanExpand, model=model, instructions=instructions)
+    call = Call(PlanExpandSignature, model=model)
 
     try:
-        result = await call(
+        # ``invoke`` (not bare ``__call__``) so the per-plan-generation
+        # cost flows through ``Invocation.usage`` into the
+        # ``PlanBudget``. Was a hole — plan-expansion cost never
+        # counted against the plan budget cap.
+        invocation = await call.invoke(
             goal=goal,
             tools=tool_descriptions,
             context=context[:3000],
+            max_steps=max_steps,
+            prior_failures=prior_failures,
         )
+        result = invocation.output
         raw_steps = result.steps if result.steps else []
     except Exception as exc:
         logger.warning("expand: LLM plan generation failed: %s", exc)

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum, unique
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from kaos_agents.usage import InvocationUsage
 
 
 @unique
@@ -20,11 +23,19 @@ class IntentType(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class IntentResult:
-    """Result of intent classification."""
+    """Result of intent classification.
+
+    Carries the intent enum, confidence, reasoning text, and (when the
+    classifier was an LLM) the typed ``InvocationUsage`` so the caller
+    can plumb it to ``TurnComplete.usage`` / the session cost ceiling.
+    ``usage`` is ``None`` for the heuristic-fallback path that never
+    invoked an LLM.
+    """
 
     intent: IntentType
     confidence: float  # 0.0 to 1.0
     reasoning: str  # Why this intent was chosen
+    usage: InvocationUsage | None = None  # Per-classification token + cost
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.confidence <= 1.0:
