@@ -37,7 +37,7 @@ class EventSerializationError(KaosAgentError):
 
 
 class EventDeserializationError(KaosAgentError):
-    """Raised when a dict/JSON payload cannot be deserialized to an AgentEvent.
+    """Raised when a dict/JSON payload cannot be deserialized to an KaosEvent.
 
     Covers: missing ``type`` field, unknown event type, missing required
     fields, type mismatches in nested structures.

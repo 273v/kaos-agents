@@ -1,14 +1,17 @@
-"""AgentEvent — the universal event type for streaming agent execution.
+"""KaosEvent subclasses — the universal event types for streaming agent execution.
 
-Every consumer surface (Python SDK, SSE, JSONL, MCP, WebSocket) serializes
-and deserializes the same AgentEvent stream.  Events fall into two
-conceptual categories (distinguished via ``isinstance`` checks, not
-intermediate base classes):
+The :class:`KaosEvent` base ABC lives in :mod:`kaos_agents.base.event`. This
+module owns the concrete event subtypes (19 today) and the serde helpers
+that ship them across SSE / JSONL / WebSocket / MCP wires.
 
-- **Stream deltas** (TextDelta, ThinkingDelta, ToolCallArgsDelta):
-  Low-level, real-time events for token-by-token display.
-- **Lifecycle events** (TurnStart, ToolCallStart, StepComplete, etc.):
-  High-level, semantic events for UI state machines, logging, and hooks.
+Every consumer surface (Python SDK, SSE, JSONL, MCP, WebSocket) ships and
+receives the same KaosEvent stream. Events fall into two conceptual
+categories distinguished by ``isinstance``:
+
+- **Stream deltas** (TextDelta, ThinkingDelta, ToolCallArgsDelta) —
+  low-level, real-time, token-by-token events.
+- **Lifecycle events** (TurnStart, ToolCallStart, StepComplete, etc.) —
+  high-level, semantic events for UI state machines, hooks, audit.
 
 Consumers pick their granularity:
 - A streaming text UI handles TextDelta.
@@ -29,30 +32,35 @@ See docs/design/kaos-agents-streaming-research.md for the full analysis.
 from __future__ import annotations
 
 import json
-import re
 import time
-from dataclasses import asdict, dataclass, fields
 from typing import TYPE_CHECKING, Any
 
+from kaos_core.types.content import KaosModel
+from pydantic import ConfigDict, ValidationError
+
+from kaos_agents.base.event import KaosEvent
 from kaos_agents.errors import EventDeserializationError, EventSerializationError
 
 if TYPE_CHECKING:
     from kaos_agents.types.usage import InvocationUsage
 
+
 # ---------------------------------------------------------------------------
-# Supporting types (serialized inside events)
+# Supporting types — nested inside event payloads (not events themselves)
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True, slots=True)
-class ToolCallSummary:
+class ToolCallSummary(KaosModel):
     """Compact summary of a tool call for TurnComplete.
 
     ``cost_usd`` aggregates the LLM cost attributable to this tool
     invocation when the tool itself drove an LLM call (e.g. RAG's
     rag-query verifier, or a delegated sub-agent). Plain tools that
     don't call an LLM stay at ``0.0``. Threaded through Phase 5.x for
-    per-tool-call cost telemetry (P8 / N2)."""
+    per-tool-call cost telemetry (P8 / N2).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
 
     tool_name: str
     call_id: str
@@ -63,9 +71,10 @@ class ToolCallSummary:
     output_tokens: int = 0
 
 
-@dataclass(frozen=True, slots=True)
-class PlanStepSummary:
+class PlanStepSummary(KaosModel):
     """Compact summary of a plan step for PlanProposed."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
 
     step_id: str
     description: str
@@ -73,40 +82,11 @@ class PlanStepSummary:
 
 
 # ---------------------------------------------------------------------------
-# Base event
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class AgentEvent:
-    """Base for all agent events.
-
-    Not instantiated directly — use a concrete subclass via the
-    ``StreamDelta`` or ``LifecycleEvent`` branches.
-
-    Fields:
-        timestamp: time.monotonic() at emission (monotonic, not wall clock).
-        sequence: Monotonic counter within a run. For ordering and replay.
-        session_id: Session this event belongs to.
-        run_id: Run (turn) this event belongs to.
-        agent_id: Which agent emitted this event. None = root agent.
-            Set when events come from sub-agents or delegated agents (Phase 7).
-    """
-
-    timestamp: float
-    sequence: int
-    session_id: str
-    run_id: str
-    agent_id: str | None = None
-
-
-# ---------------------------------------------------------------------------
 # Intermediate categories — enable isinstance(e, StreamDelta) dispatch
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True, slots=True)
-class StreamDelta(AgentEvent):
+class StreamDelta(KaosEvent):
     """Base class for low-level, real-time streaming events.
 
     Consumers that care about token-by-token display handle these
@@ -116,9 +96,12 @@ class StreamDelta(AgentEvent):
     real-time display events.
     """
 
+    @classmethod
+    def event_category(cls) -> str:
+        return "stream"
 
-@dataclass(frozen=True, slots=True)
-class LifecycleEvent(AgentEvent):
+
+class LifecycleEvent(KaosEvent):
     """Base class for high-level, semantic lifecycle events.
 
     Consumers that drive UI state machines, logging, hooks, audit
@@ -135,7 +118,6 @@ class LifecycleEvent(AgentEvent):
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True, slots=True)
 class TextDelta(StreamDelta):
     """Streaming text token(s) from the LLM.
 
@@ -146,7 +128,6 @@ class TextDelta(StreamDelta):
     content: str = ""
 
 
-@dataclass(frozen=True, slots=True)
 class ThinkingDelta(StreamDelta):
     """Streaming thinking/reasoning tokens (extended thinking).
 
@@ -157,7 +138,6 @@ class ThinkingDelta(StreamDelta):
     content: str = ""
 
 
-@dataclass(frozen=True, slots=True)
 class ToolCallArgsDelta(StreamDelta):
     """Streaming tool call argument tokens.
 
@@ -176,14 +156,12 @@ class ToolCallArgsDelta(StreamDelta):
 # --- Turn lifecycle ---
 
 
-@dataclass(frozen=True, slots=True)
 class TurnStart(LifecycleEvent):
     """Emitted at the beginning of a turn, after memory hydration."""
 
     turn_number: int = 0
 
 
-@dataclass(frozen=True, slots=True)
 class TurnComplete(LifecycleEvent):
     """Emitted at the end of a turn, after memory persistence.
 
@@ -203,7 +181,6 @@ class TurnComplete(LifecycleEvent):
     output_tokens: int = 0
 
 
-@dataclass(frozen=True, slots=True)
 class UsageObserved(LifecycleEvent):
     """Emitted each time an LLM invocation completes during a turn.
 
@@ -227,7 +204,6 @@ class UsageObserved(LifecycleEvent):
     source: str = ""
 
 
-@dataclass(frozen=True, slots=True)
 class RunError(LifecycleEvent):
     """Emitted when an error occurs during execution.
 
@@ -246,7 +222,6 @@ class RunError(LifecycleEvent):
 # --- Intent ---
 
 
-@dataclass(frozen=True, slots=True)
 class IntentClassified(LifecycleEvent):
     """Emitted after intent classification completes."""
 
@@ -258,16 +233,14 @@ class IntentClassified(LifecycleEvent):
 # --- Tool execution ---
 
 
-@dataclass(frozen=True, slots=True)
 class ToolCallStart(LifecycleEvent):
     """Emitted when a tool call begins execution."""
 
     call_id: str = ""
     tool_name: str = ""
-    arguments: tuple[tuple[str, str], ...] = ()  # JSON-safe key-value pairs
+    arguments: tuple[tuple[str, str], ...] = ()
 
 
-@dataclass(frozen=True, slots=True)
 class ToolCallResult(LifecycleEvent):
     """Emitted when a tool call completes."""
 
@@ -278,7 +251,6 @@ class ToolCallResult(LifecycleEvent):
     duration_ms: float = 0.0
 
 
-@dataclass(frozen=True, slots=True)
 class ToolCallApprovalRequired(LifecycleEvent):
     """Emitted when a tool needs human approval before execution.
 
@@ -296,7 +268,6 @@ class ToolCallApprovalRequired(LifecycleEvent):
 # --- Planning ---
 
 
-@dataclass(frozen=True, slots=True)
 class PlanProposed(LifecycleEvent):
     """Emitted when the planner produces a plan before execution."""
 
@@ -304,7 +275,6 @@ class PlanProposed(LifecycleEvent):
     strategy: str = ""  # "direct", "decompose", "rolling", "adaptive"
 
 
-@dataclass(frozen=True, slots=True)
 class StepStart(LifecycleEvent):
     """Emitted when a plan step begins execution."""
 
@@ -312,7 +282,6 @@ class StepStart(LifecycleEvent):
     description: str = ""
 
 
-@dataclass(frozen=True, slots=True)
 class StepComplete(LifecycleEvent):
     """Emitted when a plan step finishes execution."""
 
@@ -325,7 +294,6 @@ class StepComplete(LifecycleEvent):
 # --- Research ---
 
 
-@dataclass(frozen=True, slots=True)
 class CitationFound(LifecycleEvent):
     """Emitted when RAG verifies a claim against source documents."""
 
@@ -335,7 +303,6 @@ class CitationFound(LifecycleEvent):
     verified: bool = False
 
 
-@dataclass(frozen=True, slots=True)
 class EvidenceInsufficient(LifecycleEvent):
     """Emitted when RAG cannot find sufficient evidence to answer.
 
@@ -346,7 +313,6 @@ class EvidenceInsufficient(LifecycleEvent):
     what_would_resolve: str = ""
 
 
-@dataclass(frozen=True, slots=True)
 class GroundingRefusalTriggered(LifecycleEvent):
     """Emitted when the Agent's refusal_policy collapses an Answer.
 
@@ -367,7 +333,6 @@ class GroundingRefusalTriggered(LifecycleEvent):
 # --- Memory ---
 
 
-@dataclass(frozen=True, slots=True)
 class MemoryUpdated(LifecycleEvent):
     """Emitted when a memory section is modified."""
 
@@ -379,7 +344,6 @@ class MemoryUpdated(LifecycleEvent):
 # --- Delegation (Phase 7 — included in type system now) ---
 
 
-@dataclass(frozen=True, slots=True)
 class HandoffStart(LifecycleEvent):
     """Emitted when control transfers to another agent."""
 
@@ -388,7 +352,6 @@ class HandoffStart(LifecycleEvent):
     reason: str = ""
 
 
-@dataclass(frozen=True, slots=True)
 class SubagentStart(LifecycleEvent):
     """Emitted when a sub-agent is spawned for an isolated task."""
 
@@ -396,7 +359,6 @@ class SubagentStart(LifecycleEvent):
     task: str = ""
 
 
-@dataclass(frozen=True, slots=True)
 class SubagentComplete(LifecycleEvent):
     """Emitted when a sub-agent finishes and returns results."""
 
@@ -410,7 +372,7 @@ class SubagentComplete(LifecycleEvent):
 # ---------------------------------------------------------------------------
 
 # All concrete event types (order doesn't matter for the registry).
-ALL_EVENT_TYPES: tuple[type[AgentEvent], ...] = (
+ALL_EVENT_TYPES: tuple[type[KaosEvent], ...] = (
     TextDelta,
     ThinkingDelta,
     ToolCallArgsDelta,
@@ -434,24 +396,16 @@ ALL_EVENT_TYPES: tuple[type[AgentEvent], ...] = (
     UsageObserved,
 )
 
-# Map type names in snake_case to classes and back.
-_CLASS_NAME_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+# Map wire-format type names to event classes for deserialization. The
+# canonical resolver is :meth:`KaosEvent.event_type` — this dict is the
+# reverse lookup powering :func:`deserialize_event`. Chunk 3 lifts both
+# directions into :class:`kaos_agents.registry.event_registry.EventRegistry`.
+_NAME_TO_TYPE: dict[str, type[KaosEvent]] = {cls.event_type(): cls for cls in ALL_EVENT_TYPES}
 
 
-def _to_snake_case(name: str) -> str:
-    """Convert CamelCase class name to snake_case type string."""
-    return _CLASS_NAME_RE.sub("_", name).lower()
-
-
-_TYPE_TO_NAME: dict[type[AgentEvent], str] = {
-    cls: _to_snake_case(cls.__name__) for cls in ALL_EVENT_TYPES
-}
-_NAME_TO_TYPE: dict[str, type[AgentEvent]] = {name: cls for cls, name in _TYPE_TO_NAME.items()}
-
-
-def event_type_name(event: AgentEvent) -> str:
-    """Get the snake_case type string for an event instance."""
-    return _TYPE_TO_NAME.get(type(event), _to_snake_case(type(event).__name__))
+def event_type_name(event: KaosEvent) -> str:
+    """Get the wire-format type string for an event instance."""
+    return type(event).event_type()
 
 
 # ---------------------------------------------------------------------------
@@ -459,12 +413,12 @@ def event_type_name(event: AgentEvent) -> str:
 # ---------------------------------------------------------------------------
 
 
-def serialize_event(event: AgentEvent) -> dict[str, Any]:
-    """Serialize an AgentEvent to a JSON-safe dict with a ``type`` discriminator.
+def serialize_event(event: KaosEvent) -> dict[str, Any]:
+    """Serialize a KaosEvent to a JSON-safe dict with a ``type`` discriminator.
 
     The ``type`` field is the snake_case version of the class name.
-    Nested dataclasses (ToolCallSummary, PlanStepSummary) are serialized
-    as dicts. Tuples become lists.
+    Nested ``KaosModel`` payloads (ToolCallSummary, PlanStepSummary)
+    are serialized as dicts. Tuples become lists.
 
     Example::
 
@@ -472,14 +426,19 @@ def serialize_event(event: AgentEvent) -> dict[str, Any]:
         >>> serialize_event(e)
         {'type': 'turn_start', 'timestamp': 1.0, 'sequence': 0, ...}
     """
-    data = asdict(event)
-    # asdict already converts nested dataclasses to dicts and tuples to lists.
+    try:
+        data = event.model_dump(mode="json")
+    except ValidationError as exc:
+        raise EventSerializationError(
+            f"Failed to serialize {type(event).__name__}: {exc}. "
+            "Ensure all event fields contain JSON-serializable values."
+        ) from exc
     data["type"] = event_type_name(event)
     return data
 
 
-def deserialize_event(data: dict[str, Any]) -> AgentEvent:
-    """Reconstruct an AgentEvent from a serialized dict.
+def deserialize_event(data: dict[str, Any]) -> KaosEvent:
+    """Reconstruct a KaosEvent from a serialized dict.
 
     Raises:
         EventDeserializationError: If the ``type`` field is missing or unknown,
@@ -490,8 +449,8 @@ def deserialize_event(data: dict[str, Any]) -> AgentEvent:
         >>> d = {'type': 'turn_start', 'timestamp': 1.0, 'sequence': 0,
         ...      'session_id': 's', 'run_id': 'r', 'turn_number': 1}
         >>> deserialize_event(d)
-        TurnStart(timestamp=1.0, sequence=0, session_id='s',
-        run_id='r', agent_id=None, turn_number=1)
+        TurnStart(timestamp=1.0, sequence=0, session_id='s', run_id='r',
+                  agent_id=None, turn_number=1)
     """
     type_name = data.get("type")
     if not type_name:
@@ -510,49 +469,16 @@ def deserialize_event(data: dict[str, Any]) -> AgentEvent:
             "Check that the event type name is snake_case (e.g., 'turn_start', not 'TurnStart')."
         )
 
-    # Build kwargs from the dict, excluding 'type' which is metadata.
-    kwargs: dict[str, Any] = {}
-    field_names = {f.name for f in fields(cls)}
-
-    for key, value in data.items():
-        if key == "type":
-            continue
-        if key not in field_names:
-            continue  # Ignore unknown fields for forward compatibility.
-        kwargs[key] = _deserialize_field(cls, key, value)
-
+    payload = {k: v for k, v in data.items() if k != "type"}
     try:
-        return cls(**kwargs)
-    except TypeError as exc:
+        return cls.model_validate(payload)
+    except ValidationError as exc:
+        required = ", ".join(name for name, info in cls.model_fields.items() if info.is_required())
         raise EventDeserializationError(
-            f"Failed to construct {cls.__name__} from provided fields: {exc}. "
-            f"Required fields: {', '.join(f.name for f in fields(cls))}. "
-            f"Provided fields: {', '.join(kwargs)}."
+            f"Failed to construct {cls.__name__}: {exc}. "
+            f"Required fields: {required or '(none)'}. "
+            f"Provided fields: {', '.join(payload) or '(none)'}."
         ) from exc
-
-
-def _deserialize_field(cls: type[AgentEvent], field_name: str, value: Any) -> Any:
-    """Reconstruct nested types during deserialization.
-
-    Handles two paths:
-    - ``asdict()`` output: tuples preserved, nested dataclasses become dicts
-    - JSON parse output: tuples become lists, nested dataclasses are dicts
-    """
-    # Handle both list (from JSON) and tuple (from asdict) of nested items.
-    if isinstance(value, (list, tuple)):
-        if field_name == "tool_calls":
-            return tuple(
-                ToolCallSummary(**item) if isinstance(item, dict) else item for item in value
-            )
-        if field_name == "steps":
-            return tuple(
-                PlanStepSummary(**item) if isinstance(item, dict) else item for item in value
-            )
-        if field_name == "arguments":
-            # arguments is tuple[tuple[str, str], ...] — list/tuple of 2-element sequences.
-            return tuple(tuple(pair) for pair in value)
-        return tuple(value)
-    return value
 
 
 # ---------------------------------------------------------------------------
@@ -560,8 +486,8 @@ def _deserialize_field(cls: type[AgentEvent], field_name: str, value: Any) -> An
 # ---------------------------------------------------------------------------
 
 
-def serialize_event_json(event: AgentEvent) -> str:
-    """Serialize an AgentEvent to a compact JSON string.
+def serialize_event_json(event: KaosEvent) -> str:
+    """Serialize a KaosEvent to a compact JSON string.
 
     Raises:
         EventSerializationError: If the event contains values that
@@ -577,8 +503,8 @@ def serialize_event_json(event: AgentEvent) -> str:
         ) from exc
 
 
-def deserialize_event_json(data: str) -> AgentEvent:
-    """Deserialize an AgentEvent from a JSON string.
+def deserialize_event_json(data: str) -> KaosEvent:
+    """Deserialize a KaosEvent from a JSON string.
 
     Raises:
         EventDeserializationError: If the JSON is invalid or the event
@@ -631,7 +557,7 @@ class EventEmitter:
         self._agent_id = agent_id
         self._sequence = 0
 
-    def emit(self, cls: type[AgentEvent], **kwargs: Any) -> AgentEvent:
+    def emit(self, cls: type[KaosEvent], **kwargs: Any) -> KaosEvent:
         """Create an event instance with auto-filled base fields.
 
         Args:
@@ -660,10 +586,10 @@ class EventEmitter:
 
 def emit_usage_observed(
     emitter: EventEmitter, usage: InvocationUsage, *, source: str = ""
-) -> AgentEvent:
+) -> KaosEvent:
     """Build a ``UsageObserved`` event from an ``InvocationUsage``.
 
-    Returns ``AgentEvent`` (not ``UsageObserved``) because ``emitter.emit``
+    Returns ``KaosEvent`` (not ``UsageObserved``) because ``emitter.emit``
     is declared to return the common base type. Downstream consumers
     narrow with ``isinstance(event, UsageObserved)`` as usual.
 

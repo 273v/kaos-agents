@@ -40,6 +40,7 @@ class TestExtractionRecipes:
             "lpa",
             "court-opinion",
             "privilege-classification",
+            "change-of-control",
         }
 
     def test_recipe_has_expected_shape(self) -> None:

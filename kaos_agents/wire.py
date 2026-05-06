@@ -1,6 +1,6 @@
-"""Wire format serializers for AgentEvent streams.
+"""Wire format serializers for KaosEvent streams.
 
-Converts ``AsyncIterator[AgentEvent]`` to wire-format strings for
+Converts ``AsyncIterator[KaosEvent]`` to wire-format strings for
 transport over SSE, JSONL, or WebSocket. These are pure async generators
 with no framework dependency — they can be used with FastAPI, Starlette,
 aiohttp, or any ASGI framework.
@@ -33,11 +33,11 @@ import json
 from collections.abc import AsyncIterator
 from typing import Any
 
-from kaos_agents.events import AgentEvent, event_type_name, serialize_event
+from kaos_agents.events import KaosEvent, event_type_name, serialize_event
 
 
 async def events_to_sse(
-    events: AsyncIterator[AgentEvent],
+    events: AsyncIterator[KaosEvent],
 ) -> AsyncIterator[str]:
     """Convert an event stream to SSE (Server-Sent Events) format.
 
@@ -49,7 +49,7 @@ async def events_to_sse(
     Terminated by ``\\n\\n`` per the SSE specification.
 
     Args:
-        events: Async iterator of AgentEvent objects.
+        events: Async iterator of KaosEvent objects.
 
     Yields:
         SSE-formatted strings, one per event.
@@ -61,7 +61,7 @@ async def events_to_sse(
 
 
 async def events_to_jsonl(
-    events: AsyncIterator[AgentEvent],
+    events: AsyncIterator[KaosEvent],
 ) -> AsyncIterator[str]:
     """Convert an event stream to JSONL (JSON Lines) format.
 
@@ -69,7 +69,7 @@ async def events_to_jsonl(
     The ``type`` field is included in the JSON for self-describing messages.
 
     Args:
-        events: Async iterator of AgentEvent objects.
+        events: Async iterator of KaosEvent objects.
 
     Yields:
         JSONL-formatted strings, one line per event.
@@ -79,7 +79,7 @@ async def events_to_jsonl(
 
 
 async def events_to_ws(
-    events: AsyncIterator[AgentEvent],
+    events: AsyncIterator[KaosEvent],
 ) -> AsyncIterator[dict[str, Any]]:
     """Convert an event stream to WebSocket-ready dicts.
 
@@ -87,7 +87,7 @@ async def events_to_ws(
     No string encoding — the WebSocket layer handles JSON serialization.
 
     Args:
-        events: Async iterator of AgentEvent objects.
+        events: Async iterator of KaosEvent objects.
 
     Yields:
         Serialized event dicts with ``type`` discriminator.

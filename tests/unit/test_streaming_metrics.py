@@ -29,7 +29,7 @@ from httpx import ASGITransport, AsyncClient
 
 from kaos_agents.api import create_app
 from kaos_agents.config import Agent
-from kaos_agents.events import AgentEvent
+from kaos_agents.events import KaosEvent
 from kaos_agents.runner import Runner
 from kaos_agents.types import IntentResult, IntentType
 
@@ -229,5 +229,5 @@ class TestRunnerThroughputBenchmark:
             loop.close()
 
 
-# Keep AgentEvent referenced
-_ = AgentEvent
+# Keep KaosEvent referenced
+_ = KaosEvent

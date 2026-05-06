@@ -17,8 +17,8 @@ import pytest
 
 from kaos_agents.agent import BaseAgent, _events_to_response
 from kaos_agents.events import (
-    AgentEvent,
     IntentClassified,
+    KaosEvent,
     RunError,
     TextDelta,
     ToolCallResult,
@@ -53,7 +53,7 @@ def _make_mock_vfs() -> Any:
 class TestEventsToResponse:
     def test_basic_conversion(self) -> None:
         """TurnStart + IntentClassified + TextDelta + TurnComplete → AgentResponse."""
-        events: list[AgentEvent] = [
+        events: list[KaosEvent] = [
             TurnStart(timestamp=1.0, sequence=0, session_id="s", run_id="r", turn_number=3),
             IntentClassified(
                 timestamp=1.1,
@@ -85,7 +85,7 @@ class TestEventsToResponse:
 
     def test_with_tool_calls(self) -> None:
         """ToolCallResult events are collected into AgentResponse.tool_calls."""
-        events: list[AgentEvent] = [
+        events: list[KaosEvent] = [
             TurnStart(timestamp=1.0, sequence=0, session_id="s", run_id="r", turn_number=1),
             IntentClassified(
                 timestamp=1.1,
@@ -150,7 +150,7 @@ class TestEventsToResponse:
 
     def test_fallback_to_text_deltas(self) -> None:
         """Without TurnComplete, response is concatenated TextDelta content."""
-        events: list[AgentEvent] = [
+        events: list[KaosEvent] = [
             TextDelta(timestamp=1.0, sequence=0, session_id="s", run_id="r", content="Part 1. "),
             TextDelta(timestamp=1.1, sequence=1, session_id="s", run_id="r", content="Part 2."),
         ]
@@ -179,7 +179,7 @@ class TestBaseAgentRun:
                 agent, "_dispatch", new_callable=AsyncMock, return_value=("Test response", [])
             ),
         ):
-            events: list[AgentEvent] = []
+            events: list[KaosEvent] = []
             async for event in agent.run("Hello", "test-session"):
                 events.append(event)
 
@@ -198,7 +198,7 @@ class TestBaseAgentRun:
             patch.object(agent, "_classify", new_callable=AsyncMock, return_value=mock_intent),
             patch.object(agent, "_dispatch", new_callable=AsyncMock, return_value=("Response", [])),
         ):
-            events: list[AgentEvent] = []
+            events: list[KaosEvent] = []
             async for event in agent.run("Hello", "test-session"):
                 events.append(event)
 
@@ -218,7 +218,7 @@ class TestBaseAgentRun:
             patch.object(agent, "_classify", new_callable=AsyncMock, return_value=mock_intent),
             patch.object(agent, "_dispatch", new_callable=AsyncMock, return_value=("Response", [])),
         ):
-            events: list[AgentEvent] = []
+            events: list[KaosEvent] = []
             async for event in agent.run("Hello", "test-session"):
                 events.append(event)
 
@@ -239,7 +239,7 @@ class TestBaseAgentRun:
             patch.object(agent, "_classify", new_callable=AsyncMock, return_value=mock_intent),
             patch.object(agent, "_dispatch", new_callable=AsyncMock, return_value=("Response", [])),
         ):
-            events: list[AgentEvent] = []
+            events: list[KaosEvent] = []
             async for event in agent.run("Hello", "my-session"):
                 events.append(event)
 
@@ -259,7 +259,7 @@ class TestBaseAgentRun:
                 agent, "_dispatch", new_callable=AsyncMock, side_effect=RuntimeError("boom")
             ),
         ):
-            events: list[AgentEvent] = []
+            events: list[KaosEvent] = []
             async for event in agent.run("Hello", "test-session"):
                 events.append(event)
 

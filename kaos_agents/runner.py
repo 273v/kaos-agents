@@ -37,9 +37,9 @@ from kaos_agents._constants import RESULT_SUMMARY_TRUNCATE
 from kaos_agents.config import Agent, AgentPattern
 from kaos_agents.delegation import DelegatedAgent
 from kaos_agents.events import (
-    AgentEvent,
     EventEmitter,
     HandoffStart,
+    KaosEvent,
     RunError,
     SubagentComplete,
     SubagentStart,
@@ -125,7 +125,7 @@ class Runner:
         """The agent configuration this Runner executes."""
         return self._agent
 
-    async def run(self, message: str, session_id: str) -> AsyncIterator[AgentEvent]:
+    async def run(self, message: str, session_id: str) -> AsyncIterator[KaosEvent]:
         """Execute a turn, yielding events progressively.
 
         This is the primary streaming entry point. Constructs the
@@ -141,11 +141,11 @@ class Runner:
             session_id: Session identifier for memory persistence.
 
         Yields:
-            AgentEvent subclass instances in execution order.
+            KaosEvent subclass instances in execution order.
         """
         internal = self._build_internal_agent(session_id=session_id)
         event_count = 0
-        emitted: list[AgentEvent] = []  # tracked for pause persistence
+        emitted: list[KaosEvent] = []  # tracked for pause persistence
         async for event in internal.run(message, session_id):
             # Run hooks
             if self._hooks:
@@ -197,7 +197,7 @@ class Runner:
         session_id: str,
         message: str,
         event_count: int,
-        emitted: list[AgentEvent],
+        emitted: list[KaosEvent],
         reason: str,
     ) -> ToolCallApprovalRequired:
         """Persist run state to VFS and build the ToolCallApprovalRequired event.
@@ -281,7 +281,7 @@ class Runner:
         run_state: RunState,
         *,
         approved: bool,
-    ) -> AsyncIterator[AgentEvent]:
+    ) -> AsyncIterator[KaosEvent]:
         """Resume an interrupted run after human approval.
 
         - ``approved=True``: Re-runs the original message on the same
@@ -298,7 +298,7 @@ class Runner:
             approved: True to continue, False to abort with RunError.
 
         Yields:
-            AgentEvent stream of the continuation (or a RunError on denial).
+            KaosEvent stream of the continuation (or a RunError on denial).
         """
         emitter = EventEmitter(session_id=run_state.session_id, run_id=run_state.run_id)
 
@@ -458,7 +458,7 @@ class Runner:
         delegated: DelegatedAgent,
         task: str,
         session_id: str,
-    ) -> AsyncIterator[AgentEvent]:
+    ) -> AsyncIterator[KaosEvent]:
         """Execute a delegated sub-agent, yielding start/complete events.
 
         Wraps ``DelegatedAgent.call()`` with event emission so the
@@ -508,7 +508,7 @@ class Runner:
         *,
         from_agent_name: str = "",
         reason: str = "",
-    ) -> AsyncIterator[AgentEvent]:
+    ) -> AsyncIterator[KaosEvent]:
         """Transfer control to another agent, sharing the session.
 
         Unlike ``delegate()`` which creates an isolated sub-session,

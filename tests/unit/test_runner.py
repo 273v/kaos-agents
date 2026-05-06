@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from kaos_agents.config import Agent, AgentPattern
-from kaos_agents.events import AgentEvent, IntentClassified, TurnComplete, TurnStart
+from kaos_agents.events import IntentClassified, KaosEvent, TurnComplete, TurnStart
 from kaos_agents.runner import Runner
 from kaos_agents.types import AgentResponse, IntentResult, IntentType
 
@@ -46,7 +46,7 @@ class TestRunnerProperties:
 class TestRunnerRun:
     @pytest.mark.asyncio
     async def test_run_yields_events(self) -> None:
-        """Runner.run() yields AgentEvent objects."""
+        """Runner.run() yields KaosEvent objects."""
         runner = _make_runner()
         mock_intent = IntentResult(intent=IntentType.RESPOND, confidence=1.0, reasoning="test")
 
@@ -63,7 +63,7 @@ class TestRunnerRun:
                 return_value=("Hello!", []),
             ),
         ):
-            events: list[AgentEvent] = []
+            events: list[KaosEvent] = []
             async for event in runner.run("Hi", "test-session"):
                 events.append(event)
 
@@ -89,7 +89,7 @@ class TestRunnerRun:
                 return_value=("Response", []),
             ),
         ):
-            events: list[AgentEvent] = []
+            events: list[KaosEvent] = []
             async for event in runner.run("Hello", "s1"):
                 events.append(event)
 

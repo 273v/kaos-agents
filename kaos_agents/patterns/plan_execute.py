@@ -21,8 +21,8 @@ from kaos_agents._constants import (
     RESULT_SUMMARY_TRUNCATE,
 )
 from kaos_agents.events import (
-    AgentEvent,
     EventEmitter,
+    KaosEvent,
     PlanProposed,
     PlanStepSummary,
     StepComplete,
@@ -108,7 +108,7 @@ class PlanExecuteAgent(ChatAgent):
         memory: SessionMemory,
         context_items: dict[MemoryType, list[Any]],
         emitter: EventEmitter,
-    ) -> AsyncIterator[AgentEvent]:
+    ) -> AsyncIterator[KaosEvent]:
         """Override dispatch to stream plan execution events.
 
         For PLAN intent, yields PlanProposed, StepStart, StepComplete.
@@ -131,7 +131,7 @@ class PlanExecuteAgent(ChatAgent):
         memory: SessionMemory,
         context_items: dict[MemoryType, list[MemoryItem]],
         emitter: EventEmitter,
-    ) -> AsyncIterator[AgentEvent]:
+    ) -> AsyncIterator[KaosEvent]:
         """Handle multi-step plan via adaptive strategy, yielding events."""
         from kaos_agents.actions.tool_bridge import bridge_runtime_tools
         from kaos_agents.planning.result_check import is_error_result

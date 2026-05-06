@@ -23,10 +23,10 @@ from typing import TYPE_CHECKING, Any, Literal
 from kaos_core.logging import get_logger
 
 from kaos_agents.events import (
-    AgentEvent,
     CitationFound,
     EventEmitter,
     EvidenceInsufficient,
+    KaosEvent,
     TextDelta,
     ToolCallResult,
     ToolCallStart,
@@ -377,7 +377,7 @@ class ResearchAgent(ChatAgent):
         memory: SessionMemory,
         context_items: dict[MemoryType, list[Any]],
         emitter: EventEmitter,
-    ) -> AsyncIterator[AgentEvent]:
+    ) -> AsyncIterator[KaosEvent]:
         """Override dispatch: adaptive one-shot → ReAct escalation.
 
         Strategy:
@@ -488,7 +488,7 @@ class ResearchAgent(ChatAgent):
         memory: SessionMemory,
         context_items: dict[MemoryType, list[MemoryItem]],
         emitter: EventEmitter,
-    ) -> AsyncIterator[AgentEvent]:
+    ) -> AsyncIterator[KaosEvent]:
         """Handle document Q&A via RAG pipeline, yielding citation events.
 
         Corpus source of truth (checked in order):

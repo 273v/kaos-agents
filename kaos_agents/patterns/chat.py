@@ -20,8 +20,8 @@ from kaos_agents._constants import FALLBACK_RECENT_MESSAGES
 from kaos_agents.actions.tool_bridge import bridge_runtime_tools
 from kaos_agents.agent import BaseAgent
 from kaos_agents.events import (
-    AgentEvent,
     EventEmitter,
+    KaosEvent,
     TextDelta,
     ToolCallResult,
     ToolCallStart,
@@ -120,7 +120,7 @@ class ChatAgent(BaseAgent):
         memory: SessionMemory,
         context_items: dict[MemoryType, list[Any]],
         emitter: EventEmitter,
-    ) -> AsyncIterator[AgentEvent]:
+    ) -> AsyncIterator[KaosEvent]:
         """Override dispatch to stream tool call events from ReAct.
 
         For TOOL_USE intent, yields ToolCallStart/ToolCallResult for each
@@ -145,7 +145,7 @@ class ChatAgent(BaseAgent):
         memory: SessionMemory,
         context_items: dict[MemoryType, list[MemoryItem]],
         emitter: EventEmitter,
-    ) -> AsyncIterator[AgentEvent]:
+    ) -> AsyncIterator[KaosEvent]:
         """Handle tool-using request via ReAct, yielding events per tool call."""
         # If neither a runtime nor extra delegation tools are available,
         # fall back to a simple LLM response. Extra tools alone (delegation/

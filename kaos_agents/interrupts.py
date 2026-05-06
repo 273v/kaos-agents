@@ -35,7 +35,7 @@ from kaos_agents.errors import EventDeserializationError
 if TYPE_CHECKING:
     from kaos_core.vfs.core import VirtualFileSystem
 
-    from kaos_agents.events import AgentEvent
+    from kaos_agents.events import KaosEvent
 
 logger = get_logger(__name__)
 
@@ -342,7 +342,7 @@ async def load_run_state(run_id: str, vfs: VirtualFileSystem) -> RunState:
     return RunState.from_json(raw.decode())
 
 
-async def save_event_log(events: Sequence[AgentEvent], run_id: str, vfs: VirtualFileSystem) -> str:
+async def save_event_log(events: Sequence[KaosEvent], run_id: str, vfs: VirtualFileSystem) -> str:
     """Persist an event log as JSONL to VFS.
 
     Used at pause time to capture all events emitted before the pause.
@@ -362,7 +362,7 @@ async def save_event_log(events: Sequence[AgentEvent], run_id: str, vfs: Virtual
     return path
 
 
-async def load_event_log(run_id: str, vfs: VirtualFileSystem) -> list[AgentEvent]:
+async def load_event_log(run_id: str, vfs: VirtualFileSystem) -> list[KaosEvent]:
     """Load a previously persisted event log as JSONL.
 
     Returns an empty list if the log doesn't exist (resume without
@@ -374,7 +374,7 @@ async def load_event_log(run_id: str, vfs: VirtualFileSystem) -> list[AgentEvent
     if not await vfs.exists(path):
         return []
     raw = (await vfs.read(path)).decode()
-    events: list[AgentEvent] = []
+    events: list[KaosEvent] = []
     for line in raw.splitlines():
         if not line.strip():
             continue

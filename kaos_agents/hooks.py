@@ -42,10 +42,10 @@ from kaos_core.logging import get_logger
 
 if TYPE_CHECKING:
     from kaos_agents.events import (
-        AgentEvent,
         CitationFound,
         EvidenceInsufficient,
         IntentClassified,
+        KaosEvent,
         MemoryUpdated,
         PlanProposed,
         RunError,
@@ -267,7 +267,7 @@ class AuditHook(BaseHook):
         """
         self._store = store
 
-    async def _append(self, event: AgentEvent) -> None:
+    async def _append(self, event: KaosEvent) -> None:
         """Append a single event to the AUDIT section."""
         # Lazy imports to keep hooks.py import-light
         from kaos_agents.events import serialize_event_json
@@ -326,7 +326,7 @@ _ACTION_PRIORITY: dict[HookAction, int] = {
 
 async def dispatch_hook(
     hooks: tuple[BaseHook, ...],
-    event: AgentEvent,
+    event: KaosEvent,
 ) -> HookAction:
     """Run all hooks for an event, returning the most restrictive action.
 

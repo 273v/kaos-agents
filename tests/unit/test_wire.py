@@ -17,8 +17,8 @@ from typing import Any
 import pytest
 
 from kaos_agents.events import (
-    AgentEvent,
     IntentClassified,
+    KaosEvent,
     TextDelta,
     ToolCallResult,
     ToolCallStart,
@@ -28,7 +28,7 @@ from kaos_agents.events import (
 from kaos_agents.wire import events_to_jsonl, events_to_sse, events_to_ws
 
 
-async def _make_event_stream() -> list[AgentEvent]:
+async def _make_event_stream() -> list[KaosEvent]:
     """Create a realistic event sequence."""
     return [
         TurnStart(timestamp=1.0, sequence=0, session_id="s", run_id="r", turn_number=1),
@@ -72,7 +72,7 @@ async def _make_event_stream() -> list[AgentEvent]:
     ]
 
 
-async def _async_iter(items: Sequence[AgentEvent]) -> Any:
+async def _async_iter(items: Sequence[KaosEvent]) -> Any:
     """Convert a list to an async iterator."""
     for item in items:
         yield item

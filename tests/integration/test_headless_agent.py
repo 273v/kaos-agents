@@ -17,8 +17,8 @@ import pytest
 
 from kaos_agents.config import Agent
 from kaos_agents.events import (
-    AgentEvent,
     IntentClassified,
+    KaosEvent,
     RunError,
     TextDelta,
     TurnComplete,
@@ -32,9 +32,9 @@ def _has_key() -> bool:
 
 async def _collect_events(
     runner: Runner, message: str, session_id: str
-) -> tuple[str, list[AgentEvent]]:
+) -> tuple[str, list[KaosEvent]]:
     """Run a turn and collect all events + concatenated text."""
-    events: list[AgentEvent] = []
+    events: list[KaosEvent] = []
     text_parts: list[str] = []
     async for event in runner.run(message, session_id):
         events.append(event)

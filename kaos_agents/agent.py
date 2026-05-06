@@ -5,7 +5,7 @@ The agent is reconstructed per MCP call from session_id. All persistent
 state lives in SessionMemory, which hydrates from VFS.
 
 Two execution modes:
-- ``run()`` — streaming: yields ``AgentEvent`` objects progressively
+- ``run()`` — streaming: yields ``KaosEvent`` objects progressively
 - ``turn()`` — blocking: collects all events, returns ``AgentResponse``
 
 The 8-step turn (both modes share the same logic):
@@ -31,9 +31,9 @@ from kaos_llm_core import InputField, OutputField, Signature
 from kaos_agents._constants import FALLBACK_RECENT_MESSAGES
 from kaos_agents.context.classify import classify_intent
 from kaos_agents.events import (
-    AgentEvent,
     EventEmitter,
     IntentClassified,
+    KaosEvent,
     MemoryUpdated,
     RunError,
     TextDelta,
@@ -96,7 +96,7 @@ class BaseAgent:
     for each intent type. BaseAgent provides the loop scaffolding.
 
     Two execution modes:
-    - ``run(message, session_id)`` yields ``AgentEvent`` progressively
+    - ``run(message, session_id)`` yields ``KaosEvent`` progressively
     - ``turn(message, session_id)`` returns ``AgentResponse`` (backward compat)
 
     The agent is stateless — constructed per call, not per session.
@@ -152,10 +152,10 @@ class BaseAgent:
             return self._settings.planning_llm_model
         return self._model
 
-    async def run(self, message: str, session_id: str) -> AsyncIterator[AgentEvent]:
+    async def run(self, message: str, session_id: str) -> AsyncIterator[KaosEvent]:
         """Execute a single agent turn, yielding events progressively.
 
-        This is the primary streaming entry point. Yields ``AgentEvent``
+        This is the primary streaming entry point. Yields ``KaosEvent``
         objects at each step of the 8-step loop. Consumers iterate:
 
             async for event in agent.run("Find EPA actions", "session-1"):
@@ -169,7 +169,7 @@ class BaseAgent:
             session_id: Session identifier for memory persistence.
 
         Yields:
-            AgentEvent subclass instances in execution order.
+            KaosEvent subclass instances in execution order.
         """
         run_id = _generate_run_id()
         emitter = EventEmitter(session_id=session_id, run_id=run_id)
@@ -402,7 +402,7 @@ class BaseAgent:
         Returns:
             AgentResponse with the agent's reply and metadata.
         """
-        events: list[AgentEvent] = []
+        events: list[KaosEvent] = []
         async for event in self.run(message, session_id):
             events.append(event)
         return _events_to_response(events, session_id)
@@ -416,10 +416,10 @@ class BaseAgent:
         memory: SessionMemory,
         context_items: dict[MemoryType, list[Any]],
         emitter: EventEmitter,
-    ) -> AsyncIterator[AgentEvent]:
+    ) -> AsyncIterator[KaosEvent]:
         """Dispatch to the appropriate streaming handler based on intent.
 
-        Yields AgentEvent instances. Subclasses override to add streaming
+        Yields KaosEvent instances. Subclasses override to add streaming
         for tool_use, research, plan handlers.
 
         Default implementation falls back to _dispatch() and yields
@@ -631,7 +631,7 @@ class BaseAgent:
 # ---------------------------------------------------------------------------
 
 
-def _events_to_response(events: list[AgentEvent], session_id: str) -> AgentResponse:
+def _events_to_response(events: list[KaosEvent], session_id: str) -> AgentResponse:
     """Convert a collected event stream to a single AgentResponse.
 
     Scans events for TurnComplete (final text + metrics) and IntentClassified

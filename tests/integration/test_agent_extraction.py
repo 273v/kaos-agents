@@ -15,7 +15,7 @@ import pytest
 
 from kaos_agents.config import Agent
 from kaos_agents.events import (
-    AgentEvent,
+    KaosEvent,
     RunError,
     TextDelta,
     ToolCallResult,
@@ -45,8 +45,8 @@ def _has_key() -> bool:
     return bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("KAOS_LLM_ANTHROPIC_API_KEY"))
 
 
-async def _collect(runner: Runner, message: str, session_id: str) -> tuple[str, list[AgentEvent]]:
-    events: list[AgentEvent] = []
+async def _collect(runner: Runner, message: str, session_id: str) -> tuple[str, list[KaosEvent]]:
+    events: list[KaosEvent] = []
     text_parts: list[str] = []
     async for event in runner.run(message, session_id):
         events.append(event)

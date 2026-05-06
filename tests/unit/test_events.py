@@ -1,4 +1,4 @@
-"""Tests for the AgentEvent model — Phase 0 of the streaming roadmap.
+"""Tests for the KaosEvent model — Phase 0 of the streaming roadmap.
 
 Covers:
 - Round-trip serialization (serialize -> deserialize) for every event type
@@ -21,13 +21,13 @@ import pytest
 from kaos_agents.errors import EventDeserializationError
 from kaos_agents.events import (
     ALL_EVENT_TYPES,
-    AgentEvent,
     CitationFound,
     EventEmitter,
     EvidenceInsufficient,
     GroundingRefusalTriggered,
     HandoffStart,
     IntentClassified,
+    KaosEvent,
     LifecycleEvent,
     MemoryUpdated,
     PlanProposed,
@@ -65,7 +65,7 @@ _SID = "sess-1"
 _RID = "run-1"
 
 
-def _make_all_events() -> list[AgentEvent]:
+def _make_all_events() -> list[KaosEvent]:
     """Create one instance of every concrete event type."""
     return [
         TextDelta(timestamp=_TS, sequence=0, session_id=_SID, run_id=_RID, content="Hello"),
@@ -263,9 +263,9 @@ ALL_EVENTS = _make_all_events()
 @pytest.mark.unit
 class TestEventRegistry:
     def test_all_event_types_registered(self) -> None:
-        """Every event class in ALL_EVENT_TYPES is a subclass of AgentEvent."""
+        """Every event class in ALL_EVENT_TYPES is a subclass of KaosEvent."""
         for cls in ALL_EVENT_TYPES:
-            assert issubclass(cls, AgentEvent), f"{cls.__name__} is not an AgentEvent subclass"
+            assert issubclass(cls, KaosEvent), f"{cls.__name__} is not an KaosEvent subclass"
 
     def test_all_concrete_types_have_fixtures(self) -> None:
         """Every registered event type has a fixture in ALL_EVENTS."""
@@ -311,7 +311,7 @@ class TestTypeNames:
             (SubagentComplete, "subagent_complete"),
         ],
     )
-    def test_snake_case_name(self, cls: type[AgentEvent], expected: str) -> None:
+    def test_snake_case_name(self, cls: type[KaosEvent], expected: str) -> None:
         event = cls(timestamp=1.0, sequence=0, session_id="s", run_id="r")
         assert event_type_name(event) == expected
 
@@ -324,28 +324,28 @@ class TestTypeNames:
 @pytest.mark.unit
 class TestSerialization:
     @pytest.mark.parametrize("event", ALL_EVENTS, ids=lambda e: type(e).__name__)
-    def test_round_trip(self, event: AgentEvent) -> None:
+    def test_round_trip(self, event: KaosEvent) -> None:
         """serialize -> deserialize produces an equal event."""
         data = serialize_event(event)
         restored = deserialize_event(data)
         assert restored == event
 
     @pytest.mark.parametrize("event", ALL_EVENTS, ids=lambda e: type(e).__name__)
-    def test_json_round_trip(self, event: AgentEvent) -> None:
+    def test_json_round_trip(self, event: KaosEvent) -> None:
         """JSON string serialize -> deserialize produces an equal event."""
         json_str = serialize_event_json(event)
         restored = deserialize_event_json(json_str)
         assert restored == event
 
     @pytest.mark.parametrize("event", ALL_EVENTS, ids=lambda e: type(e).__name__)
-    def test_type_field_present(self, event: AgentEvent) -> None:
+    def test_type_field_present(self, event: KaosEvent) -> None:
         """Serialized dict has a 'type' field."""
         data = serialize_event(event)
         assert "type" in data
         assert data["type"] == event_type_name(event)
 
     @pytest.mark.parametrize("event", ALL_EVENTS, ids=lambda e: type(e).__name__)
-    def test_json_valid(self, event: AgentEvent) -> None:
+    def test_json_valid(self, event: KaosEvent) -> None:
         """Serialized JSON is valid JSON."""
         json_str = serialize_event_json(event)
         parsed = json.loads(json_str)
@@ -353,7 +353,7 @@ class TestSerialization:
         assert "type" in parsed
 
     @pytest.mark.parametrize("event", ALL_EVENTS, ids=lambda e: type(e).__name__)
-    def test_base_fields_present(self, event: AgentEvent) -> None:
+    def test_base_fields_present(self, event: KaosEvent) -> None:
         """All base fields are present in serialized output."""
         data = serialize_event(event)
         assert "timestamp" in data
@@ -378,12 +378,12 @@ class TestTypeDiscrimination:
     def test_stream_deltas_are_agent_events(self) -> None:
         for cls in _STREAM_DELTA_TYPES:
             e = cls(timestamp=1.0, sequence=0, session_id="s", run_id="r")
-            assert isinstance(e, AgentEvent)
+            assert isinstance(e, KaosEvent)
 
     def test_lifecycle_events_are_agent_events(self) -> None:
         for cls in _LIFECYCLE_TYPES:
             e = cls(timestamp=1.0, sequence=0, session_id="s", run_id="r")
-            assert isinstance(e, AgentEvent)
+            assert isinstance(e, KaosEvent)
 
     def test_stream_deltas_are_stream_delta_subclass(self) -> None:
         """Every concrete stream delta IS a StreamDelta via isinstance."""
@@ -532,9 +532,17 @@ class TestErrorHandling:
 @pytest.mark.unit
 class TestImmutability:
     @pytest.mark.parametrize("event", ALL_EVENTS, ids=lambda e: type(e).__name__)
-    def test_frozen(self, event: AgentEvent) -> None:
-        """Events are frozen dataclasses — attributes cannot be reassigned."""
-        with pytest.raises(AttributeError):
+    def test_frozen(self, event: KaosEvent) -> None:
+        """Events are frozen — attributes cannot be reassigned.
+
+        Pydantic v2 ``model_config = ConfigDict(frozen=True)`` raises
+        :class:`pydantic.ValidationError` on ``setattr``; the legacy
+        dataclass path raised :class:`AttributeError`. Accept either so
+        the test survives the chunk-2 dataclass→pydantic migration.
+        """
+        from pydantic import ValidationError
+
+        with pytest.raises((AttributeError, ValidationError)):
             setattr(event, "sequence", 999)  # noqa: B010
 
 
