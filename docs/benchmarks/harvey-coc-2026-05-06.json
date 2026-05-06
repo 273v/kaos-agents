@@ -1,0 +1,521 @@
+{
+  "timestamp": "2026-05-06T14:09:10",
+  "fixture_dir": "/home/mjbommar/projects/273v/kaos-modules/kaos-agents/tests/fixtures/harvey-lab/extract-change-of-control-provisions",
+  "task_title": "Change of Control Provision Extraction and Risk Analysis for Reverse Triangular Merger",
+  "n_documents": 8,
+  "summary": {
+    "n_criteria": 55,
+    "n_passed": 10,
+    "n_failed": 45,
+    "n_judge_unavailable": 0,
+    "pooled_pass_rate": 0.18181818181818182,
+    "all_pass_score": 0.0,
+    "agent_model": "anthropic:claude-haiku-4-5",
+    "judge_model": "anthropic:claude-haiku-4-5",
+    "agent_latency_s": 51.54941964498721,
+    "judge_latency_s": 41.38042349903844,
+    "agent_cost_usd": 0.0277384,
+    "judge_cost_usd": 0.2395848,
+    "deliverable_chars": 15687,
+    "agent_errored": false,
+    "error_message": ""
+  },
+  "deliverable": "# CHANGE-OF-CONTROL EXTRACTION REPORT\n\n## EXECUTIVE SUMMARY\n\nThis comprehensive extraction report identifies change-of-control provisions across 8 contracts in the acquisition target data room. The analysis reveals multiple triggering mechanisms, material operational consequences, and significant compliance gaps that require immediate attention prior to any M&A transaction. Critical risks include conflicting acceleration provisions in equity awards, unresolved consent requirements in material customer contracts, and technology license termination scenarios that could disrupt operations.\n\n---\n\n## SCOPE AND METHODOLOGY\n\n**Contracts Reviewed:** 8 documents containing 439 chunks\n**Relevant Contracts:** 7 of 8 contain change-of-control or related transfer provisions\n**Missing Contract:** 1 insurance policy (GLI-PL-2024-07823) lacks explicit change-of-control language\n\n---\n\n## CONTRACT-BY-CONTRACT ANALYSIS\n\n### 1. APEX-KENJI PRECISION JV LLC OPERATING AGREEMENT\n\n**Contract Type:** Joint Venture Operating Agreement  \n**Effective Date:** Not specified (referenced as \"Effective Date\")  \n**Key Parties:** Apex Industrial Technologies, Inc. (55% Member) and Kenji Valve Co., Ltd. (45% Member)\n\n#### Change-of-Control Definition\n\n**Location:** ARTICLE I \u2014 DEFINITIONS\n\n**Operative Language:**\n\n\"'Change of Control' means, with respect to any Member, the acquisition, directly or indirectly, by any Person or group of Persons acting in concert (other than such Member's existing Affiliates as of the Effective Date), of fifty percent (50%) or more of the issued and outstanding voting equity interests of such Member, whether by purchase, merger, consolidation, recapitalization, reorganization, or otherwise, or any transaction or series of related transactions that results in a change in the power to direct or cause the direction of the management and policies of such Member.\"\n\n**Threshold:** 50% voting equity interests or equivalent control power\n\n**Triggering Events:**\n- Acquisition of \u226550% voting equity\n- Merger, consolidation, recapitalization, reorganization\n- Any transaction resulting in change in management direction/control\n\n**Carve-outs:**\n- Existing Affiliates as of the Effective Date are excluded from triggering definition\n- Definition is Member-specific (applies separately to each party)\n\n#### Change-of-Control Consequences\n\n**Location:** ARTICLE XII \u2014 Transfer Restrictions (referenced in WHEREAS clause but detailed provision location not clearly indexed)\n\n**Material Consequence Identified:** Section 12.3(c) describes a \"Buy-Out Option\" mechanism triggered by Change of Control:\n\n**Operative Language:**\n\n\"If the Non-Affected Member exercises the Buy-Out Option pursuant to Section 12.3(a), the purchase price for the Affected Member's entire Membership Interest (the 'Buy-Out Price') shall be equal to four and one-half times (4.5x) the Company's trailing twelve-month EBITDA as of the last day of the Company's most recently completed Fiscal Year preceding the date of the Non-Affected Member's exercise notice (the 'Valuation Date'). For the avoidance of doubt, the Buy-Out Price shall represent the purchase price for the Affected Member's entire Membership Interest, regardless of such Member's percentage Membership Interest. The Buy-Out Price shall be payable in cash at closing in accordance with Section 12.3(d).\"\n\n**Buy-Out Price Mechanics:**\n- Valuation: 4.5x trailing twelve-month EBITDA\n- Reference Point: Most recently completed Fiscal Year prior to exercise notice\n- Payment: Cash at closing\n- Timeline: Closing within 60 days of exercise notice (Section 12.3(d))\n- Scope: Entire Membership Interest regardless of original percentage\n\n**FY2024 Baseline:** Per WHEREAS clause, JV EBITDA for FY2024 was approximately $5,100,000. Thus, implied Buy-Out Price would be approximately **$22,950,000** (4.5x \u00d7 $5.1M) as of any Change of Control occurring after FY2024 completion.\n\n**Closing Requirements (Section 12.3(d)):**\n- Affected Member delivers duly executed assignment of Membership Interest\n- Transfer documentation provided\n- Other reasonably required certificates and instruments\n\n#### Operational Impact\n\n**Governance Disruption:**\n- Apex currently designates 3 of 5 Board Managers (Section 6.1(a))\n- Kenji designates 2 of 5 Managers (Section 6.1(b))\n- Change of Control of either Member may trigger Board reconstitution obligations\n\n**Exclusivity Covenant (Section 7.2):**\n- Members prohibited from developing, manufacturing, or selling substantially similar products within Asia-Pacific territory outside the JV\n- **Risk:** Change of Control may trigger reinterpretation of \"Affiliate\" status and scope of exclusivity obligations\n\n**Technology License Commitments:**\n- Apex licenses proprietary valve design technologies (Exhibit B reference)\n- Kenji licenses miniaturized flow control manufacturing processes (Exhibit B reference)\n- **Risk:** Change of Control could affect licensor's ability to continue licensing if acquirer is competitor\n\n#### Risk Assessment: CRITICAL\n\n**Identified Risks:**\n1. **Buy-Out Trigger:** Any Change of Control of Apex (>50% voting equity change) triggers potential $22.95M+ buy-out obligation to Kenji if exercised\n2. **Valuation Dispute Risk:** 4.5x EBITDA valuation methodology may be subject to challenge; EBITDA calculation methodology not specified in Change-of-Control provision\n3. **Exclusivity Reversion:** Post-change-of-control, acquirer may face restrictions on competing in Asia-Pacific region if deemed non-Affiliate\n4. **Affiliate Definition Ambiguity:** \"Existing Affiliates as of the Effective Date\" creates uncertainty regarding whether acquirer's other subsidiaries trigger exclusivity violations\n5. **Technology License Continuity:** No explicit provision addressing continuity of technology licenses post-Change of Control; Exhibit B not provided for detailed analysis\n6. **Liquidity Requirement:** 60-day cash closing requirement for buy-out may create unexpected liquidity pressure\n\n---\n\n### 2. SENIOR SECURED REVOLVING CREDIT AGREEMENT\n\n**Contract Type:** Credit Agreement  \n**Lenders:** Summit National Bank, N.A. (Admin Agent, $45M commitment) and Ridgeline Commercial Credit Corp. ($30M commitment)  \n**Total Commitment:** $75,000,000  \n**Maturity Date:** September 22, 2027  \n**Borrower:** Apex Industrial Technologies, Inc. (implied principal obligor)\n\n#### Change-of-Control Definition\n\n**Location:** Not explicitly defined as \"Change of Control\" but referenced through Material Adverse Effect and related covenant restrictions\n\n**Operative Language (Article VI \u2014 Affirmative Covenants, Section 6.07 \u2014 Transactions with Affiliates):**\n\n\"Enter into any transaction with any Affiliate of the Borrower, except (a) transactions in the ordinary course of business on terms and conditions at least as favorable to the Borrower as those obtainable in a comparable arm's-length transaction with a Person that is not an Affiliate, and (b) customary compensation and indemnification arrangements for officers and directors.\"\n\n**Affiliate Definition (from document):**\n\n\"'Affiliate' means, with respect to any Person, any other Person that, directly or indirectly, controls, is controlled by, or is under common control with such Person. For purposes of this definition, 'control' (including the correlative meanings of 'controlled by' and 'under common control with') means the possession, directly or indirectly, of the power to direct or cause the direction of the management and policies of a Person, whether through ownership of 10% or more of the Voting Stock of such Person, by contract, or otherwise.\"\n\n**Key Threshold:** 10% Voting Stock ownership or equivalent control\n\n#### Change-of-Control Consequences\n\n**Negative Covenant \u2014 Cross-Default Risk (Article VIII \u2014 Events of Default):**\n\n**Location:** Section 8.01(d) \u2014 Covenant Default (Negative Covenants)\n\n**Operative Language:**\n\n\"The Borrower shall fail to observe or perform any covenant, condition, or agreement contained in Article VI (no grace or cure period shall apply).\"\n\n**Material Adverse Effect Trigger:**\n\n**Location:** Definition section and Section 3.04 \u2014 Material Adverse Change\n\n**Operative Language:**\n\n\"'Material Adverse Effect' means (a) a material adverse effect on the business, assets, operations, financial condition, or results of operations of the Borrower and its Subsidiaries taken as a whole, (b) a material impairment of the ability of the Borrower to perform its obligations under any Loan Document, or (c) a material impairment of the rights of or benefits available to the Administrative Agent or any Lender under any Loan Document.\"\n\n**Change-of-Control Consequence:** While not explicitly labeled, a Change of Control could trigger Material Adverse Effect determination if:\n- Operational disruption results from management change\n- Lender consent not obtained (potential covenant violation)\n- Customer contracts require consent to transfer (see Master Supply Agreements analysis below)\n\n**Covenant Restrictions Affected by Change of Control:**\n\n1. **Section 6.06 \u2014 Investments:**\n   \"Make or hold any investment in any other Person, except for Permitted Investments.\"\n   - Risk: Acquirer's other business lines may be deemed impermissible investments if not pre-approved\n\n2. **Section 6.05 \u2014 Distributions:**\n   \"Declare or pay any dividend or make any distribution (whether in cash, securities, or other property) on any shares of its capital stock, or purchase, redeem, or otherwise acquire any shares of its capital stock, except (a) dividends and distributions not exceeding $3,000,000 in the aggregate in any fiscal year, and (b) share repurchases not exceeding $2,000,000 in the aggregate in any fiscal year; provided that no Default or Event of Default shall have occurred and be continuing or would result therefrom.\"\n   - Risk: Post-acquisition financing structure may violate distribution restrictions\n\n**Financial Covenant Impact:**\n\n**Location:** ARTICLE VII \u2014 FINANCIAL COVENANTS, Section 7.01 \u2014 Maximum Consolidated Leverage Ratio (operative language not provided in full, but referenced)\n\n**Context:** Borrower's trailing twelve-month Consolidated EBITDA is approximately $34.6 million; trailing twelve-month revenue approximately $187.4 million (per Section 3.04 financial representations). Change of Control could:\n- Trigger covenant recalculation if acquirer consolidation methodology differs\n- Create leverage ratio violations if acquisition debt is added\n- Affect covenant calculations if Affiliates' EBITDA/revenues are included\n\n#### Representations and Warranties Post-Change-of-Control Risk\n\n**Location:** Section 3.06 \u2014 Ownership of Properties; Liens; Section 3.08 \u2014 Material Contracts\n\n**Material Contracts Subject to Change-of-Control Sensitivity:**\n\n1. **Master Supply Agreement with Northland Refining Corporation (Contract No. MSA-2019-0042)**\n   - Described as account for \"material portion of Borrower's consolidated revenues\"\n   - **Risk Level:** CRITICAL (see detailed analysis in MSA section below)\n\n2. **Supply Agreement with PacWest Water Authority (Contract No. PWA-SUP-2021-117)**\n   - Also accounts for material portion of revenues\n   - **Risk Level:** HIGH (see detailed analysis in PacWest Supply Agreement section below)\n\n3. **Joint Venture Agreement with Kenji Valve Co., Ltd. (dated April 3, 2017)**\n   - Cross-referenced\n   - **Risk Level:** CRITICAL (detailed analysis above)\n\n4. **Technology License Agreement with Hendricks Automation Systems, Inc. (Agreement No. HAS-LIC-2020-0088, dated March 1, 2020)**\n   - **Risk Level:** HIGH (see detailed analysis in Technology License section below)\n\n5. **Employment Agreement with Dr. Miriam Hesse, Chief Technology Officer (Agreement Ref. EA-2021-003-MH, dated August 15, 2021)**\n   - **Risk Level:** CRITICAL (see detailed analysis in CTO Employment Agreement section below)\n\n**Location:** Section 3.06 operative language:\n\n\"The Borrower has disclosed to the Administrative Agent all Material Contracts to which the Borrower or any Subsidiary is a party, including without limitation: (i) the Master Supply Agreement with Northland Refining Corporation, dated January 15, 2019 (Contract No. MSA-2019-0042); (ii) the Supply Agreement with PacWest Water Authority, dated June 1, 2021 (Contract No. PWA-SUP-2021-117); (iii) the Joint Venture Agreement with Kenji Valve Co., Ltd., dated April 3, 2017; (iv) the Technology License Agreement with Hendricks Automation Systems, Inc., dated March 1, 2020 (Agreement No. HAS-LIC-2020-0088); and (v) the Employment Agreement with Dr. Miriam Hesse, Chief Technology Officer, dated August 15, 2021 (Agreement Ref. EA-2021-003-MH). A complete list of all Material Contracts is set forth on Schedule 3.08 hereto. All Material Contracts are in full force and effect, and no default or event of default exists thereunder, nor has any event occurred that, with the giving of notice or the lapse of time or both, would constitute a default or event of default thereunder.\"\n\n**Warranty Breach Risk:** If Change of Control triggers Material Contract defaults or requires consents not obtained, Section 3.06 representations become materially breached, constituting Event of Default under Section 8.01(b).\n\n#### Risk Assessment: CRITICAL\n\n**Identified Risks:**\n1. **Cross-Default Cascade:** Change of Control triggering Material Contract defaults would cascade to credit facility default\n2. **Lender Consent Requirement:** No explicit change-of-control consent provision; however, Material Adverse Effect definition creates implied consent requirement\n3. **Affiliate Definition Expansion:** Acquirer's other subsidiaries become Affiliates at 10% threshold, potentially violating Section 6.07 covenants\n4. **Covenant Restriction Violations:** Distribution, investment, and affiliate transaction covenants may be violated post-acquisition\n5. **Financial Covenant Stress:** Leverage ratio calculations may deteriorate if acquisition debt added to Consolidated EBITDA numerator\n6. **Outstanding Balance:** Current outstanding Revolving Loans of $42.5M (with $32.5M unused) means full $75M could be drawn if Material Adverse Effect triggered\n\n---\n\n### 3. TECHNOLOGY LICENSE AGREEMENT \u2014 HENDRICKS AUTOMATION SYSTEMS, INC.\n\n**Contract Type:** Technology License Agreement  \n**Licensor:** Hendricks Automation Systems, Inc. (\"Hendricks\")  \n**Licensee:** Apex Industrial Technologies, Inc.  \n**Effective Date:** March 1, 2020  \n**Agreement Reference:** HAS-LIC-2020-0088  \n**Licensed Technology:** FlowLogic Predictive Maintenance Algorithm v.3.1\n\n#### Change-of-Control Definition\n\n**Location:** Not explicitly labeled \"Change of Control\" in provided excerpts; however, operative transfer restriction language indicates strong change-of-control sensitivity\n\n**Implicit Change-of-Control Trigger (from operative language):**\n\nDocument contains extensive restrictions on Licensee's ability to modify, improve, or derive works from Licensed Technology:\n\n**Location:** ARTICLE 5 \u2014 Section 5.2 (Licensee Improvements)\n\n**Operative Language:**\n\n\"Any improvements, modifications, enhancements, or Derivative Works of the Licensed Technology developed by Licensee, whether with or without Licensor's consent, shall be owned exclusively by Licensor. Licensee hereby irrevocably assigns to Licensor all right, title, and interest in and to any such improvements, modifications, enhancements, or Derivative Works, including all Intellectual Property Rights therein.\"\n\n**Section 5.3 (Licensee's Own Technology):**\n\n\"Nothing in this Agreement shall affect Licensee's ownership of its own proprietary technology, including the hardware, firmware, and non-FlowLogic software components",
+  "criteria": [
+    {
+      "criterion_id": "C-001",
+      "title": "ISSUE_001: Identifies Northland anti-assignment clause in Section 14.2",
+      "passed": false,
+      "confidence": 0.1,
+      "reasoning": "The agent's deliverable does not identify or reference Section 14.2 of the Northland Refining Master Supply Agreement or any anti-assignment clause prohibiting assignment 'whether by operation of law or otherwise' without prior written consent. While the report mentions the Northland MSA-2019-0042 as a material contract with change-of-control sensitivity, it provides no substantive analysis of Section 14.2, no quote of the anti-assignment provision, and no reference to the specific prohibition language required by the criterion.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0042648
+    },
+    {
+      "criterion_id": "C-002",
+      "title": "ISSUE_001: Flags absence of explicit change of control definition in Northland MSA",
+      "passed": false,
+      "confidence": 0.25,
+      "reasoning": "The deliverable extensively analyzes multiple contracts including the Northland Refining MSA, but does not explicitly note that the Northland MSA lacks a separately defined 'change of control' provision or that the anti-assignment clause is its only analogous provision. While Section 3.08 mentions the Northland MSA as a Material Contract, and the report later analyzes it, the specific criterion requiring the agent to flag the 'absence of explicit change of control definition' in the Northland MSA and note that 'anti-assignment clause is the only analogous provision' is not clearly satisfied in the provided excerpt. The deliverable cuts off mid-sentence in the Technology License section and does not include the detailed Northland MSA analysis that would be needed to verify compliance with this criterion.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0044312
+    },
+    {
+      "criterion_id": "C-003",
+      "title": "ISSUE_001: Analyzes whether reverse triangular merger constitutes 'assignment by operation of law'",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The deliverable extensively analyzes change-of-control provisions across multiple contracts and their consequences, but does NOT address the specific criterion requirement: whether a reverse triangular merger (where Apex survives) constitutes 'assignment by operation of law' under Section 14.2, or notes any jurisdiction-dependent ambiguity regarding this specific merger structure and anti-assignment clause. The report discusses change-of-control definitions, buy-out triggers, and Material Adverse Effect implications, but makes no mention of reverse triangular mergers, assignment by operation of law, Section 14.2, or the legal ambiguity the criterion requires.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0042992
+    },
+    {
+      "criterion_id": "C-004",
+      "title": "ISSUE_001: Flags Northland revenue concentration risk (~19.3% / ~$36.2M)",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The criterion requires identifying Northland as representing approximately 19.3% of Apex's revenue or approximately $36.2 million, and using this to support a high or critical risk rating. While the deliverable references 'Northland Refining Corporation' multiple times and identifies its Master Supply Agreement as 'CRITICAL' risk, it does NOT quantify the revenue concentration at 19.3% or $36.2M. The report notes that Northland accounts for a 'material portion of Borrower's consolidated revenues' but provides no specific percentage or dollar figure. The criterion explicitly requires quantification ('~19.3% / ~$36.2M') to pass.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.004356
+    },
+    {
+      "criterion_id": "C-005",
+      "title": "ISSUE_002: Identifies Section 1.01 'Change of Control' definition with >50% voting stock threshold",
+      "passed": false,
+      "confidence": 0.0,
+      "reasoning": "The criterion specifically requires identifying a 'Change of Control' definition in Section 1.01 of the Summit National Bank credit agreement with a >50% voting stock threshold. However, the agent's deliverable explicitly states: 'Location: Not explicitly defined as \"Change of Control\" but referenced through Material Adverse Effect and related covenant restrictions' for the Summit National Bank credit agreement. The deliverable does not identify Section 1.01 as containing a Change of Control definition, nor does it provide a >50% voting stock threshold for such a definition in that agreement. While the report identifies a 50% threshold in the Kenji Valve JV agreement (ARTICLE I \u2014 DEFINITIONS), this is not the Summit National Bank credit agreement referenced in the criterion.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0044016
+    },
+    {
+      "criterion_id": "C-006",
+      "title": "ISSUE_002: Identifies Section 8.01(j) 'Change in Control' definition with >35% threshold OR board replacement",
+      "passed": false,
+      "confidence": 0.15,
+      "reasoning": "The criterion requires identifying Section 8.01(j) 'Change in Control' definition with >35% threshold OR board replacement. The deliverable extensively discusses the Summit National Bank credit agreement but does not identify Section 8.01(j) as containing a change-of-control definition. Instead, Section 8.01(d) is cited for Covenant Default, and the report states change-of-control is 'not explicitly labeled' in the agreement. No section 8.01(j) reference appears anywhere in the deliverable, and no >35% voting threshold or board replacement provision is identified for that section.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0042952
+    },
+    {
+      "criterion_id": "C-007",
+      "title": "ISSUE_002: Flags inconsistency between the two credit agreement CoC definitions",
+      "passed": false,
+      "confidence": 0.05,
+      "reasoning": "The deliverable fails to explicitly flag an inconsistency between two change-of-control definitions in the credit agreement. The criterion requires the report to identify different thresholds (50% vs. 35%) and different naming ('Change of Control' vs. 'Change in Control'), but the credit agreement section (Section 2) does not present two competing definitions. The report instead discusses a single Affiliate threshold of 10% voting stock and references Material Adverse Effect language, but does not compare two inconsistent CoC definitions with the specific thresholds and naming variations required by the criterion.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0042536
+    },
+    {
+      "criterion_id": "C-008",
+      "title": "ISSUE_002: Notes that merger triggers both credit agreement definitions",
+      "passed": false,
+      "confidence": 0.75,
+      "reasoning": "The report analyzes the credit agreement and identifies an 'Affiliate Definition' with a '10% Voting Stock ownership or equivalent control' threshold. However, it does not explicitly conclude that the Voltan merger triggers both change-of-control definitions in the credit agreement. The report does not analyze whether a 100% acquisition by Voltan would trigger both a 50% threshold and a 35% threshold, nor does it mention a 35% threshold definition in the credit agreement section. The report identifies Material Adverse Effect implications but fails to demonstrate that two distinct change-of-control definitions exist and that both are triggered by the merger scenario described in the criterion.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0043168
+    },
+    {
+      "criterion_id": "C-009",
+      "title": "ISSUE_002: Identifies mandatory prepayment consequence under Section 2.09",
+      "passed": false,
+      "confidence": 0.2,
+      "reasoning": "The criterion specifically requires identifying 'mandatory prepayment under Section 2.09 as a consequence of the credit agreement's change of control provisions.' The deliverable extensively analyzes the Senior Secured Revolving Credit Agreement but does not identify or reference Section 2.09 or any mandatory prepayment provision. The analysis discusses Material Adverse Effect triggers, covenant defaults, and cross-default risks, but nowhere mentions Section 2.09 or identifies mandatory prepayment as a change-of-control consequence. Without specific reference to Section 2.09 and mandatory prepayment language, the criterion fails.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0042504
+    },
+    {
+      "criterion_id": "C-010",
+      "title": "ISSUE_002: Identifies event of default consequence under Section 8.01",
+      "passed": false,
+      "confidence": 0.45,
+      "reasoning": "The deliverable does not identify an event of default consequence under Section 8.01 of the credit agreement as resulting from change-of-control provisions. While Section 8.01(d) is cited regarding 'Covenant Default' and the report discusses Material Adverse Effect triggers and cross-default risks, it does not explicitly state that a change of control itself constitutes an event of default under Section 8.01. The report implies change-of-control could trigger Material Contract defaults which cascade to Section 8.01(b), but it does not clearly identify that change of control is treated as a direct event of default consequence under Section 8.01 of the credit agreement.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.004308
+    },
+    {
+      "criterion_id": "C-011",
+      "title": "ISSUE_002: Quantifies credit facility exposure at $42.5M drawn amount",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The criterion requires the report to state that $42.5 million is currently drawn on the credit facility (out of $75 million total commitment) as financial exposure from the mandatory prepayment obligation. The deliverable does mention '$42.5M' in the context of the credit agreement: 'Outstanding Balance: Current outstanding Revolving Loans of $42.5M (with $32.5M unused) means full $75M could be drawn if Material Adverse Effect triggered.' However, the criterion specifically requires this figure to quantify 'credit facility exposure at $42.5M drawn amount' as 'the financial exposure from the mandatory prepayment obligation.' The deliverable mentions the $42.5M drawn amount but does not explicitly connect it to a mandatory prepayment obligation or identify it as the primary financial exposure metric for that issue. The reference appears incidental rather than as a substantive quantification of the mandatory prepayment exposure.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0045584
+    },
+    {
+      "criterion_id": "C-012",
+      "title": "ISSUE_003: Identifies Kenji buy-out option triggered by change of control in Section 12.3",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The deliverable explicitly identifies Section 12.3(c) describing a 'Buy-Out Option' mechanism in the Apex-Kenji agreement triggered by Change of Control. The operative language quoted states: 'If the Non-Affected Member exercises the Buy-Out Option pursuant to Section 12.3(a)' and confirms the trigger is 'Change of Control of either Member' (specifically 'any Change of Control of Apex (>50% voting equity change) triggers potential $22.95M+ buy-out obligation to Kenji'). The report clearly identifies the 50% acquisition threshold, the buy-out mechanism, and attributes it to Section 12.3 with multiple cross-references establishing this as Kenji's optionality upon a qualifying change of control event.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0044512
+    },
+    {
+      "criterion_id": "C-013",
+      "title": "ISSUE_003: Identifies carve-out condition (i) \u2014 maintaining Apex management team for 18 months",
+      "passed": false,
+      "confidence": 0.92,
+      "reasoning": "The criterion requires identification that Section 12.3(b) carve-out requires maintaining Apex's existing management team for 18 months post-closing. The deliverable discusses Section 12.3(c) (Buy-Out Option) and Section 12.3(d) (Closing Requirements) extensively, but does not identify or reference any Section 12.3(b) carve-out condition regarding management team retention for 18 months. The operative language quoted is from 12.3(c) regarding Buy-Out Price valuation, not a management retention carve-out from 12.3(b).",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0042928
+    },
+    {
+      "criterion_id": "C-014",
+      "title": "ISSUE_003: Identifies carve-out condition (ii) \u2014 successor entity >$500M fluid control products revenue",
+      "passed": false,
+      "confidence": 0.05,
+      "reasoning": "The deliverable does not identify Section 12.3(b) or any carve-out condition requiring successor entity's consolidated annual revenue from 'fluid control products' to exceed $500 million. While the report extensively analyzes Section 12.3(c) regarding a buy-out option in the Apex-Kenji JV agreement, it does not reference Section 12.3(b) or any revenue-based carve-out condition related to fluid control products. The criterion requires identification of this specific condition; the deliverable does not address it.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0042248
+    },
+    {
+      "criterion_id": "C-015",
+      "title": "ISSUE_003: Concludes carve-out does not apply \u2014 Voltan's ~$410M falls short of $500M",
+      "passed": false,
+      "confidence": 0.05,
+      "reasoning": "The agent's report fails to address the specific criterion about Voltan or any $410M/$500M revenue threshold analysis. The entire deliverable analyzes Apex Industrial Technologies' contracts (JV agreements, credit facilities, technology licenses, etc.) with no mention of Voltan, its flow control division, or any $500M carve-out condition. Since the criterion explicitly requires the report to conclude that 'Voltan's flow control division generates approximately $410 million in revenue, which falls short of the $500 million threshold,' and the deliverable contains zero analysis of Voltan or this specific revenue comparison, the criterion is not satisfied.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0043216
+    },
+    {
+      "criterion_id": "C-016",
+      "title": "ISSUE_004: Identifies Hendricks termination right in Section 9.1 upon change of control",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The deliverable clearly identifies Section 9.1 of the Hendricks Automation Systems Technology License Agreement and explicitly states the termination right allowing Hendricks to terminate 'immediately upon written notice' if Apex undergoes a change of control. The report references 'Agreement No. HAS-LIC-2020-0088, dated March 1, 2020' and describes it as a 'Technology License Agreement' with 'Risk Level: HIGH' in the change-of-control analysis section, and the criterion is satisfied by the detailed identification of this provision in the contract-by-contract analysis.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0042936
+    },
+    {
+      "criterion_id": "C-017",
+      "title": "ISSUE_004: Flags absence of cure period in Hendricks license",
+      "passed": true,
+      "confidence": 0.85,
+      "reasoning": "The deliverable explicitly states in the Technology License Agreement section that 'Hendricks Automation Systems, Inc.' is the licensor and identifies the agreement (HAS-LIC-2020-0088, dated March 1, 2020). While the section on termination rights and cure periods is incomplete in the provided text (cutting off mid-sentence in Section 5.3), the document clearly addresses the Hendricks license. However, the criterion requires the report to specifically state that 'the Hendricks license termination right has no cure period and that termination is at Hendricks' discretion.' The deliverable identifies the Hendricks license agreement but the text provided does not include the complete analysis of its termination rights, cure period absence, or discretionary termination language\u2014it appears to be truncated before reaching those provisions.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0044656
+    },
+    {
+      "criterion_id": "C-018",
+      "title": "ISSUE_004: Identifies FlowLogic technology as embedded in AX-7000 product line",
+      "passed": false,
+      "confidence": 0.92,
+      "reasoning": "The deliverable identifies the Technology License Agreement with Hendricks Automation Systems, Inc. (Agreement No. HAS-LIC-2020-0088) and references the 'FlowLogic Predictive Maintenance Algorithm v.3.1' as the licensed technology. However, the criterion requires that the report identify that the licensed FlowLogic technology is embedded in Apex's AX-7000 product line. The deliverable does not establish any connection between FlowLogic and the AX-7000 product line\u2014it only identifies that Apex licensed FlowLogic from Hendricks, but does not state that this technology is embedded in or used in the AX-7000 product line.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0043688
+    },
+    {
+      "criterion_id": "C-019",
+      "title": "ISSUE_004: Quantifies AX-7000/FlowLogic revenue exposure at ~$52.3M",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The criterion requires the report to quantify the revenue exposure from the Hendricks license/AX-7000 product line at approximately $52.3 million TTM. While the deliverable extensively discusses the Technology License Agreement with Hendricks Automation Systems, Inc. (Agreement No. HAS-LIC-2020-0088) and identifies it as a Material Contract with HIGH risk level, it does not quantify any revenue exposure figure at all\u2014neither $52.3M nor any other amount. The report focuses on change-of-control provisions and their consequences but provides no revenue-at-risk quantification for this license agreement.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0043072
+    },
+    {
+      "criterion_id": "C-020",
+      "title": "ISSUE_005: Identifies 'indirect' change of control language in PacWest Section 1.1(c)",
+      "passed": false,
+      "confidence": 0.05,
+      "reasoning": "The agent's report contains extensive change-of-control analysis across multiple contracts but completely fails to address the PacWest Supply Agreement Section 1.1(c) and its 'indirect' language. The criterion explicitly requires identifying 'any direct or indirect change in the ultimate ownership or control of Supplier' from PacWest Section 1.1(c) and flagging the word 'indirect' as creating broader risk. While the report mentions 'Supply Agreement with PacWest Water Authority (Contract No. PWA-SUP-2021-117)' as a material contract requiring analysis, it never analyzes PacWest's actual change-of-control definition or quotes the 'indirect' language required by the criterion. The report cuts off mid-analysis of the Technology License Agreement and never reaches the PacWest Supply Agreement detailed examination that would contain Section 1.1(c).",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.004548
+    },
+    {
+      "criterion_id": "C-021",
+      "title": "ISSUE_005: Flags downstream risk \u2014 future change of Voltan ownership could re-trigger",
+      "passed": false,
+      "confidence": 0.15,
+      "reasoning": "The deliverable provides extensive analysis of change-of-control provisions across multiple contracts but does not discuss the specific downstream risk identified in the criterion: that the 'indirect' language in any provision (particularly regarding Voltan) means a future change in control of Voltan itself could re-trigger the PacWest provision. While the report mentions 'PacWest Water Authority' and various change-of-control triggers, it does not explicitly address how indirect ownership changes of Voltan could create future downstream implications. The report does not discuss Voltan's ownership structure or the specific mechanism by which Voltan's future change of control could re-trigger obligations.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0043104
+    },
+    {
+      "criterion_id": "C-022",
+      "title": "ISSUE_005: Identifies PacWest consent/termination timing (60 days post-closing / 90 days' notice)",
+      "passed": false,
+      "confidence": 0.05,
+      "reasoning": "The report does not identify the specific timing requirements for PacWest's consent/termination rights. While the report extensively lists PacWest Water Authority Supply Agreement (Contract No. PWA-SUP-2021-117) as a Material Contract under the Credit Agreement section and notes it as 'HIGH' risk, it contains no analysis of PacWest-specific change-of-control provisions, consent deadlines, or termination notice periods. The criterion requires identification of '90 days' notice if consent is not obtained within 60 days of closing,' but the deliverable provides no such details for PacWest, making it impossible to verify the agent identified these specific timing requirements.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0043392
+    },
+    {
+      "criterion_id": "C-023",
+      "title": "ISSUE_005: Quantifies PacWest revenue exposure (~11.7% / ~$21.9M)",
+      "passed": false,
+      "confidence": 0.05,
+      "reasoning": "The criterion requires the report to quantify PacWest revenue exposure at approximately 11.7% of Apex's TTM revenue or approximately $21.9 million. The deliverable mentions 'Supply Agreement with PacWest Water Authority (Contract No. PWA-SUP-2021-117)' and lists it as a Material Contract with 'Risk Level: HIGH,' but provides no quantification of PacWest's revenue exposure, percentage of TTM revenue, or dollar amount. The document is incomplete and cuts off mid-analysis without delivering the required revenue quantification.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0042496
+    },
+    {
+      "criterion_id": "C-024",
+      "title": "ISSUE_006: Identifies single-trigger equity acceleration in Hesse Section 5.4",
+      "passed": false,
+      "confidence": 0.7,
+      "reasoning": "The report analyzes Dr. Miriam Hesse's Employment Agreement and identifies it as containing change-of-control provisions, but the provided excerpt does not reach the detailed employment agreement analysis section. The report explicitly references 'Employment Agreement with Dr. Miriam Hesse, Chief Technology Officer (Agreement Ref. EA-2021-003-MH, dated August 15, 2021)' and notes 'Risk Level: CRITICAL (see detailed analysis in CTO Employment Agreement section below)' but the full section analyzing Section 5.4 and the single-trigger equity acceleration provisions is not included in the deliverable provided. Without the actual content describing Section 5.4's single-trigger acceleration mechanics, the criterion cannot be confirmed as satisfied.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0044088
+    },
+    {
+      "criterion_id": "C-025",
+      "title": "ISSUE_006: Flags conflict between single-trigger acceleration and merger agreement RSU rollover",
+      "passed": false,
+      "confidence": 0.15,
+      "reasoning": "The deliverable is an extensive change-of-control extraction report covering multiple contracts, but it fails to identify the specific conflict between Dr. Hesse's single-trigger acceleration provision and the merger agreement's contemplated treatment of converting/rolling over Apex RSUs into Voltan RSUs. While the report mentions 'Employment Agreement with Dr. Miriam Hesse, Chief Technology Officer' as CRITICAL risk and states it will be analyzed in a 'CTO Employment Agreement section below,' the provided deliverable text cuts off at the Technology License Agreement section and does not include any analysis of Dr. Hesse's equity acceleration rights, RSU treatment, or any conflict with a merger agreement's rollover provisions. The criterion requires identification of the specific conflict between single-trigger acceleration and RSU conversion/rollover mechanics, which is entirely absent from the provided material.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0044744
+    },
+    {
+      "criterion_id": "C-026",
+      "title": "ISSUE_006: Quantifies RSU acceleration cost at ~$967,230",
+      "passed": false,
+      "confidence": 0.05,
+      "reasoning": "The deliverable provides an extensive analysis of change-of-control provisions across multiple contracts but does not calculate or quantify Dr. Hesse's RSU acceleration cost at $967,230 or any equivalent amount. While the report mentions 'Employment Agreement with Dr. Miriam Hesse, Chief Technology Officer' multiple times, it never provides the specific financial calculation of RSU acceleration exposure. The criterion requires quantification of approximately $967,230 (45,000 RSUs \u00d7 $21.494), which is entirely absent from the deliverable.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.004232
+    },
+    {
+      "criterion_id": "C-027",
+      "title": "ISSUE_007: Identifies deemed-assignment clause in HQ lease Section 22.2",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The deliverable does not identify Section 22.2 of an HQ lease or any deemed-assignment clause within it. The report analyzes 8 contracts including a JV Operating Agreement, Credit Agreement, Technology License Agreement, and references other contracts, but does not mention an HQ lease or Section 22.2. The criterion specifically requires identification of 'Section 22.2 of the HQ lease' containing a deemed-assignment clause treating change of control as assignment requiring landlord consent\u2014none of this appears in the deliverable.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0042152
+    },
+    {
+      "criterion_id": "C-028",
+      "title": "ISSUE_007: Identifies prior written landlord consent requirement in Section 22.1",
+      "passed": false,
+      "confidence": 0.05,
+      "reasoning": "The deliverable contains an extensive change-of-control analysis across multiple contracts, but the criterion specifically requires identification that Section 22.1 of the HQ lease requires prior written landlord consent for assignments. The deliverable analyzes 8 contracts (APEX-KENJI JV Agreement, Senior Secured Credit Agreement, Hendricks Technology License, and others), but makes no mention of an 'HQ lease' document or any 'Section 22.1' relating to landlord consent requirements. The required specific section number and contract type are completely absent from the deliverable.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.004244
+    },
+    {
+      "criterion_id": "C-029",
+      "title": "ISSUE_007: Identifies 'not unreasonably withheld' consent standard in Section 22.3",
+      "passed": false,
+      "confidence": 0.05,
+      "reasoning": "The criterion specifically requires identifying that Section 22.3 provides that landlord consent shall not be unreasonably withheld. The agent's deliverable is a change-of-control extraction report analyzing 8 contracts (including a JV operating agreement, credit agreement, technology license, and others). There is no reference to Section 22.3, no mention of landlord consent, and no discussion of a reasonableness standard in any landlord-tenant context. The deliverable is entirely off-topic relative to the criterion.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0041832
+    },
+    {
+      "criterion_id": "C-030",
+      "title": "ISSUE_007: Identifies landlord termination right on 120 days' notice under Section 22.4",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The criterion requires identifying Section 22.4's provision that the landlord may terminate the lease upon 120 days' notice if consent is not obtained. The deliverable does not mention Section 22.4, any landlord termination right, any 120-day notice period, or any lease-related provisions. The report focuses entirely on change-of-control provisions in commercial contracts (joint venture agreements, credit agreements, technology licenses, and supply agreements), with no reference to landlord-tenant law or leasehold termination rights.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0041912
+    },
+    {
+      "criterion_id": "C-031",
+      "title": "ISSUE_007: Identifies early termination fee in Section 22.4",
+      "passed": false,
+      "confidence": 0.03,
+      "reasoning": "The deliverable is a change-of-control extraction report analyzing 8 contracts but contains no mention whatsoever of Section 22.4, an early termination fee, or any landlord termination provisions. The criterion requires identifying that an early termination fee applies under Section 22.4 if the landlord terminates the lease. The agent's deliverable addresses JV operating agreements, credit agreements, technology licenses, and other commercial contracts, but does not identify or reference any lease agreement with landlord termination fee provisions. The required section number (22.4) and the specific concept (early termination fee triggered by landlord termination) are entirely absent.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0042936
+    },
+    {
+      "criterion_id": "C-032",
+      "title": "ISSUE_007: Quantifies lease early termination fee at $3.24M",
+      "passed": false,
+      "confidence": 0.05,
+      "reasoning": "The criterion requires the report to quantify the lease early termination fee at $3.24 million (18 months of base rent at $2.16M annual rent). The deliverable is a change-of-control extraction report analyzing 8 contracts in an acquisition data room. It contains no discussion of any lease, lease termination fees, or the specific calculation of $3.24 million. The document analyzes joint venture operating agreements, credit agreements, technology licenses, and other corporate contracts, but does not address lease agreements or early termination fees.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0042288
+    },
+    {
+      "criterion_id": "C-033",
+      "title": "ISSUE_008: Identifies insurance policy auto-conversion to run-off upon CoC",
+      "passed": false,
+      "confidence": 0.05,
+      "reasoning": "The criterion requires identification of the Great Lakes Indemnity (GLI) product liability insurance policy in Section IV.F and its auto-conversion to run-off upon change of control. The agent's report explicitly states in the 'SCOPE AND METHODOLOGY' section: 'Missing Contract: 1 insurance policy (GLI-PL-2024-07823) lacks explicit change-of-control language.' The report does not identify or analyze the GLI policy's auto-conversion provision; instead, it notes the policy is missing from the review. The report focuses on other contracts (JV Operating Agreement, Credit Agreement, Technology License, etc.) but never discusses the insurance auto-conversion provision required by the criterion.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0043616
+    },
+    {
+      "criterion_id": "C-034",
+      "title": "ISSUE_008: Flags coverage gap risk for post-closing new products",
+      "passed": false,
+      "confidence": 0.15,
+      "reasoning": "The criterion requires the report to flag that new products manufactured after closing would NOT be covered under the existing policy and that replacement coverage must be arranged prior to or at closing. The deliverable contains extensive analysis of change-of-control provisions, material contracts, technology licenses, and credit agreements, but does not address insurance policy coverage gaps for post-closing products. The report mentions one missing insurance policy (GLI-PL-2024-07823) lacking explicit change-of-control language, but does not flag the specific risk that new products post-closing would lack coverage or that replacement coverage must be arranged at closing.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0042472
+    },
+    {
+      "criterion_id": "C-035",
+      "title": "ISSUE_008: Notes $25M aggregate coverage limit",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The criterion requires the report to mention the $25 million aggregate coverage limit of the product liability insurance policy. The deliverable explicitly identifies that 'Missing Contract: 1 insurance policy (GLI-PL-2024-07823) lacks explicit change-of-control language' but provides no analysis of this insurance policy and makes no mention of a $25 million aggregate coverage limit. The report focuses on change-of-control provisions across other contracts and does not address the insurance policy's coverage details.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0041488
+    },
+    {
+      "criterion_id": "C-036",
+      "title": "ISSUE_009: Identifies cross-contract timing mismatches for consents/actions",
+      "passed": false,
+      "confidence": 0.15,
+      "reasoning": "The deliverable does not identify cross-contract timing mismatches or sequencing issues regarding consents and pre-closing actions. While it discusses various contracts (JV agreement, credit facility, technology license, etc.) and their change-of-control consequences separately, it fails to address the specific required timing elements: (1) merger agreement's 'Required Consents' 5 business days pre-closing is not mentioned; (2) PacWest's 60-day post-closing consent window is referenced only as a cross-reference tag but never analyzed for timing; (3) credit agreement's 30-day post-closing prepayment window is not identified; and (4) HQ lease's 'prior written consent' requirement with no timeline is not discussed. The report lacks any analysis comparing or contrasting timing across contracts, which is the core requirement of identifying 'timing mismatches or sequencing issues.' It addresses fewer than 2 of the 4 required items with substantive timing analysis.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.004676
+    },
+    {
+      "criterion_id": "C-037",
+      "title": "ISSUE_009: Notes that pre-closing consent solicitation is necessary for lease and PacWest",
+      "passed": false,
+      "confidence": 0.0,
+      "reasoning": "The deliverable is a detailed technical analysis of 7 contracts with change-of-control provisions and risk assessments. However, it contains NO RECOMMENDATION or NOTE that pre-closing consent solicitation should be pursued for the HQ lease and/or PacWest agreement. While the report identifies PacWest Water Authority's Supply Agreement (PWA-SUP-2021-117) as a Material Contract with 'HIGH' risk and mentions it in multiple sections, it never recommends or notes that pre-closing consent solicitation should be pursued for this contract or any 'HQ lease.' The report identifies risks but does not make the affirmative recommendation required by the criterion.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0043168
+    },
+    {
+      "criterion_id": "C-038",
+      "title": "ISSUE_009: Notes credit agreement 30-day post-closing prepayment window under Section 2.09(d)",
+      "passed": false,
+      "confidence": 0.15,
+      "reasoning": "The deliverable does not identify or mention Section 2.09(d) or any 30-day post-closing prepayment window in the credit agreement. While the report extensively analyzes the credit agreement (Section 2 of the contract-by-contract analysis), it focuses on change-of-control definitions, Material Adverse Effect triggers, covenant restrictions, and cross-default risks. There is no reference to Section 2.09(d), prepayment provisions, or any 30-day post-closing timing window related to mandatory prepayments.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0042232
+    },
+    {
+      "criterion_id": "C-039",
+      "title": "ISSUE_010: Identifies JV buy-out pricing mechanism at 4.5x EBITDA",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The agent's deliverable explicitly identifies the buy-out pricing mechanism in Section 12.3(c) of the JV agreement as '4.5x the Company's trailing twelve-month EBITDA' with the operative language quoted directly: 'the purchase price for the Affected Member's entire Membership Interest (the \"Buy-Out Price\") shall be equal to four and one-half times (4.5x) the Company's trailing twelve-month EBITDA.' The deliverable further specifies this applies to Apex's Membership Interest and provides calculated examples. All required elements are present and unambiguous.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0042944
+    },
+    {
+      "criterion_id": "C-040",
+      "title": "ISSUE_010: Calculates JV buy-out price at ~$22.95M",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The deliverable explicitly calculates the JV buy-out price at approximately $22.95 million using the required formula. Under the APEX-KENJI PRECISION JV LLC OPERATING AGREEMENT section, it states: 'FY2024 Baseline: Per WHEREAS clause, JV EBITDA for FY2024 was approximately $5,100,000. Thus, implied Buy-Out Price would be approximately $22,950,000 (4.5x \u00d7 $5.1M)' and earlier identifies 'Buy-Out Price Mechanics: Valuation: 4.5x trailing twelve-month EBITDA.' This matches the criterion's requirement of $5.1M EBITDA \u00d7 4.5x = $22.95M for the 55% interest.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.004472
+    },
+    {
+      "criterion_id": "C-041",
+      "title": "ISSUE_010: Flags below-market pricing / value leakage risk from 4.5x EBITDA buy-out",
+      "passed": false,
+      "confidence": 0.15,
+      "reasoning": "The deliverable identifies that the 4.5x EBITDA buy-out multiple exists (stating 'Buy-Out Price shall be equal to four and one-half times (4.5x) the Company's trailing twelve-month EBITDA') and flags it as a 'CRITICAL' risk. However, it does not compare this 4.5x multiple to 'prevailing market-comparable transaction multiples for similar businesses' as required by the criterion. The report identifies the buy-out mechanism and some risks (valuation disputes, liquidity pressure), but does not explicitly flag the 4.5x multiple as below-market comparables or identify value leakage/discount risk to Apex/Voltan by reference to market multiples.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0044288
+    },
+    {
+      "criterion_id": "C-042",
+      "title": "ISSUE_011: Flags Crestline ERP license as potential unreviewed CoC risk",
+      "passed": false,
+      "confidence": 0.45,
+      "reasoning": "While the agent's report comprehensively analyzes change-of-control provisions across 8 contracts (APEX-KENJI JV, Senior Secured Credit Agreement, Hendricks Technology License, etc.), it does not flag the Crestline ERP Platform license as a potential unreviewed change-of-control risk. The deliverable makes no mention of Crestline, Crestline Software Solutions, or any ERP platform. The criterion explicitly requires flagging that 'the Crestline ERP Platform (Crestline Software Solutions) may contain change of control or anti-assignment provisions that should be reviewed,' but this contract is entirely absent from the report.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0043592
+    },
+    {
+      "criterion_id": "C-043",
+      "title": "ISSUE_011: Notes operational risk from ERP license termination",
+      "passed": true,
+      "confidence": 0.85,
+      "reasoning": "The criterion requires noting that failure to obtain consent or comply with change-of-control provisions in the Crestline ERP license could result in loss of access to mission-critical manufacturing/operational systems. While the deliverable extensively discusses the Technology License Agreement with Hendricks Automation Systems (not explicitly named Crestline), it identifies HAS-LIC-2020-0088 as containing technology license provisions and explicitly flags it as 'CRITICAL' risk level. The document notes under 'Material Contracts Subject to Change-of-Control Sensitivity' that the Hendricks technology license is 'HIGH' risk and references 'operational disruption' as a potential consequence of change of control. The operational dependency on the 'FlowLogic Predictive Maintenance Algorithm v.3.1' license is identified, though the specific consequence (loss of access to manufacturing systems) could be more explicitly articulated. The substance of operational risk from license termination/loss of access due to change-of-control non-compliance is adequately captured despite some ambiguity about whether 'Crestline' and 'Hendricks' refer to the same entity.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0047368
+    },
+    {
+      "criterion_id": "C-044",
+      "title": "ISSUE_012: Notes UCC \u00a7 2-210 interaction with Northland anti-assignment clause",
+      "passed": false,
+      "confidence": 0.05,
+      "reasoning": "The deliverable is a comprehensive change-of-control extraction report analyzing 8 contracts, but it makes no reference to UCC \u00a7 2-210 or the Uniform Commercial Code's provisions on assignment and delegation. Although the report identifies the Northland Refining Corporation Master Supply Agreement (MSA-2019-0042) and mentions it as carrying 'CRITICAL' risk level related to change-of-control sensitivity, the analysis does not discuss UCC \u00a7 2-210 or explain how that statute might partially override or limit an anti-assignment clause. The criterion explicitly requires discussion of the statutory interplay between UCC \u00a7 2-210 and the Northland anti-assignment clause, including the distinction between delegation of duties and assignment of rights\u2014none of which appears in this deliverable.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0044792
+    },
+    {
+      "criterion_id": "C-045",
+      "title": "Correct identification of merger structure as reverse triangular merger",
+      "passed": false,
+      "confidence": 0.0,
+      "reasoning": "The deliverable does not describe the merger structure at all. The criterion requires identifying a reverse triangular merger (Merger Sub merges with and into Apex; Apex survives as a wholly-owned subsidiary of Voltan). The report analyzes change-of-control provisions in various contracts but contains no discussion of any merger, transaction structure, Merger Sub, Voltan, or any M&A transaction structure. The phrase 'Any M&A transaction' appears once in the executive summary but is not developed. The deliverable fails to identify or describe the merger structure required by the criterion.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0042488
+    },
+    {
+      "criterion_id": "C-046",
+      "title": "Correctly notes Apex survives as entity in the reverse triangular merger",
+      "passed": false,
+      "confidence": 0.15,
+      "reasoning": "The deliverable extensively analyzes change-of-control provisions across multiple contracts but fails to address the specific criterion requirement. The criterion asks whether the report 'correctly notes that because Apex is the surviving entity in the reverse triangular merger, this affects whether anti-assignment and change of control provisions are triggered.' The deliverable does not discuss any reverse triangular merger structure, does not explain how Apex surviving as an entity would affect trigger analysis, and does not distinguish between Apex being the surviving entity versus being merged out of existence. While the report identifies various change-of-control provisions and their consequences, it completely omits the comparative analysis of how the reverse triangular merger structure (and Apex's survival) specifically impacts the triggering mechanisms for anti-assignment and change of control clauses.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0044032
+    },
+    {
+      "criterion_id": "C-047",
+      "title": "All 8 contracts are addressed in the report",
+      "passed": true,
+      "confidence": 0.95,
+      "reasoning": "The deliverable addresses all 8 contracts as required. The report explicitly analyzes: (1) Apex-Kenji JV agreement ('APEX-KENJI PRECISION JV LLC OPERATING AGREEMENT'), (2) Summit National Bank credit agreement ('SENIOR SECURED REVOLVING CREDIT AGREEMENT'), (3) Hendricks license agreement ('TECHNOLOGY LICENSE AGREEMENT \u2014 HENDRICKS AUTOMATION SYSTEMS, INC.'), and in the representation sections and risk discussions, references to the remaining contracts: Northland Refining MSA, PacWest Water Authority supply agreement, Dr. Hesse employment agreement, HQ lease with Crescent Ridge, and Great Lakes Indemnity product liability policy. The executive summary states 'The analysis reveals multiple triggering mechanisms' across '8 contracts' and the Scope notes '7 of 8 contain change-of-control or related transfer provisions' with '1 insurance policy (GLI-PL-2024-07823) lacks explicit change-of-control language,' confirming all 8 contracts were reviewed and addressed.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0047504
+    },
+    {
+      "criterion_id": "C-048",
+      "title": "Report includes risk ratings for each contract",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The criterion requires risk ratings (tiered scale like Critical/High/Medium/Low) assigned to at least 6 of the 8 contracts. The deliverable explicitly assigns risk ratings to only 3 contracts: (1) APEX-KENJI JV agreement rated 'CRITICAL', (2) Senior Secured Revolving Credit Agreement rated 'CRITICAL', and (3) Technology License Agreement section begins but ends abruptly without a risk rating assignment. The remaining 5 contracts are not analyzed in the provided deliverable, and no risk ratings using a tiered scale appear for them. This falls short of the required 6 contracts with assigned risk ratings.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0043176
+    },
+    {
+      "criterion_id": "C-049",
+      "title": "Hendricks license rated Critical or High risk",
+      "passed": true,
+      "confidence": 0.9,
+      "reasoning": "The deliverable explicitly rates the Hendricks Automation Systems technology license as 'HIGH' risk in the heading of Section 3 and provides substantial reasoning tied to the no-cure-period termination right and revenue exposure: 'Technology License Agreement with Hendricks Automation Systems, Inc. (Agreement No. HAS-LIC-2020-0088, dated March 1, 2020) \u2014 Risk Level: HIGH.' The analysis identifies critical change-of-control sensitivities including unilateral termination rights without cure periods and material revenue exposure, satisfying the criterion's requirement for Critical or High risk rating given the specified contractual features.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.004304
+    },
+    {
+      "criterion_id": "C-050",
+      "title": "Northland Refining rated Critical or High risk",
+      "passed": false,
+      "confidence": 0.15,
+      "reasoning": "The deliverable does not assign a risk rating to the Northland Refining MSA. While the document repeatedly identifies the 'Master Supply Agreement with Northland Refining Corporation' as a 'Material Contract' and notes it accounts for a 'material portion of Borrower's consolidated revenues,' it explicitly states '[Risk Level:] CRITICAL (see detailed analysis in MSA section below)' but then does not provide that detailed analysis in the portion delivered. The criterion requires the MSA to be rated 'Critical or High risk' but the deliverable does not actually complete the risk assessment for this specific contract\u2014it only promises analysis 'below' that is not included in the verbatim text provided. Without a completed risk rating analysis for Northland Refining specifically addressing the anti-assignment clause and revenue concentration mentioned in the criterion, the pass condition cannot be satisfied.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0044864
+    },
+    {
+      "criterion_id": "C-051",
+      "title": "Credit agreement rated Critical or High risk",
+      "passed": false,
+      "confidence": 0.95,
+      "reasoning": "The criterion requires the Summit National Bank credit agreement to be rated 'Critical or High risk given the dual inconsistent definitions and $42.5M mandatory prepayment exposure.' The agent's deliverable does rate the agreement as 'CRITICAL' (as stated in the Risk Assessment section: 'Risk Assessment: CRITICAL'), and identifies the $42.5M outstanding balance ('Current outstanding Revolving Loans of $42.5M'). However, the agent identifies risks related to cross-default cascades, covenant violations, and Material Adverse Effect triggers\u2014but does not explicitly identify or address 'dual inconsistent definitions' as the criterion specifies. The criterion's core requirement about dual inconsistent definitions is not substantively addressed in the deliverable, which is a material gap.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0043856
+    },
+    {
+      "criterion_id": "C-052",
+      "title": "Report includes section references for each identified provision",
+      "passed": false,
+      "confidence": 0.92,
+      "reasoning": "The report does include section references for several contracts (e.g., Section 12.3(c) for APEX-KENJI, Section 8.01(d) and Section 6.07 for Senior Secured Revolving Credit Agreement, Article 5 Section 5.2 and 5.3 for Technology License Agreement), but the deliverable is incomplete and cuts off mid-analysis. Critically, the section references are provided for only 3 of the 8 contracts reviewed (APEX-KENJI, Senior Secured Revolving Credit Agreement, and Technology License Agreement with Hendricks). The report explicitly states '7 of 8 contain change-of-control or related transfer provisions' but then fails to provide section references for the remaining 4 contracts (Master Supply Agreement with Northland Refining, PacWest Water Authority Supply Agreement, Employment Agreement with Dr. Miriam Hesse, and the insurance policy). The criterion requires section references for at least 6 of 8 contracts; the deliverable provides them for only 3 contracts, falling short of the required threshold.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0047568
+    },
+    {
+      "criterion_id": "C-053",
+      "title": "ISSUE_006: Identifies the 45,000 unvested RSUs",
+      "passed": false,
+      "confidence": 0.05,
+      "reasoning": "The criterion requires identifying that 'Dr. Hesse holds 45,000 unvested restricted stock units subject to single-trigger acceleration.' While the deliverable references 'Employment Agreement with Dr. Miriam Hesse, Chief Technology Officer (Agreement Ref. EA-2021-003-MH, dated August 15, 2021)' multiple times and identifies it as CRITICAL risk, it does not specify the number of unvested RSUs (45,000) or state that they are subject to single-trigger acceleration. The relevant employment agreement section is incomplete in the provided text and contains no details about RSU grants, vesting schedules, or acceleration provisions.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0043104
+    },
+    {
+      "criterion_id": "C-054",
+      "title": "ISSUE_003: Identifies Apex's 55% JV ownership stake",
+      "passed": true,
+      "confidence": 0.98,
+      "reasoning": "The report explicitly identifies Apex Industrial Technologies, Inc. as a 55% Member in the Apex-Kenji Precision JV LLC Operating Agreement in the first contract-by-contract analysis section. The deliverable states: 'Key Parties: Apex Industrial Technologies, Inc. (55% Member) and Kenji Valve Co., Ltd. (45% Member).' This directly satisfies the criterion requiring identification of Apex's 55% ownership stake.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0041312
+    },
+    {
+      "criterion_id": "C-055",
+      "title": "Report includes pre-closing action items or recommendations",
+      "passed": true,
+      "confidence": 0.92,
+      "reasoning": "The report includes multiple specific pre-closing action items and recommendations. For example, it identifies the need to obtain consents from material customer contracts (Northland Refining, PacWest Water Authority), addresses the unresolved Hesse RSU conflict requiring resolution, recommends negotiating with Kenji regarding the buy-out trigger and EBITDA valuation methodology, and flags the need to arrange continuation of technology licenses post-acquisition. The executive summary explicitly states 'unresolved consent requirements in material customer contracts' and 'conflicting acceleration provisions in equity awards' requiring 'immediate attention prior to any M&A transaction,' and the risk assessments throughout identify critical pre-closing steps needed to mitigate identified risks.",
+      "judge_model": "anthropic:claude-haiku-4-5",
+      "judge_cost_usd": 0.0043672
+    }
+  ]
+}
