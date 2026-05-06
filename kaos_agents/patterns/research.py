@@ -45,7 +45,11 @@ if TYPE_CHECKING:
     from kaos_agents.memory.session import SessionMemory
     from kaos_agents.memory.types import MemoryItem
     from kaos_agents.providers import ProviderConfig
-    from kaos_agents.settings import KaosAgentSettings
+
+# Runtime import — needed by ``_build_refusal_policy`` which calls
+# ``KaosAgentSettings.resolve(...)`` to derive verifier_min_confidence.
+# Was TYPE_CHECKING-only until N4 added the resolve call.
+from kaos_agents.settings import KaosAgentSettings
 
 logger = get_logger(__name__)
 
@@ -64,11 +68,28 @@ STRATEGY:
 6. After 2-3 search attempts, if you still can't find evidence:
    → State clearly that the corpus doesn't contain the answer.
 
+WHEN A CITATION SEEMS INCOMPLETE OR UNCLEAR:
+The kaos-content-context-window tool expands around an AST node_ref —
+think of it as ``grep -A N -B N`` over the document. Use it when:
+- A retrieved passage mentions a defined term ("Effective Date",
+  "Confidential Information") but the definition isn't in the passage.
+- The passage trails off mid-clause and the answer might continue in
+  the next paragraph.
+- A list item references "the foregoing" or "Section 4" — those
+  references resolve in nearby blocks.
+- A footnote reference appears in the cited passage.
+Pass the citation's ``block_ref`` as ``node_ref`` and ask for 2-5
+blocks before/after; pass ``expand_to_section=true`` to clamp to the
+enclosing heading-bounded section when crossing a heading boundary
+would lose the answer.
+
 IMPORTANT:
 - Always search BEFORE answering. Never answer from your training data.
 - Include passage previews when calling kaos-retrieval-answer.
 - If the question references a specific document (e.g., "RFC 2119"), search for that name.
 - Do NOT hallucinate. If the passages don't support the answer, refuse.
+- When a citation feels incomplete, expand it with kaos-content-context-window
+  before answering. A complete citation is better than a confident guess.
 """
 
 
@@ -153,6 +174,18 @@ class ResearchAgent(ChatAgent):
             tuple(documents) if documents is not None else ()
         )
         self._show_outline: Literal["yes", "no", "auto"] = show_outline
+        # N4 — derive a verifier-confidence policy from settings if the
+        # caller hasn't passed an explicit one. KaosAgentSettings.
+        # verifier_min_confidence > 0 → build a default RefusalPolicy.
+        # When 0 (default), this stays None and the legacy permissive
+        # path runs. ``refuse_unverified_answers`` is a separate boolean
+        # knob that targets ``result.is_verified`` directly (the
+        # citation-spans-don't-verify-in-corpus failure mode).
+        resolved_settings = settings or KaosAgentSettings.resolve(None)
+        self._refusal_policy = self._build_refusal_policy(resolved_settings)
+        self._refuse_unverified: bool = bool(
+            getattr(resolved_settings, "refuse_unverified_answers", False)
+        )
         # Cache the rendered outline string. Computed lazily on first turn
         # because rendering walks every document's heading tree (O(n_docs *
         # n_blocks)), and the outline is identical across turns of the same
@@ -178,6 +211,32 @@ class ResearchAgent(ChatAgent):
         preamble so the LLM sees the corpus structure before retrieval.
         """
         return self._documents
+
+    @staticmethod
+    def _build_refusal_policy(settings: KaosAgentSettings) -> Any | None:
+        """Construct a kaos-llm-core RefusalPolicy from settings.
+
+        N4 — when ``settings.verifier_min_confidence > 0``, returns a
+        default ``RefusalPolicy(min_confidence=that)``. Otherwise None
+        (legacy permissive — no verifier-threshold enforcement). A
+        partner deploys ``KAOS_AGENT_VERIFIER_MIN_CONFIDENCE=0.7`` and
+        the agent will refuse low-confidence answers automatically; no
+        code change required.
+
+        Returns ``None`` when kaos-llm-core isn't installed (the [llm]
+        extra is optional). The caller's check site already guards for
+        ``policy is None`` so this keeps the agent functional without
+        the LLM dep.
+        """
+        threshold = float(getattr(settings, "verifier_min_confidence", 0.0) or 0.0)
+        if threshold <= 0.0:
+            return None
+        try:
+            from kaos_llm_core.signatures.grounding import RefusalPolicy
+
+            return RefusalPolicy(min_confidence=threshold)
+        except ImportError:
+            return None
 
     def _resolve_outline_prefix(self) -> str:
         """Return the rendered outline preamble, or ``""`` to skip injection.
@@ -468,7 +527,7 @@ class ResearchAgent(ChatAgent):
             )
             if response:
                 yield emitter.emit(TextDelta, content=response)
-            yield emit_usage_observed(emitter, usage, source="research-no-corpus")
+            yield emit_usage_observed(emitter, usage, source="research")
             return
 
         try:
@@ -527,8 +586,71 @@ class ResearchAgent(ChatAgent):
             yield emit_usage_observed(
                 emitter,
                 InvocationUsage.from_invocation(rag_invocation),
-                source="rag",
+                source="rag-query",
             )
+
+            # N4 — apply refusal policy (verifier_min_confidence threshold).
+            # When the agent's effective_refusal_policy() is set and the
+            # answer's confidence is below threshold, we collapse it to
+            # InsufficientEvidence here so the rest of this branch sees
+            # the refusal shape and the user gets an honest "I don't have
+            # enough evidence" instead of a low-confidence claim.
+            policy = self._refusal_policy
+            if policy is not None and isinstance(result.grounded_answer, Answer):
+                from kaos_agents.grounding import apply_refusal_policy
+
+                collapsed, refusal_event = apply_refusal_policy(
+                    result.grounded_answer,
+                    policy,
+                    sequence=getattr(emitter, "sequence", 0),
+                )
+                if refusal_event is not None:
+                    yield refusal_event
+                    try:
+                        result = result.model_copy(update={"grounded_answer": collapsed})
+                    except Exception:
+                        result.grounded_answer = collapsed  # type: ignore[attr-defined]
+
+            # N4 — when refuse_unverified_answers is enabled and the RAG
+            # result reports ``is_verified=False`` (citation spans
+            # didn't match in the source corpus), we refuse rather than
+            # ship the answer with a "could not be verified" warning.
+            # This is the mf09 Voyager fix: the LLM was confident, the
+            # citations didn't actually verify, and the right move was a
+            # refusal not a warning.
+            if (
+                self._refuse_unverified
+                and not getattr(result, "is_verified", True)
+                and isinstance(result.grounded_answer, Answer)
+            ):
+                try:
+                    from kaos_llm_core.signatures.grounding import InsufficientEvidence
+
+                    collapsed = InsufficientEvidence(
+                        reason=(
+                            "RAG returned an answer but its citation "
+                            "spans could not be verified in the source "
+                            "corpus. Refusing to present an unverified "
+                            "answer (set "
+                            "KAOS_AGENT_REFUSE_UNVERIFIED_ANSWERS=false to "
+                            "downgrade to a warning instead)."
+                        ),
+                        attempted_claims=getattr(
+                            result.grounded_answer, "claims", []
+                        ),
+                    )
+                    try:
+                        result = result.model_copy(
+                            update={"grounded_answer": collapsed}
+                        )
+                    except Exception:
+                        result.grounded_answer = collapsed  # type: ignore[attr-defined]
+                    logger.info(
+                        "research_agent: refused unverified answer "
+                        "(refuse_unverified_answers=True)"
+                    )
+                except ImportError:
+                    pass
 
             if isinstance(result.grounded_answer, Answer):
                 answer = result.grounded_answer
@@ -687,7 +809,7 @@ class ResearchAgent(ChatAgent):
                         yield emit_usage_observed(
                             emitter,
                             InvocationUsage.from_invocation(retry_invocation),
-                            source="rag-retry",
+                            source="rag-query",
                         )
 
                         if isinstance(retry_result.grounded_answer, Answer):
@@ -793,7 +915,7 @@ class ResearchAgent(ChatAgent):
             )
             if response:
                 yield emitter.emit(TextDelta, content=response)
-            yield emit_usage_observed(emitter, usage, source="rag-fallback")
+            yield emit_usage_observed(emitter, usage, source="rag-query")
 
     async def _handle_research(
         self,

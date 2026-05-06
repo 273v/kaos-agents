@@ -149,6 +149,38 @@ class Agent:
         """Resolve settings: use provided or construct from environment."""
         return KaosAgentSettings.resolve(self.settings)
 
+    def effective_refusal_policy(self) -> Any | None:
+        """Resolve the refusal policy: caller-supplied wins; otherwise
+        derive from settings.verifier_min_confidence > 0.
+
+        Order of precedence:
+        1. Explicit ``refusal_policy=`` passed at construction (highest).
+        2. ``settings.verifier_min_confidence > 0`` → build a default
+           ``RefusalPolicy(min_confidence=that)``.
+        3. None (legacy permissive — no enforcement).
+
+        N4 — exposes the verifier-confidence floor as an env-var/CLI
+        knob so a partner can deploy ``KAOS_AGENT_VERIFIER_MIN_CONFIDENCE=0.7``
+        and have low-confidence answers collapse to InsufficientEvidence
+        without writing code. The kaos-llm-core ``RefusalPolicy`` is the
+        underlying mechanism; this method is the convenience surface.
+        """
+        if self.refusal_policy is not None:
+            return self.refusal_policy
+        try:
+            settings = self.resolve_settings()
+        except Exception:
+            return None
+        threshold = float(getattr(settings, "verifier_min_confidence", 0.0) or 0.0)
+        if threshold <= 0.0:
+            return None
+        try:
+            from kaos_llm_core.signatures.grounding import RefusalPolicy
+
+            return RefusalPolicy(min_confidence=threshold)
+        except ImportError:
+            return None
+
     def effective_model(self) -> str:
         """The model string to use, considering provider and settings fallback.
 

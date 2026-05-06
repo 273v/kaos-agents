@@ -47,7 +47,7 @@ import sys
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +57,32 @@ from typing import Any
 _EXIT_OK = 0
 _EXIT_ERROR = 1
 _EXIT_BUDGET = 2
+
+
+@dataclass
+class _ExplainTurn:
+    """Per-turn explanation record — the data behind ``/explain``.
+
+    Captures everything the user needs to understand why an agent
+    answer landed the way it did: what was retrieved (URI + score per
+    citation), what was cited (claim + verifier confidence), per-tool
+    latency + cost, total tokens by step. JSON-serializable (all
+    primitives + lists) so ``--explain <file>`` can dump it for the
+    caller to grep / pipe / save.
+    """
+
+    turn_index: int
+    user_message: str
+    intent: str = ""
+    intent_confidence: float = 0.0
+    text: str = ""
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    citations: list[dict[str, Any]] = field(default_factory=list)
+    refusals: list[dict[str, Any]] = field(default_factory=list)
+    errors: list[dict[str, Any]] = field(default_factory=list)
+    tokens_used: int = 0
+    cost_usd: float = 0.0
+    duration_s: float = 0.0
 
 
 @dataclass
@@ -72,6 +98,12 @@ class _SessionState:
     cost_usd: float = 0.0
     turns: int = 0
     max_cost_usd: float | None = None  # None = no cap
+    alert_cost_usd: float | None = None  # None = no alert
+    alerted: bool = False  # Latch — only fire the alert once per run.
+    # Persistent per-turn explain records — N3 / P9. List indexes turn
+    # number 1..N. /explain shows the most recent; /explain N shows
+    # turn N. ``--explain <file>`` writes the full list as JSON.
+    explain_turns: list[_ExplainTurn] = field(default_factory=list)
 
     def absorb(self, tokens: int, cost: float) -> None:
         self.tokens += tokens
@@ -87,6 +119,112 @@ class _SessionState:
             and self.max_cost_usd > 0
             and self.cost_usd >= self.max_cost_usd
         )
+
+    def alert_due(self) -> bool:
+        """Returns True the first time session cost crosses the alert
+        threshold. Latched (``alerted=True``) so we only print once.
+        Complement to ``budget_exceeded`` — alert is a soft warning
+        with no behavior change; budget hard-stops the next turn."""
+        if self.alert_cost_usd is None or self.alert_cost_usd <= 0:
+            return False
+        if self.alerted:
+            return False
+        if self.cost_usd >= self.alert_cost_usd:
+            self.alerted = True
+            return True
+        return False
+
+
+def _explain_to_dict(turn: _ExplainTurn) -> dict[str, Any]:
+    """Convert an _ExplainTurn into a plain dict for JSON dumping.
+
+    Kept here (rather than as a method on _ExplainTurn) so the dataclass
+    stays pure-data. The shape mirrors what the agent's TurnComplete
+    + per-event records carry, with all primitives — no objects whose
+    JSON shape might shift across releases.
+    """
+    return {
+        "turn_index": turn.turn_index,
+        "user_message": turn.user_message,
+        "intent": turn.intent,
+        "intent_confidence": turn.intent_confidence,
+        "text": turn.text,
+        "tool_calls": turn.tool_calls,
+        "citations": turn.citations,
+        "refusals": turn.refusals,
+        "errors": turn.errors,
+        "tokens_used": turn.tokens_used,
+        "cost_usd": turn.cost_usd,
+        "duration_s": turn.duration_s,
+    }
+
+
+def _print_explain(turn: _ExplainTurn) -> None:
+    """Pretty-print a per-turn explain record to stdout.
+
+    Layout:
+        Turn N — intent (confidence) — Xs, $Y.YYYY, K tokens
+        ► User: <message>
+        ► Tools (N):
+            <tool_name> — <duration>ms — $cost — <error?>
+        ► Citations (N):
+            ✓ verified (0.95) — <claim 60>
+                URI / node_ref / page
+        ► Refusals (N):
+            ⚠ <reason>
+        ► Errors (N):
+            ✖ <error_type>: <message>
+        ► Answer: <text>
+    """
+    header = (
+        f"Turn {turn.turn_index} — {turn.intent or '?'} "
+        f"(confidence={turn.intent_confidence:.2f}) — "
+        f"{turn.duration_s:.1f}s, ${turn.cost_usd:.4f}, {turn.tokens_used} tokens"
+    )
+    print(_c(_ANSI_BOLD, header))
+    print(_c(_ANSI_DIM, f"  ► User: {turn.user_message[:200]}"))
+    if turn.tool_calls:
+        print(_c(_ANSI_CYAN, f"  ► Tools ({len(turn.tool_calls)}):"))
+        for tc in turn.tool_calls:
+            cost = tc.get("cost_usd", 0.0) or 0.0
+            cost_part = f" — ${cost:.4f}" if cost > 0 else ""
+            err_part = " — ERROR" if tc.get("is_error") else ""
+            preview = (tc.get("preview") or "")[:80]
+            print(
+                f"    {tc['tool_name']} ({tc.get('duration_ms', 0):.0f}ms){cost_part}{err_part}"
+            )
+            if preview:
+                print(_c(_ANSI_DIM, f"      → {preview}"))
+    if turn.citations:
+        print(_c(_ANSI_CYAN, f"  ► Citations ({len(turn.citations)}):"))
+        for c in turn.citations:
+            v = "✓" if c.get("verified") else "?"
+            print(
+                f"    {v} ({c.get('confidence', 0.0):.2f}) — "
+                f"{(c.get('claim') or '')[:80]}"
+            )
+            uri = c.get("source_uri") or ""
+            ref = c.get("node_ref") or ""
+            page = c.get("page")
+            tail_parts = []
+            if uri:
+                tail_parts.append(uri)
+            if ref:
+                tail_parts.append(ref)
+            if page is not None:
+                tail_parts.append(f"page {page}")
+            if tail_parts:
+                print(_c(_ANSI_DIM, f"      {' / '.join(tail_parts)}"))
+    if turn.refusals:
+        print(_c(_ANSI_YELLOW, f"  ► Refusals ({len(turn.refusals)}):"))
+        for r in turn.refusals:
+            print(f"    ⚠ {r.get('kind', '?')}: {(r.get('reason') or '')[:120]}")
+    if turn.errors:
+        print(_c(_ANSI_RED, f"  ► Errors ({len(turn.errors)}):"))
+        for e in turn.errors:
+            print(f"    ✖ {e.get('error_type', '?')}: {e.get('message', '')[:120]}")
+    if turn.text:
+        print(_c(_ANSI_DIM, f"  ► Answer: {turn.text[:200]}"))
 
 
 def _resolve_corpus_cache(args: argparse.Namespace) -> Path | None:
@@ -114,6 +252,25 @@ def _resolve_max_cost(cli_value: float | None) -> float | None:
     if cli_value is not None:
         return cli_value if cli_value > 0 else None
     raw = os.environ.get("KAOS_AGENT_MAX_COST_USD")
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
+def _resolve_alert_cost(cli_value: float | None) -> float | None:
+    """``--alert-cost`` with env-var fallback. Same precedence rules as
+    ``_resolve_max_cost``: CLI > env > None. Negative/zero disables.
+
+    The alert is a soft warning printed once when cumulative session
+    cost crosses the threshold. Behavior is unchanged afterwards —
+    pair with ``--max-cost`` for a hard ceiling."""
+    if cli_value is not None:
+        return cli_value if cli_value > 0 else None
+    raw = os.environ.get("KAOS_AGENT_ALERT_COST_USD")
     if raw is None:
         return None
     try:
@@ -905,7 +1062,10 @@ async def _run_repl(args: argparse.Namespace) -> _SessionState:
 
     # Phase 4.4 + Phase 5.x: Session-level cost tracking + budget cap.
     # max_cost=None → REPL; one-shot path supplies the cap.
-    state = _SessionState(max_cost_usd=_resolve_max_cost(getattr(args, "max_cost", None)))
+    state = _SessionState(
+        max_cost_usd=_resolve_max_cost(getattr(args, "max_cost", None)),
+        alert_cost_usd=_resolve_alert_cost(getattr(args, "alert_cost", None)),
+    )
 
     tool_names = sorted(runtime.tools.list_tools())
     print(_c(_ANSI_BOLD, f"KAOS Agent | {args.model} | pattern={pattern}"))
@@ -965,6 +1125,39 @@ async def _run_repl(args: argparse.Namespace) -> _SessionState:
                 continue
             if stripped == "/memory":
                 print("(memory dump not yet implemented)")
+                continue
+            if stripped == "/explain" or stripped.startswith("/explain "):
+                # /explain — show the most recent turn.
+                # /explain N — show turn N (1-indexed).
+                # /explain <path> — write all turns as JSON to <path>.
+                rest = stripped[len("/explain"):].strip()
+                if rest and (rest.isdigit() or (rest.startswith("-") and rest[1:].isdigit())):
+                    n = int(rest)
+                    idx = len(state.explain_turns) + n if n < 0 else n - 1
+                    if not state.explain_turns:
+                        print("  No turns to explain yet.")
+                        continue
+                    if not 0 <= idx < len(state.explain_turns):
+                        print(f"  No such turn: {n}. Have {len(state.explain_turns)} turn(s).")
+                        continue
+                    _print_explain(state.explain_turns[idx])
+                    continue
+                if rest:
+                    # Treat as output path.
+                    out = Path(rest).expanduser().resolve()
+                    out.parent.mkdir(parents=True, exist_ok=True)
+                    out.write_text(
+                        json.dumps(
+                            [_explain_to_dict(t) for t in state.explain_turns],
+                            indent=2,
+                        )
+                    )
+                    print(f"  Wrote {len(state.explain_turns)} turn(s) to {out}")
+                    continue
+                if not state.explain_turns:
+                    print("  No turns to explain yet.")
+                    continue
+                _print_explain(state.explain_turns[-1])
                 continue
             if stripped.startswith("/load "):
                 load_arg = stripped[6:].strip()
@@ -1046,6 +1239,18 @@ async def _run_repl(args: argparse.Namespace) -> _SessionState:
 
         try:
             text_parts: list[str] = []
+            # N3 / P9 — capture per-turn explain record. Built up across
+            # the event stream and finalized on TurnComplete. The state's
+            # ``explain_turns`` list keeps every turn so /explain N can
+            # show any past turn, not just the latest.
+            import time as _t
+
+            explain = _ExplainTurn(
+                turn_index=state.turns + 1,
+                user_message=stripped,
+            )
+            explain_t0 = _t.monotonic()
+
             async for event in runner.run(stripped, session_id):
                 # Phase 4.2: Write every event to JSONL log
                 if log_file is not None:
@@ -1058,13 +1263,16 @@ async def _run_repl(args: argparse.Namespace) -> _SessionState:
                 if isinstance(event, TurnStart) and verbose:
                     print(_c(_ANSI_DIM, f"[turn:{event.turn_number}]"))
 
-                elif isinstance(event, IntentClassified) and verbose:
-                    print(
-                        _c(
-                            _ANSI_CYAN,
-                            f"[intent] {event.intent} (confidence={event.confidence:.2f})",
+                elif isinstance(event, IntentClassified):
+                    explain.intent = event.intent
+                    explain.intent_confidence = event.confidence
+                    if verbose:
+                        print(
+                            _c(
+                                _ANSI_CYAN,
+                                f"[intent] {event.intent} (confidence={event.confidence:.2f})",
+                            )
                         )
-                    )
 
                 elif isinstance(event, PlanProposed) and verbose:
                     print(_c(_ANSI_CYAN, "[plan]"))
@@ -1086,10 +1294,20 @@ async def _run_repl(args: argparse.Namespace) -> _SessionState:
                     else:
                         print(_c(_ANSI_DIM, f"  [tool: {event.tool_name}]"))
 
-                elif isinstance(event, ToolCallResult) and verbose:
+                elif isinstance(event, ToolCallResult):
                     preview = (getattr(event, "result_summary", "") or "")[:100]
                     duration = getattr(event, "duration_ms", 0) or 0
-                    print(_c(_ANSI_DIM, f"[tool:result] {preview} ({duration:.0f}ms)"))
+                    explain.tool_calls.append(
+                        {
+                            "tool_name": event.tool_name,
+                            "call_id": event.call_id,
+                            "is_error": event.is_error,
+                            "duration_ms": float(duration),
+                            "preview": preview,
+                        }
+                    )
+                    if verbose:
+                        print(_c(_ANSI_DIM, f"[tool:result] {preview} ({duration:.0f}ms)"))
 
                 elif isinstance(event, ThinkingDelta) and verbose:
                     sys.stdout.write(_c(_ANSI_DIM, event.content))
@@ -1100,31 +1318,62 @@ async def _run_repl(args: argparse.Namespace) -> _SessionState:
                     sys.stdout.flush()
                     text_parts.append(event.content)
 
-                elif isinstance(event, CitationFound) and verbose:
-                    v = "verified" if event.verified else "unverified"
-                    print(
-                        _c(
-                            _ANSI_CYAN,
-                            f"[citation] {event.claim[:60]} ({v}, {event.confidence:.2f})",
-                        )
+                elif isinstance(event, CitationFound):
+                    explain.citations.append(
+                        {
+                            "claim": event.claim,
+                            "verified": event.verified,
+                            "confidence": float(event.confidence),
+                            "source_uri": getattr(event, "source_uri", ""),
+                            "node_ref": getattr(event, "node_ref", ""),
+                            "page": getattr(event, "page", None),
+                        }
                     )
+                    if verbose:
+                        v = "verified" if event.verified else "unverified"
+                        print(
+                            _c(
+                                _ANSI_CYAN,
+                                f"[citation] {event.claim[:60]} ({v}, {event.confidence:.2f})",
+                            )
+                        )
 
                 elif isinstance(event, EvidenceInsufficient):
+                    explain.refusals.append(
+                        {
+                            "reason": event.reason,
+                            "kind": "evidence_insufficient",
+                        }
+                    )
                     print(_c(_ANSI_RED, f"[insufficient] {event.reason}"))
 
-                elif isinstance(event, GroundingRefusalTriggered) and verbose:
-                    print(
-                        _c(
-                            _ANSI_RED,
-                            (
-                                "[refusal] confidence="
-                                f"{event.original_confidence:.2f} < "
-                                f"{event.min_confidence:.2f}"
-                            ),
-                        )
+                elif isinstance(event, GroundingRefusalTriggered):
+                    explain.refusals.append(
+                        {
+                            "kind": "grounding_low_confidence",
+                            "original_confidence": float(event.original_confidence),
+                            "min_confidence": float(event.min_confidence),
+                        }
                     )
+                    if verbose:
+                        print(
+                            _c(
+                                _ANSI_RED,
+                                (
+                                    "[refusal] confidence="
+                                    f"{event.original_confidence:.2f} < "
+                                    f"{event.min_confidence:.2f}"
+                                ),
+                            )
+                        )
 
                 elif isinstance(event, RunError):
+                    explain.errors.append(
+                        {
+                            "error_type": event.error_type,
+                            "message": event.message,
+                        }
+                    )
                     print(_c(_ANSI_RED, f"\n[error] {event.error_type}: {event.message}"))
 
                 elif isinstance(event, TurnComplete):
@@ -1133,6 +1382,26 @@ async def _run_repl(args: argparse.Namespace) -> _SessionState:
                     # Phase 4.4: Accumulate session cost
                     state.absorb(event.tokens_used, event.cost_usd)
                     n_tools = len(event.tool_calls)
+                    # Backfill the per-tool cost into the explain record
+                    # before finalizing — TurnComplete carries the
+                    # attributed cost the agent layer just computed.
+                    cost_by_call_id = {
+                        s.call_id: float(s.cost_usd) for s in event.tool_calls
+                    }
+                    tokens_by_call_id = {
+                        s.call_id: int(s.input_tokens + s.output_tokens)
+                        for s in event.tool_calls
+                    }
+                    for tc in explain.tool_calls:
+                        cid = tc.get("call_id", "")
+                        if cid in cost_by_call_id:
+                            tc["cost_usd"] = cost_by_call_id[cid]
+                            tc["tokens"] = tokens_by_call_id[cid]
+                    explain.text = "".join(text_parts)
+                    explain.tokens_used = int(event.tokens_used)
+                    explain.cost_usd = float(event.cost_usd)
+                    explain.duration_s = _t.monotonic() - explain_t0
+                    state.explain_turns.append(explain)
                     if verbose:
                         print(
                             _c(
@@ -1147,6 +1416,15 @@ async def _run_repl(args: argparse.Namespace) -> _SessionState:
                             _c(
                                 _ANSI_DIM,
                                 f"  [{event.tokens_used} tokens, ${event.cost_usd:.4f}]",
+                            )
+                        )
+                    if state.alert_due():
+                        print(
+                            _c(
+                                _ANSI_YELLOW,
+                                f"⚠ Cost alert: session has spent "
+                                f"${state.cost_usd:.4f} (threshold ${state.alert_cost_usd:.4f}). "
+                                f"Continuing — set --max-cost to hard-stop.",
                             )
                         )
                     print()
@@ -1177,6 +1455,19 @@ async def _run_repl(args: argparse.Namespace) -> _SessionState:
     if log_file is not None:
         log_file.close()
         print(f"Event log written to: {args.log}")
+
+    # N3 / P9 — write per-turn explain records to --explain <path>
+    # when set. Always-write at session end (REPL or one-shot). Writes
+    # an empty list rather than skipping when no turns happened, so
+    # downstream tooling has a stable artifact to diff against.
+    explain_path = getattr(args, "explain", None)
+    if explain_path:
+        out = Path(explain_path).expanduser().resolve()
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(
+            json.dumps([_explain_to_dict(t) for t in state.explain_turns], indent=2)
+        )
+        print(f"Explain records written to: {out} ({len(state.explain_turns)} turn(s))")
 
     return state
 
@@ -1255,6 +1546,33 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "this value in USD. Falls back to $KAOS_AGENT_MAX_COST_USD when "
             "unset; disable with --max-cost 0. Non-interactive mode exits "
             "with code 2 on budget exceeded (distinct from code 1 for errors)."
+        ),
+    )
+    chat.add_argument(
+        "--alert-cost",
+        type=float,
+        default=None,
+        metavar="USD",
+        help=(
+            "Print a one-time alert when cumulative session cost crosses "
+            "this value (USD). Soft warning — does NOT stop the session. "
+            "Use with --max-cost for a hard ceiling. Defaults to "
+            "$KAOS_AGENT_ALERT_COST_USD when unset; 0 disables."
+        ),
+    )
+    chat.add_argument(
+        "--explain",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help=(
+            "After the session ends, write per-turn explain records "
+            "(retrieved passages, citations, refusals, per-tool latency + "
+            "cost) as JSON to PATH. In one-shot mode (--message), the "
+            "single-turn record is written. In REPL mode, all turns are "
+            "written when the REPL exits. Inside the REPL, /explain shows "
+            "the most recent turn (or /explain N for turn N, or "
+            "/explain <path> to write to a file mid-session)."
         ),
     )
     chat.add_argument("--with-source", action="store_true")

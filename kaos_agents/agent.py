@@ -226,6 +226,14 @@ class BaseAgent:
         response_text = ""
         tool_calls: list[ToolCallRecord] = []
         tool_call_summaries: list[ToolCallSummary] = []
+        # Per-tool LLM usage attribution (P8 / N2). Keyed by tool_name —
+        # ``UsageObserved.source`` is informational and the convention is
+        # for tool implementations to set ``source`` to the tool name (or
+        # a stable prefix matching the tool name) when the tool itself
+        # drove an LLM call. Tools that don't call an LLM never emit a
+        # UsageObserved and stay at zero attribution. Multiple calls to
+        # the same tool sum into the same bucket.
+        per_tool_usage: dict[str, InvocationUsage] = {}
 
         logger.debug(
             "agent.step6_dispatch: session=%s intent=%s pattern=%s",
@@ -264,6 +272,17 @@ class BaseAgent:
                     )
                 elif isinstance(event, UsageObserved):
                     turn_usage = turn_usage + InvocationUsage.from_llm_usage(event)
+                    # Attribute to a tool when the source matches a tool
+                    # name we've seen this turn (or starts with one — for
+                    # sub-call sources like "rag-query.verifier"). Match
+                    # is best-effort; unattributed usage stays in turn
+                    # totals only.
+                    src = (event.source or "").strip()
+                    if src:
+                        usage = InvocationUsage.from_llm_usage(event)
+                        per_tool_usage[src] = (
+                            per_tool_usage.get(src, ZERO_USAGE) + usage
+                        )
         except Exception as exc:
             logger.warning("agent.run: dispatch failed: %s", exc)
             yield emitter.emit(
@@ -317,11 +336,33 @@ class BaseAgent:
             memory.total_tokens,
         )
 
+        # Backfill per-tool cost attribution into the summaries before
+        # we emit TurnComplete. Builds a fresh tuple so the summaries
+        # stay frozen-by-immutability — we just reconstruct each one
+        # with the per-tool slice of usage on top of the base shape.
+        attributed_summaries: list[ToolCallSummary] = []
+        for s in tool_call_summaries:
+            usage = per_tool_usage.get(s.tool_name, ZERO_USAGE)
+            if usage is ZERO_USAGE:
+                attributed_summaries.append(s)
+                continue
+            attributed_summaries.append(
+                ToolCallSummary(
+                    tool_name=s.tool_name,
+                    call_id=s.call_id,
+                    is_error=s.is_error,
+                    duration_ms=s.duration_ms,
+                    cost_usd=usage.cost_usd,
+                    input_tokens=usage.input_tokens,
+                    output_tokens=usage.output_tokens,
+                )
+            )
+
         yield emitter.emit(
             TurnComplete,
             text=response_text,
             intent=intent.intent.value,
-            tool_calls=tuple(tool_call_summaries),
+            tool_calls=tuple(attributed_summaries),
             tokens_used=turn_usage.total_tokens,
             cost_usd=turn_usage.cost_usd,
             input_tokens=turn_usage.input_tokens,

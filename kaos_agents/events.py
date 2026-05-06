@@ -43,12 +43,21 @@ from kaos_agents.errors import EventDeserializationError, EventSerializationErro
 
 @dataclass(frozen=True, slots=True)
 class ToolCallSummary:
-    """Compact summary of a tool call for TurnComplete."""
+    """Compact summary of a tool call for TurnComplete.
+
+    ``cost_usd`` aggregates the LLM cost attributable to this tool
+    invocation when the tool itself drove an LLM call (e.g. RAG's
+    rag-query verifier, or a delegated sub-agent). Plain tools that
+    don't call an LLM stay at ``0.0``. Threaded through Phase 5.x for
+    per-tool-call cost telemetry (P8 / N2)."""
 
     tool_name: str
     call_id: str
     is_error: bool = False
     duration_ms: float = 0.0
+    cost_usd: float = 0.0
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 @dataclass(frozen=True, slots=True)

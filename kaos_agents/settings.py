@@ -124,6 +124,54 @@ class KaosAgentSettings(ModuleSettings):
         "small corpora silently bypassed retrieval.",
     )
 
+    # Refusal-robustness knobs (N4). Sit alongside the existing
+    # ``Agent.refusal_policy`` (kaos-llm-core ``RefusalPolicy``) — these
+    # are the system-wide defaults that the agent layer applies when the
+    # caller doesn't supply an explicit policy. The mf09 Voyager
+    # false-positive (chunked retrieval lured the agent into answering
+    # an out-of-corpus question) drove these defaults — they're a hard-
+    # to-misuse second line of defense even when retrieval finds garbage.
+    bm25_score_floor: float = Field(
+        default=0.0,
+        ge=0.0,
+        description=(
+            "Absolute BM25 score floor. Passages scoring below this are "
+            "filtered out before the LLM ever sees them. 0.0 disables — "
+            "default for backward compat. Set 1.0-3.0 for legal corpora "
+            "to filter spurious lexical-overlap hits in adversarial "
+            "(out-of-corpus) queries. Sits in front of the relative "
+            "top-K cutoff: if no passages clear the floor, retrieval "
+            "returns empty and the agent gets InsufficientEvidence."
+        ),
+    )
+    verifier_min_confidence: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Verifier confidence threshold for grounded answers. When > 0, "
+            "answers whose confidence falls below this are collapsed to "
+            "InsufficientEvidence (via kaos-llm-core RefusalPolicy). "
+            "Default 0.0 keeps the legacy permissive behavior; 0.5-0.7 is "
+            "the recommended floor for legal Q&A where hedging on a low-"
+            "confidence claim is worse than refusing. Applied only when "
+            "the agent itself doesn't carry an explicit refusal_policy."
+        ),
+    )
+    refuse_unverified_answers: bool = Field(
+        default=False,
+        description=(
+            "When True, the research pattern collapses any RAG answer "
+            "whose ``result.is_verified`` is False to InsufficientEvidence "
+            "before returning. Catches the mf09 failure mode: low-quality "
+            "lexical retrieval produces a fluent answer the LLM is "
+            "confident about, but the citation spans don't actually verify "
+            "in the source corpus. Off by default (legacy permissive — "
+            "matches the historical 'present an unverified answer with a "
+            "warning' shape). Recommended on for legal deployment."
+        ),
+    )
+
     # Retrieval: adaptive multi-round
     retrieval_top_k: int = Field(
         default=50,

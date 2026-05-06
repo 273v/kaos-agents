@@ -185,10 +185,24 @@ def _load_questions() -> list[dict]:
     return questions
 
 
+def _is_refusal_text(answer: str) -> bool:
+    """Heuristic refusal detector. Used by the fuzzy scorer when no
+    explicit ``EvidenceInsufficient`` event fires (some refusal paths
+    only emit text saying "I don't have enough evidence").
+
+    Lives at module level so the LLM judge can compare its verdict
+    against the same fuzzy refusal call the harness uses.
+    """
+    a = answer.lower()
+    return any(p in a for p in _REFUSAL_PHRASES)
+
+
 async def run_benchmark(
     *,
     model: str | None = None,
     verbose: bool = False,
+    judge_mode: str = "fuzzy",
+    judge_model: str = _DEFAULT_JUDGE_MODEL,
 ) -> BenchmarkResult:
     """Run the full multi-format E2E benchmark."""
     from kaos_core.registry.container import KaosRuntime
@@ -293,27 +307,68 @@ async def run_benchmark(
         answer_text = "".join(text_parts).lower()
         answered = bool(answer_text) and not refused and not errored
 
-        # Check correctness
+        # Fuzzy correctness check (always run — kept as a baseline
+        # signal even when judge_mode="llm" so we can compare).
         if answerable:
-            # Did the agent answer with the expected content? (fuzzy match)
-            answer_correct = answered and _fuzzy_hint_match(answer_text, expected_hint)
+            fuzzy_correct = answered and _fuzzy_hint_match(answer_text, expected_hint)
             expected_doc_found = (
                 any(expected_doc.split("/")[-1].split(".")[0] in c for c in citations)
                 if expected_doc and citations
                 else False
             )
         else:
-            # Did the agent correctly refuse?
-            answer_correct = refused or (
-                "insufficient" in answer_text
-                or "not find" in answer_text
-                or "not contain" in answer_text
-                or "no information" in answer_text
-                or "not available" in answer_text
-                or "cannot answer" in answer_text
-                or "don't have" in answer_text
-            )
+            fuzzy_correct = refused or _is_refusal_text(answer_text)
             expected_doc_found = True  # N/A for unanswerable
+
+        # Optional LLM-as-judge verdict. Falls back to fuzzy on any
+        # judge failure (the llm_judge module has its own graceful
+        # failure mode contract).
+        llm_correct: bool | None = None
+        llm_confidence: float | None = None
+        llm_reasoning_text = ""
+        llm_model_used = ""
+        llm_call_cost = 0.0
+        if judge_mode == "llm":
+            try:
+                from kaos_agents.benchmarks.llm_judge import llm_judge
+
+                verdict = await llm_judge(
+                    question=question,
+                    expected_hint=expected_hint or None,
+                    expected_answerable=answerable,
+                    agent_answer=answer_text,
+                    agent_refused=refused or _is_refusal_text(answer_text),
+                    model=judge_model,
+                )
+                # llm_judge returns dict (via JudgeVerdict.to_dict()).
+                # When the judge is unavailable (provider 529, missing API
+                # key, etc.) the dict has reasoning prefixed with
+                # "judge unavailable:" — treat that as None so the harness
+                # falls back to fuzzy. Otherwise we'd score the agent's
+                # answer based on a transient infra failure.
+                reasoning = str(verdict.get("reasoning", "") or "")
+                judge_failed = reasoning.startswith("judge unavailable:")
+                if judge_failed:
+                    llm_correct = None
+                    llm_confidence = None
+                else:
+                    llm_correct = bool(verdict.get("correct", False))
+                    llm_confidence = float(verdict.get("confidence", 0.0) or 0.0)
+                llm_reasoning_text = reasoning
+                llm_model_used = str(verdict.get("judge_model", "") or "")
+                llm_call_cost = float(verdict.get("judge_cost_usd", 0.0) or 0.0)
+                result.judge_total_cost_usd += llm_call_cost
+            except Exception as exc:  # noqa: BLE001 — defensive
+                llm_reasoning_text = f"judge unavailable: {exc!r}"
+
+        # Promote whichever verdict the caller requested as the
+        # headline ``answer_correct``. If the LLM judge was requested
+        # but failed (None), fall back to fuzzy so we don't silently
+        # discard the run.
+        if judge_mode == "llm" and llm_correct is not None:
+            answer_correct = llm_correct
+        else:
+            answer_correct = fuzzy_correct
 
         qr = QuestionResult(
             question_id=qid,
@@ -327,7 +382,14 @@ async def run_benchmark(
             citations_count=len(citations),
             answer_length=len(answer_text),
             latency_s=latency,
+            answer_text=answer_text[:1000],  # truncate for compact JSON
             error_message=error_msg,
+            fuzzy_correct=fuzzy_correct,
+            llm_correct=llm_correct,
+            llm_confidence=llm_confidence,
+            llm_reasoning=llm_reasoning_text,
+            llm_model=llm_model_used,
+            llm_cost_usd=llm_call_cost,
         )
         result.questions.append(qr)
 
@@ -369,13 +431,44 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--model", default=None, help="LLM model (default: from settings)")
     parser.add_argument("--json", type=str, default=None)
     parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument(
+        "--judge",
+        default="fuzzy",
+        help=(
+            "Scoring mode: 'fuzzy' (default — historical hint matcher), "
+            "'llm' (claude-haiku-4-5), 'llm:<model>' (explicit model spec), "
+            "or 'none' (skip judging — record agent outputs only)."
+        ),
+    )
     args = parser.parse_args(argv)
+    judge_mode = "fuzzy"
+    judge_model = _DEFAULT_JUDGE_MODEL
+    if args.judge == "none":
+        judge_mode = "none"
+    elif args.judge == "fuzzy":
+        judge_mode = "fuzzy"
+    elif args.judge == "llm":
+        judge_mode = "llm"
+    elif args.judge.startswith("llm:"):
+        judge_mode = "llm"
+        judge_model = args.judge[len("llm:"):]
+    else:
+        parser.error(f"unknown --judge value: {args.judge!r} (expected fuzzy/llm/llm:<model>/none)")
 
     if not _CORPUS_DIR.exists():
         sys.stderr.write(f"Corpus not found: {_CORPUS_DIR}\n")
         sys.exit(1)
 
-    result = asyncio.run(run_benchmark(model=args.model, verbose=args.verbose))
+    result = asyncio.run(
+        run_benchmark(
+            model=args.model,
+            verbose=args.verbose,
+            judge_mode=judge_mode,
+            judge_model=judge_model,
+        )
+    )
+    result.judge_mode = judge_mode
+    result.judge_model = judge_model if judge_mode == "llm" else ""
 
     # Print summary
     sys.stdout.write(f"\n{'=' * 60}\n")
@@ -390,6 +483,30 @@ def main(argv: list[str] | None = None) -> None:
     sys.stdout.write(f"Errors:           {result.n_errors}\n")
     sys.stdout.write(f"Accuracy:         {result.accuracy:.1%}\n")
     sys.stdout.write(f"Avg latency:      {result.avg_latency_s:.1f}s\n")
+    sys.stdout.write(f"Judge:            {result.judge_mode}")
+    if result.judge_model:
+        sys.stdout.write(f" ({result.judge_model})")
+    sys.stdout.write("\n")
+    if result.judge_total_cost_usd > 0:
+        sys.stdout.write(f"Judge cost:       ${result.judge_total_cost_usd:.4f}\n")
+    # Fuzzy vs LLM agreement when both are present (judge_mode='llm').
+    if judge_mode == "llm" and result.questions:
+        agree = sum(
+            1
+            for q in result.questions
+            if q.fuzzy_correct is not None
+            and q.llm_correct is not None
+            and q.fuzzy_correct == q.llm_correct
+        )
+        total = sum(
+            1
+            for q in result.questions
+            if q.fuzzy_correct is not None and q.llm_correct is not None
+        )
+        if total:
+            sys.stdout.write(
+                f"Fuzzy↔LLM agree:  {agree}/{total} ({agree / total:.0%})\n"
+            )
     sys.stdout.flush()
 
     # Save results
@@ -414,6 +531,9 @@ def main(argv: list[str] | None = None) -> None:
             "n_errors": result.n_errors,
             "accuracy": result.accuracy,
             "avg_latency_s": result.avg_latency_s,
+            "judge_mode": result.judge_mode,
+            "judge_model": result.judge_model,
+            "judge_total_cost_usd": result.judge_total_cost_usd,
         },
         "questions": [asdict(q) for q in result.questions],
     }
