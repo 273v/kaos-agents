@@ -97,9 +97,11 @@ from kaos_agents.registry import (
     EventRegistry,
     HookRegistry,
     PatternRegistry,
+    ToolDataTypeRegistry,
     default_event_registry,
     default_hook_registry,
     default_pattern_registry,
+    default_tool_data_type_registry,
     default_tool_spec_registry,
 )
 from kaos_agents.runtime.agent import BaseAgent
@@ -119,6 +121,7 @@ from kaos_agents.types import (
     AgentResponse,
     AgentToolRegistration,
     AgentToolSpec,
+    DataType,
     EventMetadata,
     HookMetadata,
     IntentResult,
@@ -128,6 +131,7 @@ from kaos_agents.types import (
     PermissionRule,
     RecipeMetadata,
     ToolCallRecord,
+    ToolDataTypeSpec,
     ToolExecution,
 )
 from kaos_agents.types.providers import BALANCED, FAST, STRONG, ModelRole, ProviderConfig
@@ -151,6 +155,7 @@ __all__ = [
     "CitationFound",
     "ComposeResult",
     "CostTrackingHook",
+    "DataType",
     "Decision",
     "DelegatedAgent",
     "DelegationDepthExceeded",
@@ -229,6 +234,8 @@ __all__ = [
     "ToolCallArgsDelta",
     "ToolCallRecord",
     "ToolCallSummary",
+    "ToolDataTypeRegistry",
+    "ToolDataTypeSpec",
     "ToolExecution",
     "TriageResult",
     "TurnSummary",
@@ -240,6 +247,7 @@ __all__ = [
     "default_event_registry",
     "default_hook_registry",
     "default_pattern_registry",
+    "default_tool_data_type_registry",
     "default_tool_spec_registry",
     "deserialize_event",
     "deserialize_event_json",

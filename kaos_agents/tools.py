@@ -705,11 +705,52 @@ def register_agent_tools(runtime: KaosRuntime) -> int:
         ExtractSchemaTool,
         ExtractVerifyTool,
     )
+    from kaos_agents.registry import default_tool_data_type_registry
     from kaos_agents.tools_graph import (
         AgentGraphProjectionTool,
         AgentGraphSparqlTool,
         AgentGraphWalkTool,
     )
+    from kaos_agents.types import DataType, ToolDataTypeSpec
+
+    # Track 4 chunk T4-1 — register I/O types for built-in tools so
+    # type-driven discovery (tools_by_input_type / by_output_type) works
+    # out of the box. Re-register safely with force=True so reloads
+    # during tests don't conflict.
+    _builtin_data_types: dict[str, ToolDataTypeSpec] = {
+        "kaos-agent-chat": ToolDataTypeSpec(input_type=DataType.TEXT, output_type=DataType.TEXT),
+        "kaos-agent-plan": ToolDataTypeSpec(input_type=DataType.TEXT, output_type=DataType.TEXT),
+        "kaos-agent-memory-query": ToolDataTypeSpec(
+            input_type=DataType.TEXT, output_type=DataType.JSON
+        ),
+        "kaos-agent-memory-search": ToolDataTypeSpec(
+            input_type=DataType.TEXT, output_type=DataType.JSON
+        ),
+        "kaos-agent-memory-clear": ToolDataTypeSpec(
+            input_type=DataType.TEXT, output_type=DataType.JSON
+        ),
+        "kaos-agent-recipe-list": ToolDataTypeSpec(input_type=None, output_type=DataType.JSON),
+        "kaos-extract-schema": ToolDataTypeSpec(
+            input_type=DataType.TEXT, output_type=DataType.JSON
+        ),
+        "kaos-extract-corpus": ToolDataTypeSpec(
+            input_type=DataType.JSON, output_type=DataType.JSON
+        ),
+        "kaos-extract-verify": ToolDataTypeSpec(
+            input_type=DataType.JSON, output_type=DataType.JSON
+        ),
+        "kaos-agent-graph-walk": ToolDataTypeSpec(
+            input_type=DataType.TEXT, output_type=DataType.JSON
+        ),
+        "kaos-agent-graph-sparql": ToolDataTypeSpec(
+            input_type=DataType.TEXT, output_type=DataType.JSON
+        ),
+        "kaos-agent-graph-projection": ToolDataTypeSpec(
+            input_type=DataType.TEXT, output_type=DataType.JSON
+        ),
+    }
+    for tool_name, dtspec in _builtin_data_types.items():
+        default_tool_data_type_registry.register(tool_name, dtspec, force=True)
 
     tools: list[KaosTool] = [
         AgentChatTool(),

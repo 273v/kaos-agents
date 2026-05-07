@@ -21,6 +21,7 @@ The split:
 from __future__ import annotations
 
 from kaos_agents.types.agent_tool_spec import AgentToolRegistration, AgentToolSpec
+from kaos_agents.types.data_type import DataType, ToolDataTypeSpec
 from kaos_agents.types.intents import IntentResult, IntentType
 from kaos_agents.types.memory import (
     DEFAULT_SECTIONS,
@@ -76,6 +77,7 @@ __all__ = [
     "AgentToolRegistration",
     "AgentToolSpec",
     "ComposeResult",
+    "DataType",
     "Decision",
     "EvalMode",
     "EventMetadata",
@@ -104,6 +106,7 @@ __all__ = [
     "StopReason",
     "SummarizationPolicy",
     "ToolCallRecord",
+    "ToolDataTypeSpec",
     "ToolExecution",
     "create_item",
     "estimate_tokens",
