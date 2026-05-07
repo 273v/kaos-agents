@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from kaos_agents.types.agent_tool_spec import AgentToolRegistration, AgentToolSpec
 from kaos_agents.types.data_type import DataType, ToolDataTypeSpec
+from kaos_agents.types.field_set import FieldSet, project, register_projector
 from kaos_agents.types.intents import IntentResult, IntentType
 from kaos_agents.types.memory import (
     DEFAULT_SECTIONS,
@@ -83,6 +84,7 @@ __all__ = [
     "EvalMode",
     "EventMetadata",
     "EvictionPolicy",
+    "FieldSet",
     "HookMetadata",
     "IntentResult",
     "IntentType",
@@ -112,4 +114,6 @@ __all__ = [
     "ToolGroup",
     "create_item",
     "estimate_tokens",
+    "project",
+    "register_projector",
 ]
