@@ -26,7 +26,8 @@ from kaos_agents.events import (
     ToolCallSummary,
     TurnSummary,
 )
-from kaos_agents.runtime.agent import BaseAgent, _events_to_response
+from kaos_agents.runtime.agent import BaseAgent
+from kaos_agents.runtime.events_to_response import events_to_response as _events_to_response
 from kaos_agents.types import AgentResponse, IntentResult, IntentType
 
 # ---------------------------------------------------------------------------

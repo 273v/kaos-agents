@@ -30,6 +30,7 @@ from kaos_core.logging import get_logger
 from kaos_llm_core import InputField, OutputField, Signature
 
 from kaos_agents._constants import FALLBACK_RECENT_MESSAGES
+from kaos_agents.base.agent import KaosAgent
 from kaos_agents.context.classify import classify_intent
 from kaos_agents.events import (
     EventEmitter,
@@ -51,7 +52,6 @@ from kaos_agents.memory.store import SessionStore
 from kaos_agents.settings import KaosAgentSettings
 from kaos_agents.types import (
     ZERO_USAGE,
-    AgentResponse,
     IntentResult,
     IntentType,
     InvocationUsage,
@@ -91,15 +91,19 @@ def _generate_run_id() -> str:
     return f"run_{uuid.uuid4().hex[:12]}"
 
 
-class BaseAgent:
+class BaseAgent(KaosAgent):
     """Core agent with the 8-step turn loop.
 
-    Subclasses (ChatAgent, PlanExecuteAgent) override dispatch handlers
-    for each intent type. BaseAgent provides the loop scaffolding.
+    Canonical concrete implementation of :class:`KaosAgent`. Subclasses
+    (ChatAgent, PlanExecuteAgent, ResearchAgent) override dispatch
+    handlers for each intent type; BaseAgent provides the loop
+    scaffolding shared by every pattern.
 
     Two execution modes:
     - ``run(message, session_id)`` yields ``KaosEvent`` progressively
-    - ``turn(message, session_id)`` returns ``AgentResponse`` (backward compat)
+    - ``turn(message, session_id)`` returns ``AgentResponse`` (default
+      from :class:`KaosAgent` — collects events from ``run()`` and
+      converts via :func:`events_to_response`)
 
     The agent is stateless — constructed per call, not per session.
     All state lives in SessionMemory.
@@ -411,23 +415,9 @@ class BaseAgent:
             output_tokens=turn_usage.output_tokens,
         )
 
-    async def turn(self, message: str, session_id: str) -> AgentResponse:
-        """Execute a single agent turn (backward-compatible blocking mode).
-
-        Collects all events from ``run()`` and returns the final response.
-        Use ``run()`` for streaming.
-
-        Args:
-            message: The user's message.
-            session_id: Session identifier for memory persistence.
-
-        Returns:
-            AgentResponse with the agent's reply and metadata.
-        """
-        events: list[KaosEvent] = []
-        async for event in self.run(message, session_id):
-            events.append(event)
-        return _events_to_response(events, session_id)
+    # ``turn()`` is inherited from :class:`KaosAgent`. The default
+    # collects events from :meth:`run` and converts via
+    # :func:`kaos_agents.runtime.events_to_response.events_to_response`.
 
     # -- Streaming dispatch (override in subclasses) ---------------------------
 
@@ -661,69 +651,9 @@ class BaseAgent:
 # ---------------------------------------------------------------------------
 
 
-def _events_to_response(events: list[KaosEvent], session_id: str) -> AgentResponse:
-    """Convert a collected event stream to a single AgentResponse.
-
-    Scans events for TurnSummary (final text + metrics) and IntentClassified
-    (intent). Falls back gracefully if events are incomplete.
-    """
-    # Find the final TurnSummary and IntentClassified events
-    turn_summary: TurnSummary | None = None
-    intent_event: IntentClassified | None = None
-    tool_call_records: list[ToolCallRecord] = []
-
-    for event in events:
-        if isinstance(event, TurnSummary):
-            turn_summary = event
-        elif isinstance(event, IntentClassified):
-            intent_event = event
-        elif (
-            isinstance(event, Span)
-            and event.subject == SpanSubject.TOOL_CALL
-            and event.phase == SpanPhase.COMPLETE
-        ):
-            attrs = event.attributes
-            tool_call_records.append(
-                ToolCallRecord.from_dict_args(
-                    tool_name=str(attrs.get("tool_name", "")),
-                    arguments={},
-                    result_summary=str(attrs.get("result_summary", "")),
-                    is_error=bool(attrs.get("is_error", False)),
-                )
-            )
-
-    # Build IntentResult from the intent event
-    intent = IntentResult(
-        intent=IntentType(intent_event.intent) if intent_event else IntentType.RESPOND,
-        confidence=intent_event.confidence if intent_event else 0.0,
-        reasoning=intent_event.reasoning if intent_event else "",
-    )
-
-    # Build response from TurnSummary or fallback to concatenated TextDelta
-    if turn_summary:
-        text = turn_summary.text
-        tokens_used = turn_summary.tokens_used
-        turn_number = 0
-        # Find turn number from Span(TURN, START)
-        for event in events:
-            if (
-                isinstance(event, Span)
-                and event.subject == SpanSubject.TURN
-                and event.phase == SpanPhase.START
-            ):
-                turn_number = int(event.attributes.get("turn_number", 0) or 0)
-                break
-    else:
-        # Fallback: concatenate all TextDelta content
-        text = "".join(event.content for event in events if isinstance(event, TextDelta))
-        tokens_used = 0
-        turn_number = 0
-
-    return AgentResponse.create(
-        text=text,
-        intent=intent,
-        tool_calls=tuple(tool_call_records),
-        turn_number=turn_number,
-        tokens_used=tokens_used,
-        metadata={"session_id": session_id},
-    )
+# Event-stream → AgentResponse conversion lives in
+# :mod:`kaos_agents.runtime.events_to_response` so :class:`KaosAgent`'s
+# default :meth:`KaosAgent.turn` can use it without depending on
+# this module. The previous private ``_events_to_response`` helper
+# was inlined here pre-refactor; it's now the canonical
+# :func:`kaos_agents.runtime.events_to_response.events_to_response`.
