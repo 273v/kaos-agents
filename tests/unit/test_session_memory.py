@@ -15,7 +15,7 @@ class TestSessionMemoryBasic:
         assert mem.session_id == "test"
         assert mem.turn_count == 0
         assert mem.total_tokens == 0
-        assert len(mem.section_names) == 13  # DEFAULT_SECTIONS
+        assert len(mem.section_names) == 14  # DEFAULT_SECTIONS (13 + GRAPH from chunk B1)
 
     def test_add_and_read(self):
         mem = SessionMemory("test")

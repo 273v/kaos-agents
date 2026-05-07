@@ -135,8 +135,9 @@ class TestSectionConfig:
 
 
 class TestDefaultSections:
-    def test_has_13_sections(self):
-        assert len(DEFAULT_SECTIONS) == 13
+    def test_has_14_sections(self):
+        # Track 3 chunk B1 added MemoryType.GRAPH (14th section).
+        assert len(DEFAULT_SECTIONS) == 14
 
     def test_all_types_unique(self):
         types = [s.memory_type for s in DEFAULT_SECTIONS]
