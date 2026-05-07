@@ -6,6 +6,7 @@ from kaos_agents._version import __version__
 from kaos_agents.agent import BaseAgent
 from kaos_agents.config import Agent, AgentPattern
 from kaos_agents.context import TriageResult, assemble_context, triage_corpus
+from kaos_agents.decorators import FunctionHook, hook
 from kaos_agents.delegation import (
     DelegatedAgent,
     DelegationDepthExceeded,
@@ -47,9 +48,18 @@ from kaos_agents.events import (
     ToolCallSummary,
     TurnSummary,
     deserialize_event,
+    deserialize_event_json,
     serialize_event,
+    serialize_event_json,
 )
-from kaos_agents.hooks import AuditHook, CostTrackingHook, HookAction, KaosHook, LoggingHook
+from kaos_agents.hooks import (
+    AuditHook,
+    CostTrackingHook,
+    HookAction,
+    KaosHook,
+    LoggingHook,
+    dispatch_hook,
+)
 from kaos_agents.hooks.otel import OTelHook
 from kaos_agents.interrupts import PendingToolCall, RunState
 from kaos_agents.memory import (
@@ -78,15 +88,26 @@ from kaos_agents.planning import (
     StepType,
     StopReason,
 )
+from kaos_agents.registry import (
+    EventRegistry,
+    HookRegistry,
+    default_event_registry,
+    default_hook_registry,
+)
 from kaos_agents.runner import Runner
 from kaos_agents.settings import KaosAgentSettings
 from kaos_agents.tools import register_agent_tools
 from kaos_agents.types import (
+    AgentMetadata,
     AgentResponse,
+    EventMetadata,
+    HookMetadata,
     IntentResult,
     IntentType,
+    PatternMetadata,
     PermissionDecision,
     PermissionRule,
+    RecipeMetadata,
     ToolCallRecord,
 )
 from kaos_agents.types.providers import BALANCED, FAST, STRONG, ModelRole, ProviderConfig
@@ -97,6 +118,7 @@ __all__ = [
     "FAST",
     "STRONG",
     "Agent",
+    "AgentMetadata",
     "AgentPattern",
     "AgentResponse",
     "AuditHook",
@@ -111,12 +133,17 @@ __all__ = [
     "EvalMode",
     "EventDeserializationError",
     "EventEmitter",
+    "EventMetadata",
+    "EventRegistry",
     "EventSerializationError",
     "EvictionError",
     "EvictionPolicy",
     "EvidenceInsufficient",
+    "FunctionHook",
     "GroundingRefusalTriggered",
     "HookAction",
+    "HookMetadata",
+    "HookRegistry",
     "IntentClassified",
     "IntentResult",
     "IntentType",
@@ -134,6 +161,7 @@ __all__ = [
     "MemoryType",
     "ModelRole",
     "OTelHook",
+    "PatternMetadata",
     "PendingToolCall",
     "PermissionDecision",
     "PermissionPolicy",
@@ -145,6 +173,7 @@ __all__ = [
     "PlanStepSummary",
     "PrimitiveTrace",
     "ProviderConfig",
+    "RecipeMetadata",
     "RouteResult",
     "RunError",
     "RunState",
@@ -177,10 +206,16 @@ __all__ = [
     "agent_as_tool",
     "assemble_context",
     "current_delegation_depth",
+    "default_event_registry",
+    "default_hook_registry",
     "deserialize_event",
+    "deserialize_event_json",
+    "dispatch_hook",
     "events_to_jsonl",
     "events_to_sse",
+    "hook",
     "register_agent_tools",
     "serialize_event",
+    "serialize_event_json",
     "triage_corpus",
 ]

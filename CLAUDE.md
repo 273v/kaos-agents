@@ -35,33 +35,65 @@ The agent is **stateless** — reconstructed per MCP call. All persistent state 
 ```
 Application / MCP Client
     ↓
-kaos-agents
+kaos-agents (mirrors kaos-core layout: base/ + types/ + registry/ + decorators/)
+    ├── base/                — ABCs (KaosEvent, KaosHook, ...)
+    ├── types/               — frozen value types (intents, response, tool_call, plan, memory,
+    │                          providers, permissions, usage, metadata)
+    ├── events/              — 15 KaosEvent subclasses + Span (universal phase boundary)
+    │                          ├── stream.py        TextDelta, ThinkingDelta, ToolCallArgsDelta
+    │                          ├── spans.py         Span + SpanSubject + SpanPhase
+    │                          ├── lifecycle.py     TurnSummary, IntentClassified, UsageObserved, RunError
+    │                          ├── tools.py         ToolCallSummary + ToolCallApprovalRequired
+    │                          ├── plan.py          PlanProposed + PlanStepSummary
+    │                          ├── research.py      CitationFound, EvidenceInsufficient, GroundingRefusalTriggered
+    │                          ├── memory.py        MemoryEvent + MemoryEventKind
+    │                          ├── budget.py        BudgetExceeded
+    │                          ├── emitter.py       EventEmitter (with span_start/complete/error helpers)
+    │                          └── serde.py         serialize_event / deserialize_event (registry-backed)
+    ├── hooks/               — KaosHook ABC + dispatch + 4 built-in hooks
+    │                          ├── base.py          KaosHook ABC + HookAction enum + identity hooks
+    │                          ├── dispatch.py      dispatch_hook() — Runner-side fan-out
+    │                          ├── builtin.py       LoggingHook, AuditHook, CostTrackingHook
+    │                          └── otel.py          OTelHook (optional [otel] extra)
+    ├── registry/            — catalogues (mirror kaos-core/registry)
+    │                          ├── event_registry.py  type-string → KaosEvent class (auto-populated)
+    │                          └── hook_registry.py   name → KaosHook instance
+    ├── decorators/          — Tier-1 on-ramp (mirror kaos-core/decorators)
+    │                          └── hook.py          @hook wraps async fn → FunctionHook + auto-register
+    │
     ├── Agent + Runner    — Agent is frozen config (instructions, model, tools, pattern)
     │                       Runner is the execution engine (runtime, context, VFS, hooks)
-    │                       run() → AsyncIterator[AgentEvent], turn() → AgentResponse
-    ├── AgentEvent        — 19 typed streaming events (TextDelta, ToolCallStart, StepComplete, etc.)
-    │                       Two-level: stream deltas (real-time) + lifecycle events (semantic)
-    │                       Serialize/deserialize with type discriminator, EventEmitter helper
+    │                       run() → AsyncIterator[KaosEvent], turn() → AgentResponse
+    ├── KaosEvent stream  — 15 typed events (3 stream deltas, 1 universal Span,
+    │                       6 value events, 1 TurnSummary aggregate, 1 MemoryEvent,
+    │                       2 errors, 1 control-flow). OTel-aligned via Span(subject, phase).
+    │                       Auto-registered in default_event_registry on subclass creation.
+    │                       Frozen pydantic KaosModel; mirrors kaos-core value-type convention.
+    ├── KaosHook system   — KaosHook ABC with no-op typed callbacks per event family.
+    │                       Tier-1: @hook decorator wraps async fn → FunctionHook
+    │                       Tier-2: subclass KaosHook + override on_*
+    │                       Tier-3: custom HookRegistry + manual register
+    │                       HookAction (CONTINUE/SKIP/REQUIRE_APPROVAL) for tool-call gating
+    │                       Built-ins: LoggingHook, AuditHook, CostTrackingHook, OTelHook
+    │                       ProviderConfig with ModelRole (classify/respond/plan/research/evaluate)
+    │                       FAST/BALANCED/STRONG presets
     ├── SessionMemory     — 13-section context management with budgets, eviction, BM25 search, persistence
     ├── ToolBridge        — wraps KaosTool → kaos-llm-core Tool for ReAct
     ├── AgentLoop         — 8-step turn: add message → assemble context → classify → dispatch → update memory
-    ├── Hooks + Providers — BaseHook with lifecycle callbacks (on_turn_start, on_tool_call_start, etc.)
-    │                       HookAction (CONTINUE/SKIP/REQUIRE_APPROVAL), LoggingHook, OTelHook built-in
-    │                       ProviderConfig with ModelRole (classify/respond/plan/research/evaluate)
-    │                       FAST/BALANCED/STRONG presets
     ├── Permissions        — PermissionRule (glob pattern + allow/deny/ask) + PermissionPolicy
     │                       Auto-allow readOnlyHint, auto-ask destructiveHint
     │                       RunState for durable pause/resume across process restarts
     ├── Delegation         — agent_as_tool() wraps an Agent as a callable sub-agent
     │                       Agent.delegated_agents are auto-injected as ReAct tools
-    │                       Agent.handoffs become handoff_to_<name> tools
+    │                       Agent.handoffs become handoff_to_<name> tools — emit Span(HANDOFF, ...)
     │                       ContextVar depth tracking prevents infinite recursion
-    │                       Runner.delegate() / Runner.handoff() yield Subagent/Handoff events
+    │                       Runner.delegate() / Runner.handoff() yield Span(SUBAGENT/HANDOFF) events
     │                       Runner.resume() continues a paused run (with VFS-restored memory)
     ├── Wire + API        — SSE, JSONL, WebSocket serializers + FastAPI REST API with streaming
     │                       POST /v1/sessions/{id}/messages → SSE event stream
     │                       Session CRUD, memory query/search endpoints
-    ├── MCP Tools         — 6 tools (chat, plan, memory-query, memory-search, memory-clear, recipe-list)
+    ├── MCP Tools         — 9 tools (chat, plan, memory-query, memory-search, memory-clear, recipe-list,
+    │                       extract-schema, extract-corpus, extract-verify)
     ├── Recipes           — 5 built-in workflow playbooks auto-loaded into PLAN_EXAMPLES
     └── Planning          — 7 primitives, 4 strategies, PlanGraph (kaos-graph backed)
     ↓
@@ -87,8 +119,9 @@ kaos-core                — runtime, VFS, artifacts, settings, tools
 - **Cross-domain benchmark requirement.** Any change to the retrieval pipeline must be validated on at least 3 BEIR datasets (e.g., NFCorpus, SciFact, FiQA) before shipping. Cherry-picked improvements on 1-2 queries are not evidence of correctness. See `tests/benchmarks/beir_eval.py` and `tests/benchmarks/cross_domain_benchmark.py`.
 - **Corpus triage.** `triage_corpus()` runs BM25 on the DOCUMENTS section before plan expansion to narrow a large corpus to the relevant subset. The triage summary is injected into planning context: "Selected 15 of 1000 documents — plan over these only."
 - **Query-aware planning.** `_assess_complexity()` now considers corpus size (100+ docs → decompose) and intent confidence (low confidence → more planning). Composes with the adaptive strategy's existing word-count heuristic.
-- **OpenTelemetry tracing.** `OTelHook(BaseHook)` emits spans for turns, tool calls, plan steps (optional `[otel]` extra).
-- **Real token/cost accounting (Phase 5.0).** `_simple_respond` and every pattern's streaming handler call `.invoke()` (not bare `__call__`) so `Invocation.usage` is available. Each completed Program yields a `UsageObserved` event (`input_tokens`/`output_tokens`/`total_tokens`/`cost_usd`/`source`). `BaseAgent.run()` aggregates these into the `TurnComplete` event's token+cost fields. The value type is `kaos_agents.usage.InvocationUsage` (frozen, slotted, pointwise-addable, with `ZERO_USAGE` identity + `from_invocation`/`from_llm_usage` factories). Pre-5.0 the turn loop hard-coded `tokens_used=0` / `cost_usd=0.0` — now downstream consumers (OTel spans, UsageHook session totals, planning's `Budget`, MCP tool responses, SSE/JSONL wire streams) all see real numbers. Duplicating the four-field value type in kaos-agents preserves the `[llm]`-optional invariant (agents that never call an LLM still run without the kaos-llm-core dep).
+- **OpenTelemetry tracing.** `OTelHook(KaosHook)` emits OTel spans for turns, tool calls, plan steps (optional `[otel]` extra). Maps directly onto our internal `Span(subject, phase)` events.
+- **Real token/cost accounting (Phase 5.0).** `_simple_respond` and every pattern's streaming handler call `.invoke()` (not bare `__call__`) so `Invocation.usage` is available. Each completed Program yields a `UsageObserved` event (`input_tokens`/`output_tokens`/`total_tokens`/`cost_usd`/`source`). `BaseAgent.run()` aggregates these into the `TurnSummary` event's token+cost fields (the typed turn-end aggregate that ships alongside `Span(TURN, COMPLETE)`). The value type is `kaos_agents.types.usage.InvocationUsage` (frozen, slotted, pointwise-addable, with `ZERO_USAGE` identity + `from_invocation`/`from_llm_usage` factories). Pre-5.0 the turn loop hard-coded `tokens_used=0` / `cost_usd=0.0` — now downstream consumers (OTel spans, CostTrackingHook session totals, planning's `Budget`, MCP tool responses, SSE/JSONL wire streams) all see real numbers. Duplicating the four-field value type in kaos-agents preserves the `[llm]`-optional invariant (agents that never call an LLM still run without the kaos-llm-core dep).
+- **Event taxonomy: 1 Span + typed value events.** Phase boundaries (turn start/complete, step start/complete, tool call start/complete, sub-agent lifecycle, handoffs, run lifecycle) all become `Span(subject, phase)` events with span_id / parent_span_id / duration_ms / attributes. Concrete value events keep typed classes for facts that carry payload beyond a phase: `IntentClassified`, `PlanProposed`, `CitationFound`, `UsageObserved`, `EvidenceInsufficient`, `GroundingRefusalTriggered`, `TurnSummary`. Memory mutations are a single `MemoryEvent(kind, ...)` with a `MemoryEventKind` enum (ADDED / EVICTED / SUMMARIZED / HYDRATED / PERSISTED / SEARCHED). Errors split into `RunError` (generic terminal) and `BudgetExceeded` (typed subtype). `ToolCallApprovalRequired` is the one tool-related event that isn't a Span — it's a control-flow signal with persistence semantics. 15 events total. OTel-aligned via Span; consumers pattern-match on `(event.subject, event.phase)` for boundary events and `isinstance(event, X)` for value events.
 
 ## Dependencies
 

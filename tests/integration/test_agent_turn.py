@@ -17,6 +17,7 @@ from kaos_agents.agent import BaseAgent
 from kaos_agents.memory.store import SessionStore
 from kaos_agents.types import IntentResult, IntentType
 from kaos_agents.types.memory import MemoryType
+from kaos_agents.types.usage import ZERO_USAGE
 
 
 def _memory_vfs() -> VirtualFileSystem:
@@ -42,7 +43,10 @@ class TestBaseAgentTurn:
                 ),
             ),
             patch.object(
-                agent, "_simple_respond", new_callable=AsyncMock, return_value="Hello back!"
+                agent,
+                "_simple_respond",
+                new_callable=AsyncMock,
+                return_value=("Hello back!", ZERO_USAGE),
             ),
         ):
             response = await agent.turn("Hello!", session_id="test-session")
@@ -75,7 +79,7 @@ class TestBaseAgentTurn:
                     agent,
                     "_simple_respond",
                     new_callable=AsyncMock,
-                    return_value=f"Response {turn_idx}",
+                    return_value=(f"Response {turn_idx}", ZERO_USAGE),
                 ),
             ):
                 response = await agent.turn(f"Message {turn_idx}", session_id="multi-turn")
@@ -105,7 +109,7 @@ class TestBaseAgentTurn:
                 agent,
                 "_simple_respond",
                 new_callable=AsyncMock,
-                return_value="I'll help with that.",
+                return_value=("I'll help with that.", ZERO_USAGE),
             ),
         ):
             response = await agent.turn("extract dates from the contract", session_id="tool-test")
@@ -133,7 +137,10 @@ class TestBaseAgentTurn:
                 ),
             ),
             patch.object(
-                agent1, "_simple_respond", new_callable=AsyncMock, return_value="First response"
+                agent1,
+                "_simple_respond",
+                new_callable=AsyncMock,
+                return_value=("First response", ZERO_USAGE),
             ),
         ):
             await agent1.turn("First message", session_id="restart-test")
@@ -150,7 +157,10 @@ class TestBaseAgentTurn:
                 ),
             ),
             patch.object(
-                agent2, "_simple_respond", new_callable=AsyncMock, return_value="Second response"
+                agent2,
+                "_simple_respond",
+                new_callable=AsyncMock,
+                return_value=("Second response", ZERO_USAGE),
             ),
         ):
             response = await agent2.turn("Second message", session_id="restart-test")
