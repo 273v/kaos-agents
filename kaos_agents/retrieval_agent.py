@@ -84,9 +84,9 @@ def create_retrieval_agent(
         A DelegatedAgent instance ready to pass to Agent.create(delegated_agents=[...]).
     """
     from kaos_agents.config import Agent, AgentPattern
-    from kaos_agents.retrieval_tools import register_retrieval_tools
     from kaos_agents.runtime.delegation import agent_as_tool
     from kaos_agents.settings import DEFAULT_MODEL
+    from kaos_agents.tools.retrieval import register_retrieval_tools
 
     n_tools = register_retrieval_tools(runtime)
     logger.debug("retrieval_agent: registered %d retrieval tools", n_tools)

@@ -31,7 +31,7 @@ from kaos_agents.memory.triples import (
     step_iri,
     tool_call_iri,
 )
-from kaos_agents.tools_graph import (
+from kaos_agents.tools.graph import (
     AgentGraphProjectionTool,
     AgentGraphSparqlTool,
     AgentGraphWalkTool,

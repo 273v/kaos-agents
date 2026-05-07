@@ -17,16 +17,16 @@ from typing import Any, cast
 
 import pytest
 
-from kaos_agents.mcp_extract import (
-    ExtractCorpusTool,
-    ExtractSchemaTool,
-    ExtractVerifyTool,
-    _resolve_schema,
-)
 from kaos_agents.recipes import (
     extraction_recipe_names,
     load_extraction_recipe,
     load_extraction_recipes,
+)
+from kaos_agents.tools.extract import (
+    ExtractCorpusTool,
+    ExtractSchemaTool,
+    ExtractVerifyTool,
+    _resolve_schema,
 )
 
 
