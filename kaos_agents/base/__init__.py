@@ -19,6 +19,8 @@ Pure-strategy contracts (no shared impl) live alongside as
 
 from __future__ import annotations
 
+from kaos_agents.base.agent import KaosAgent
 from kaos_agents.base.event import KaosEvent
+from kaos_agents.base.pattern import KaosPattern
 
-__all__ = ["KaosEvent"]
+__all__ = ["KaosAgent", "KaosEvent", "KaosPattern"]
