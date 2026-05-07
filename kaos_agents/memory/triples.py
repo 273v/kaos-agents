@@ -151,6 +151,20 @@ def _ensure_node(graph, iri: str, **properties) -> None:
         graph.add_node(iri, **properties)
 
 
+def _ensure_type_edge(graph, subject_iri: str, type_iri: str) -> None:
+    """Emit ``<subject> rdf:type <type>`` as a graph edge.
+
+    kaos_graph's Turtle / SPARQL exporters only serialize **edges** to
+    triples — node properties stay invisible to consumers. So typing
+    must travel as an edge with predicate=RDF_TYPE. Duplicate edges
+    are allowed (multi-graph semantics); pyoxigraph's Store dedupes
+    on insert via RDF set semantics, so SPARQL sees one triple
+    regardless of how many times we re-emit.
+    """
+    _ensure_node(graph, type_iri)  # type-class IRI must exist as a node too
+    graph.add_edge(subject_iri, type_iri, predicate=RDF_TYPE)
+
+
 def _now_iso() -> str:
     """ISO-8601 UTC timestamp for prov:startedAtTime / prov:endedAtTime."""
     return datetime.now(UTC).isoformat(timespec="seconds")
@@ -177,25 +191,19 @@ def _emit_tool_call_start(event, memory: SessionMemory) -> int:
     call_node = tool_call_iri(call_id)
     agent_node = agent_iri()
 
-    _ensure_node(
-        graph,
-        call_node,
-        rdf_type=KAOS_TOOL_CALL,
-        rdfs_label=tool_name,
-    )
+    _ensure_node(graph, call_node, rdfs_label=tool_name, prov_startedAtTime=_now_iso())
+    _ensure_type_edge(graph, call_node, KAOS_TOOL_CALL)
     _ensure_node(graph, agent_node, rdfs_label="kaos-agents runtime")
-
-    # Properties on the call node — duration etc. arrive on COMPLETE.
-    graph.update_node(call_node, prov_startedAtTime=_now_iso())
 
     # Cross-node provenance edges
     graph.add_edge(call_node, agent_node, predicate=PROV_ASSOCIATED_WITH)
 
-    triples_added = 4  # type, label, startedAt, wasAssociatedWith
+    triples_added = 4  # type-edge, label, startedAt, wasAssociatedWith
 
     if step_id:
         step_node = step_iri(step_id)
-        _ensure_node(graph, step_node, rdf_type=KAOS_STEP)
+        _ensure_node(graph, step_node)
+        _ensure_type_edge(graph, step_node, KAOS_STEP)
         graph.add_edge(call_node, step_node, predicate=PROV_INFORMED_BY)
         triples_added += 1
 
@@ -213,7 +221,8 @@ def _emit_tool_call_complete(event, memory: SessionMemory) -> int:
     call_node = tool_call_iri(call_id)
     if not graph.has_node(call_node):
         # COMPLETE without a START — emit a stub node so the triple has a subject
-        _ensure_node(graph, call_node, rdf_type=KAOS_TOOL_CALL)
+        _ensure_node(graph, call_node)
+        _ensure_type_edge(graph, call_node, KAOS_TOOL_CALL)
 
     duration_ms = float(event.duration_ms or 0.0)
     is_error = bool(attrs.get("is_error", False))
@@ -240,10 +249,10 @@ def _emit_step_start(event, memory: SessionMemory) -> int:
     _ensure_node(
         graph,
         step_node,
-        rdf_type=KAOS_STEP,
         rdfs_label=description or step_id,
         prov_startedAtTime=_now_iso(),
     )
+    _ensure_type_edge(graph, step_node, KAOS_STEP)
     return 3
 
 
@@ -257,7 +266,8 @@ def _emit_step_complete(event, memory: SessionMemory) -> int:
     graph = memory.graph
     step_node = step_iri(step_id)
     if not graph.has_node(step_node):
-        _ensure_node(graph, step_node, rdf_type=KAOS_STEP)
+        _ensure_node(graph, step_node)
+        _ensure_type_edge(graph, step_node, KAOS_STEP)
 
     graph.update_node(
         step_node,
@@ -296,15 +306,16 @@ def _emit_citation_found(event, memory: SessionMemory) -> int:
     _ensure_node(
         graph,
         finding_node,
-        rdf_type=KAOS_FINDING,
         rdfs_label=claim[:200],  # cap to keep label compact
         kaos_confidence=float(event.confidence),
         kaos_verified=bool(event.verified),
     )
-    _ensure_node(graph, doc_node, rdf_type=KAOS_DOCUMENT)
+    _ensure_type_edge(graph, finding_node, KAOS_FINDING)
+    _ensure_node(graph, doc_node)
+    _ensure_type_edge(graph, doc_node, KAOS_DOCUMENT)
     graph.add_edge(finding_node, doc_node, predicate=CITO_CITES)
 
-    return 4  # finding type+label+confidence (3 props on one node) + cites edge
+    return 5  # finding type-edge + label/conf/verified props + doc type-edge + cites
 
 
 # ---------------------------------------------------------------------------

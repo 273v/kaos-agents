@@ -705,6 +705,11 @@ def register_agent_tools(runtime: KaosRuntime) -> int:
         ExtractSchemaTool,
         ExtractVerifyTool,
     )
+    from kaos_agents.tools_graph import (
+        AgentGraphProjectionTool,
+        AgentGraphSparqlTool,
+        AgentGraphWalkTool,
+    )
 
     tools: list[KaosTool] = [
         AgentChatTool(),
@@ -717,6 +722,10 @@ def register_agent_tools(runtime: KaosRuntime) -> int:
         ExtractSchemaTool(),
         ExtractCorpusTool(),
         ExtractVerifyTool(),
+        # Track 3 chunk B3 — session knowledge graph tools.
+        AgentGraphWalkTool(),
+        AgentGraphSparqlTool(),
+        AgentGraphProjectionTool(),
     ]
     for tool in tools:
         runtime.tools.register_tool(tool)

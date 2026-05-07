@@ -96,8 +96,8 @@ class TestToolRegistration:
     def test_register_agent_tools(self):
         runtime = KaosRuntime()
         count = register_agent_tools(runtime)
-        # 6 legacy agent tools + 3 WS-TR.PR-4 extraction tools.
-        assert count == 9
+        # 6 legacy agent tools + 3 WS-TR.PR-4 extraction tools + 3 B3 graph tools.
+        assert count == 12
 
     def test_registered_tools_discoverable(self):
         runtime = KaosRuntime()
