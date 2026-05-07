@@ -705,13 +705,16 @@ def register_agent_tools(runtime: KaosRuntime) -> int:
         ExtractSchemaTool,
         ExtractVerifyTool,
     )
-    from kaos_agents.registry import default_tool_data_type_registry
+    from kaos_agents.registry import (
+        default_tool_data_type_registry,
+        default_tool_group_registry,
+    )
     from kaos_agents.tools_graph import (
         AgentGraphProjectionTool,
         AgentGraphSparqlTool,
         AgentGraphWalkTool,
     )
-    from kaos_agents.types import DataType, ToolDataTypeSpec
+    from kaos_agents.types import DataType, ToolDataTypeSpec, ToolGroup
 
     # Track 4 chunk T4-1 — register I/O types for built-in tools so
     # type-driven discovery (tools_by_input_type / by_output_type) works
@@ -751,6 +754,53 @@ def register_agent_tools(runtime: KaosRuntime) -> int:
     }
     for tool_name, dtspec in _builtin_data_types.items():
         default_tool_data_type_registry.register(tool_name, dtspec, force=True)
+
+    # Track 4 chunk T4-2 — register built-in tool groups for 2-level
+    # discovery. Three semantic clusters lawyers / data scientists
+    # already use to reason about agent capability:
+    _builtin_groups = (
+        ToolGroup(
+            name="agent",
+            description=(
+                "Conversational agent tools — chat, plan, recipe discovery, "
+                "and session-memory access (read/search/clear)."
+            ),
+            tool_names=(
+                "kaos-agent-chat",
+                "kaos-agent-plan",
+                "kaos-agent-memory-query",
+                "kaos-agent-memory-search",
+                "kaos-agent-memory-clear",
+                "kaos-agent-recipe-list",
+            ),
+        ),
+        ToolGroup(
+            name="extraction",
+            description=(
+                "Schema-driven structured extraction tools (WS-TR.PR-4) — "
+                "single-document, corpus fan-out, span verification."
+            ),
+            tool_names=(
+                "kaos-extract-schema",
+                "kaos-extract-corpus",
+                "kaos-extract-verify",
+            ),
+        ),
+        ToolGroup(
+            name="graph",
+            description=(
+                "Per-session knowledge-graph tools (Track 3) — N-hop walk, "
+                "SPARQL query, pre-built typed projections."
+            ),
+            tool_names=(
+                "kaos-agent-graph-walk",
+                "kaos-agent-graph-sparql",
+                "kaos-agent-graph-projection",
+            ),
+        ),
+    )
+    for group in _builtin_groups:
+        default_tool_group_registry.register(group, force=True)
 
     tools: list[KaosTool] = [
         AgentChatTool(),

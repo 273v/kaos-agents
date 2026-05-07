@@ -98,10 +98,12 @@ from kaos_agents.registry import (
     HookRegistry,
     PatternRegistry,
     ToolDataTypeRegistry,
+    ToolGroupRegistry,
     default_event_registry,
     default_hook_registry,
     default_pattern_registry,
     default_tool_data_type_registry,
+    default_tool_group_registry,
     default_tool_spec_registry,
 )
 from kaos_agents.runtime.agent import BaseAgent
@@ -133,6 +135,7 @@ from kaos_agents.types import (
     ToolCallRecord,
     ToolDataTypeSpec,
     ToolExecution,
+    ToolGroup,
 )
 from kaos_agents.types.providers import BALANCED, FAST, STRONG, ModelRole, ProviderConfig
 from kaos_agents.wire import events_to_jsonl, events_to_sse
@@ -237,6 +240,8 @@ __all__ = [
     "ToolDataTypeRegistry",
     "ToolDataTypeSpec",
     "ToolExecution",
+    "ToolGroup",
+    "ToolGroupRegistry",
     "TriageResult",
     "TurnSummary",
     "__version__",
@@ -248,6 +253,7 @@ __all__ = [
     "default_hook_registry",
     "default_pattern_registry",
     "default_tool_data_type_registry",
+    "default_tool_group_registry",
     "default_tool_spec_registry",
     "deserialize_event",
     "deserialize_event_json",

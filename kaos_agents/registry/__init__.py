@@ -35,6 +35,10 @@ from kaos_agents.registry.tool_data_type_registry import (
     ToolDataTypeRegistry,
     default_tool_data_type_registry,
 )
+from kaos_agents.registry.tool_group_registry import (
+    ToolGroupRegistry,
+    default_tool_group_registry,
+)
 from kaos_agents.registry.tool_spec_registry import (
     AgentToolSpecRegistry,
     default_tool_spec_registry,
@@ -46,9 +50,11 @@ __all__ = [
     "HookRegistry",
     "PatternRegistry",
     "ToolDataTypeRegistry",
+    "ToolGroupRegistry",
     "default_event_registry",
     "default_hook_registry",
     "default_pattern_registry",
     "default_tool_data_type_registry",
+    "default_tool_group_registry",
     "default_tool_spec_registry",
 ]
