@@ -72,6 +72,18 @@ kaos-agents (mirrors kaos-core layout: base/ + types/ + registry/ + decorators/ 
     │                          └── events_to_response.py  events stream → AgentResponse
     ├── decorators/          — Tier-1 on-ramp (mirror kaos-core/decorators)
     │                          └── hook.py          @hook wraps async fn → FunctionHook + auto-register
+    ├── tools/               — MCP tool implementations (Track 5 T5-1 consolidation)
+    │                          ├── registry.py      6 agent tools + register_agent_tools (was tools.py)
+    │                          ├── graph.py         3 graph tools (was tools_graph.py)
+    │                          ├── extract.py       3 extraction tools (was mcp_extract.py)
+    │                          └── retrieval.py     7 retrieval tools (was retrieval_tools.py)
+    ├── cli/                 — User-facing CLIs (Track 5 T5-2 consolidation)
+    │                          ├── chat.py          kaos-agent CLI (was cli_chat.py)
+    │                          └── extract.py       kaos-extract CLI (was cli_extract.py)
+    ├── api/                 — HTTP / wire surface (Track 5 T5-3 consolidation)
+    │                          ├── server.py        FastAPI create_app (was api.py)
+    │                          ├── serve.py         kaos-agents-serve CLI
+    │                          └── wire.py          SSE / JSONL / WebSocket serialisers
     │
     ├── Agent + Runner    — Agent is frozen config (instructions, model, tools, pattern)
     │                       Runner is the execution engine (runtime, context, VFS, hooks)
