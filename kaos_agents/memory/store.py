@@ -33,6 +33,17 @@ def _session_path(session_id: str) -> str:
     return f"{_SESSION_PREFIX}/{session_id}/memory.json"
 
 
+def _session_graph_path(session_id: str) -> str:
+    """VFS path for a session's RDF knowledge graph (Turtle).
+
+    Track 3 chunk B1 — the per-session knowledge graph persists alongside
+    the JSON memory snapshot. Both files live under
+    ``{_SESSION_PREFIX}/{session_id}/`` so a session is one directory in
+    VFS that carries everything (memory + graph).
+    """
+    return f"{_SESSION_PREFIX}/{session_id}/graph.ttl"
+
+
 class SessionStore:
     """VFS-backed persistence for SessionMemory.
 
@@ -55,11 +66,37 @@ class SessionStore:
         self._sections = sections
 
     async def save(self, memory: SessionMemory) -> str:
-        """Save memory state to VFS. Returns the VFS path."""
+        """Save memory state to VFS. Returns the VFS path of the JSON snapshot.
+
+        Track 3 chunk B1: also persists the per-session knowledge graph
+        as Turtle under ``{_SESSION_PREFIX}/{session_id}/graph.ttl`` if
+        the session has touched its ``.graph`` (i.e. one or more triples
+        emitted). Sessions that never built a graph skip the write —
+        no empty Turtle files in VFS.
+        """
         path = _session_path(memory.session_id)
         data = memory.to_dict()
         payload = json.dumps(data, separators=(",", ":"), default=str).encode()
         await self._vfs.write(path, payload)
+
+        # Persist the knowledge graph as Turtle, if it exists and has
+        # any triples. We touch the lazy ``.graph`` property only if it
+        # was already constructed — accessing it here would force-init
+        # an empty graph for every session, defeating the lazy design.
+        if memory._graph is not None:
+            graph = memory._graph
+            if graph.n_edges > 0:
+                from kaos_graph.rdf import to_turtle
+
+                turtle_path = _session_graph_path(memory.session_id)
+                await self._vfs.write(turtle_path, to_turtle(graph).encode())
+                logger.debug(
+                    "store.save: session=%s graph_path=%s edges=%d",
+                    memory.session_id,
+                    turtle_path,
+                    graph.n_edges,
+                )
+
         logger.debug(
             "store.save: session=%s path=%s bytes=%d",
             memory.session_id,
@@ -96,6 +133,36 @@ class SessionStore:
                 f"The snapshot may be from an incompatible version. "
                 f"Delete with SessionStore.delete() and recreate the session.",
             ) from exc
+
+        # Track 3 chunk B1: hydrate the knowledge graph from Turtle if a
+        # snapshot exists. Sessions that never built a graph have no
+        # graph.ttl — leave memory.graph as the lazy-empty default.
+        graph_path = _session_graph_path(session_id)
+        if await self._vfs.exists(graph_path):
+            try:
+                from kaos_graph.rdf import load_rdf
+
+                turtle_payload = await self._vfs.read(graph_path)
+                graph, _stats = load_rdf(
+                    turtle_payload.decode("utf-8"),
+                    format="turtle",
+                )
+                memory.graph = graph
+                logger.debug(
+                    "store.load: session=%s graph_path=%s triples=%d",
+                    session_id,
+                    graph_path,
+                    _stats.total_triples,
+                )
+            except Exception as exc:
+                # Graph hydration failures are non-fatal — the session
+                # still loads with an empty (lazy) graph. Log and proceed.
+                logger.warning(
+                    "store.load: session=%s graph hydration failed: %s",
+                    session_id,
+                    exc,
+                )
+
         logger.debug(
             "store.load: session=%s turns=%d tokens=%d",
             session_id,

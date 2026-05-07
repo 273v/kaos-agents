@@ -43,7 +43,13 @@ class SessionMemory:
     within one agent turn.
     """
 
-    __slots__ = ("_chars_per_token", "_sections", "_session_id", "_turn_count")
+    __slots__ = (
+        "_chars_per_token",
+        "_graph",
+        "_sections",
+        "_session_id",
+        "_turn_count",
+    )
 
     def __init__(
         self,
@@ -58,6 +64,11 @@ class SessionMemory:
         self._sections: dict[MemoryType, Section] = {}
         for config in sections:
             self._sections[config.memory_type] = Section(config)
+        # Track 3 chunk B1: per-session knowledge graph (RDF triple store).
+        # Lazy — constructed on first access via :attr:`graph` so sessions
+        # that don't use the graph (chat / direct-respond) don't pay the
+        # PyO3 import cost or hold an empty Graph instance.
+        self._graph: Any | None = None
 
     # -- Properties ----------------------------------------------------------
 
@@ -78,6 +89,30 @@ class SessionMemory:
     def section_names(self) -> list[MemoryType]:
         """All configured section types."""
         return list(self._sections.keys())
+
+    @property
+    def graph(self) -> Any:
+        """The session's knowledge graph (kaos_graph.Graph instance).
+
+        Lazy-constructed on first access; ``directed=True, multi=True`` —
+        directed because PROV-O / CiTO predicates are directional, multi
+        because a finding can cite the same source via multiple
+        predicates (e.g. both ``cito:cites`` and ``cito:supports``).
+
+        Track 3 chunk B1 — backbone for the per-session RDF triple
+        store. Triples are added by chunk-B2's emit_from_event hook
+        and persisted as Turtle by SessionStore (chunk B1 closeout).
+        """
+        if self._graph is None:
+            from kaos_graph import Graph  # lazy import — avoids PyO3 cost when unused
+
+            self._graph = Graph(directed=True, multi=True, name=self._session_id)
+        return self._graph
+
+    @graph.setter
+    def graph(self, value: Any) -> None:
+        """Replace the session graph wholesale (used during VFS hydration)."""
+        self._graph = value
 
     # -- Explicit section loading ----------------------------------------------
 

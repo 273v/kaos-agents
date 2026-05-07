@@ -49,6 +49,15 @@ class MemoryType(StrEnum):
     # System (internal, always persisted)
     AUDIT = "audit"
 
+    # Knowledge graph (per-session RDF triple store; PROV-O + CiTO + kaos: vocab).
+    # Track 3 chunk B1 — backed by a single ``kaos_graph.Graph`` instance per
+    # session. Triples are emitted by the chunk-B2 emit_from_event hook from
+    # KaosEvents (CitationFound, ToolExecution end, IntentClassified, ...)
+    # and persisted to VFS as Turtle on session save. Queryable via SPARQL
+    # (chunk B3 graph MCP tools) and consulted by graph-aware context
+    # assembly (chunk B4).
+    GRAPH = "graph"
+
 
 @unique
 class EvictionPolicy(StrEnum):
@@ -281,5 +290,21 @@ DEFAULT_SECTIONS: tuple[SectionConfig, ...] = (
         budget_tokens=0,  # 0 = unlimited
         eviction_policy=EvictionPolicy.NONE,
         persistence_mode=PersistenceMode.STREAMING,
+    ),
+    # Knowledge graph — per-session RDF triple store.
+    #
+    # Track 3 chunk B1 ships this as a section so the graph participates
+    # in the existing eviction / persistence / hydration plumbing the
+    # rest of memory uses. The graph itself is *not* a list of MemoryItems
+    # — SessionMemory holds a parallel ``.graph`` attribute (chunk B1
+    # adds it). The section here is the persistence + budget surface
+    # only; ``budget_tokens=0`` keeps it unbounded (graphs grow with
+    # the session) and ``EvictionPolicy.NONE`` reflects that we don't
+    # evict triples (the graph is the durable knowledge representation).
+    SectionConfig(
+        memory_type=MemoryType.GRAPH,
+        budget_tokens=0,
+        eviction_policy=EvictionPolicy.NONE,
+        persistence_mode=PersistenceMode.SNAPSHOT,
     ),
 )
