@@ -35,8 +35,12 @@ The agent is **stateless** — reconstructed per MCP call. All persistent state 
 ```
 Application / MCP Client
     ↓
-kaos-agents (mirrors kaos-core layout: base/ + types/ + registry/ + decorators/)
-    ├── base/                — ABCs (KaosEvent, KaosHook, ...)
+kaos-agents (mirrors kaos-core layout: base/ + types/ + registry/ + decorators/ + runtime/)
+    ├── base/                — ABCs
+    │                          ├── agent.py        KaosAgent (run/turn + metadata)
+    │                          ├── pattern.py      KaosPattern (dispatch ABC)
+    │                          ├── event.py        KaosEvent (frozen pydantic ABC)
+    │                          └── hook.py         KaosHook + HookAction
     ├── types/               — frozen value types (intents, response, tool_call, plan, memory,
     │                          providers, permissions, usage, metadata)
     ├── events/              — 15 KaosEvent subclasses + Span (universal phase boundary)
@@ -56,8 +60,16 @@ kaos-agents (mirrors kaos-core layout: base/ + types/ + registry/ + decorators/)
     │                          ├── builtin.py       LoggingHook, AuditHook, CostTrackingHook
     │                          └── otel.py          OTelHook (optional [otel] extra)
     ├── registry/            — catalogues (mirror kaos-core/registry)
-    │                          ├── event_registry.py  type-string → KaosEvent class (auto-populated)
-    │                          └── hook_registry.py   name → KaosHook instance
+    │                          ├── event_registry.py    type-string → KaosEvent class (auto-populated)
+    │                          ├── hook_registry.py     name → KaosHook instance
+    │                          └── pattern_registry.py  name → KaosAgent class (chat/plan/research)
+    ├── runtime/             — concrete agent implementations
+    │                          ├── agent.py             BaseAgent (canonical KaosAgent impl, 8-step turn loop)
+    │                          ├── runner.py            Runner (execution engine)
+    │                          ├── delegation.py        DelegatedAgent + agent_as_tool
+    │                          ├── interrupts.py        PendingToolCall + RunState
+    │                          ├── permissions.py       PermissionPolicy engine (value types in types/)
+    │                          └── events_to_response.py  events stream → AgentResponse
     ├── decorators/          — Tier-1 on-ramp (mirror kaos-core/decorators)
     │                          └── hook.py          @hook wraps async fn → FunctionHook + auto-register
     │
