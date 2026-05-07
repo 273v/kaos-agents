@@ -31,12 +31,18 @@ from kaos_agents.registry.pattern_registry import (
     PatternRegistry,
     default_pattern_registry,
 )
+from kaos_agents.registry.tool_spec_registry import (
+    AgentToolSpecRegistry,
+    default_tool_spec_registry,
+)
 
 __all__ = [
+    "AgentToolSpecRegistry",
     "EventRegistry",
     "HookRegistry",
     "PatternRegistry",
     "default_event_registry",
     "default_hook_registry",
     "default_pattern_registry",
+    "default_tool_spec_registry",
 ]

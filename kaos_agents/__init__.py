@@ -82,12 +82,14 @@ from kaos_agents.planning import (
     StopReason,
 )
 from kaos_agents.registry import (
+    AgentToolSpecRegistry,
     EventRegistry,
     HookRegistry,
     PatternRegistry,
     default_event_registry,
     default_hook_registry,
     default_pattern_registry,
+    default_tool_spec_registry,
 )
 from kaos_agents.runtime.agent import BaseAgent
 from kaos_agents.runtime.delegation import (
@@ -104,6 +106,8 @@ from kaos_agents.tools import register_agent_tools
 from kaos_agents.types import (
     AgentMetadata,
     AgentResponse,
+    AgentToolRegistration,
+    AgentToolSpec,
     EventMetadata,
     HookMetadata,
     IntentResult,
@@ -125,6 +129,9 @@ __all__ = [
     "AgentMetadata",
     "AgentPattern",
     "AgentResponse",
+    "AgentToolRegistration",
+    "AgentToolSpec",
+    "AgentToolSpecRegistry",
     "AuditHook",
     "BaseAgent",
     "BudgetExceeded",
@@ -219,6 +226,7 @@ __all__ = [
     "default_event_registry",
     "default_hook_registry",
     "default_pattern_registry",
+    "default_tool_spec_registry",
     "deserialize_event",
     "deserialize_event_json",
     "dispatch_hook",
