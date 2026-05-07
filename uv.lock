@@ -1129,7 +1129,7 @@ markdown = [
 
 [package.metadata]
 requires-dist = [
-    { name = "duckdb", marker = "extra == 'duckdb'", specifier = ">=1.0.0" },
+    { name = "duckdb", marker = "extra == 'duckdb'", specifier = ">=1.1.1" },
     { name = "imagehash", marker = "extra == 'dedup-perceptual'", specifier = ">=4.3.0" },
     { name = "kaos-core", editable = "../kaos-core" },
     { name = "kaos-mcp", marker = "extra == 'mcp'", editable = "../kaos-mcp" },
@@ -1137,10 +1137,10 @@ requires-dist = [
     { name = "kaos-nlp-transformers", marker = "extra == 'transformers'", editable = "../kaos-nlp-transformers" },
     { name = "lxml", marker = "extra == 'html'", specifier = ">=6.1.0" },
     { name = "markdown-it-py", extras = ["plugins"], marker = "extra == 'markdown'", specifier = ">=3.0.0" },
-    { name = "numpy", marker = "extra == 'images'", specifier = ">=2.0.0" },
-    { name = "numpy", marker = "extra == 'layout'", specifier = ">=2.0.0" },
+    { name = "numpy", marker = "extra == 'images'", specifier = ">=2.1.0" },
+    { name = "numpy", marker = "extra == 'layout'", specifier = ">=2.1.0" },
     { name = "pillow", marker = "extra == 'images'", specifier = ">=12.2.0" },
-    { name = "polars", marker = "extra == 'polars'", specifier = ">=1.0.0" },
+    { name = "polars", marker = "extra == 'polars'", specifier = ">=1.5.0" },
     { name = "pydantic", specifier = ">=2.11.0" },
     { name = "uuid6", marker = "python_full_version < '3.14'", specifier = ">=2024.7.10" },
 ]
@@ -1148,16 +1148,18 @@ provides-extras = ["dedup-perceptual", "duckdb", "html", "images", "layout", "ma
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "duckdb", specifier = ">=1.0.0" },
+    { name = "duckdb", specifier = ">=1.1.1" },
     { name = "hypothesis", specifier = ">=6.130.0" },
     { name = "imagehash", specifier = ">=4.3.0" },
     { name = "kaos-mcp", editable = "../kaos-mcp" },
     { name = "kaos-nlp-core", editable = "../kaos-nlp-core" },
     { name = "kaos-nlp-transformers", editable = "../kaos-nlp-transformers" },
     { name = "kaos-office", extras = ["xlsx-calamine"], editable = "../kaos-office" },
-    { name = "numpy", specifier = ">=2.0.0" },
+    { name = "lxml", specifier = ">=6.1.0" },
+    { name = "markdown-it-py", extras = ["plugins"], specifier = ">=3.0.0" },
+    { name = "numpy", specifier = ">=2.1.0" },
     { name = "pillow", specifier = ">=12.2.0" },
-    { name = "polars", specifier = ">=1.0.0" },
+    { name = "polars", specifier = ">=1.5.0" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-asyncio", specifier = ">=1.3.0" },
     { name = "pytest-cov", specifier = ">=7.1.0" },

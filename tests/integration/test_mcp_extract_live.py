@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from kaos_agents.mcp_extract import (
+from kaos_agents.tools.extract import (
     ExtractCorpusTool,
     ExtractSchemaTool,
     ExtractVerifyTool,
