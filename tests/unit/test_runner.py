@@ -15,7 +15,14 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from kaos_agents.config import Agent, AgentPattern
-from kaos_agents.events import IntentClassified, KaosEvent, TurnComplete, TurnStart
+from kaos_agents.events import (
+    IntentClassified,
+    KaosEvent,
+    Span,
+    SpanPhase,
+    SpanSubject,
+    TurnSummary,
+)
 from kaos_agents.runner import Runner
 from kaos_agents.types import AgentResponse, IntentResult, IntentType
 
@@ -68,8 +75,13 @@ class TestRunnerRun:
                 events.append(event)
 
         assert len(events) >= 3
-        assert isinstance(events[0], TurnStart)
-        assert isinstance(events[-1], TurnComplete)
+        first = events[0]
+        last = events[-1]
+        assert isinstance(first, Span)
+        assert first.subject == SpanSubject.TURN
+        assert first.phase == SpanPhase.START
+        # Last event is the TurnSummary (which fires after Span(TURN, COMPLETE))
+        assert isinstance(last, TurnSummary)
 
     @pytest.mark.asyncio
     async def test_run_chat_pattern(self) -> None:
@@ -242,7 +254,7 @@ class TestRunnerAnnotationLookup:
             ToolMetadata,
         )
 
-        from kaos_agents.events import ToolCallApprovalRequired, ToolCallStart
+        from kaos_agents.events import ToolCallApprovalRequired
         from kaos_agents.hooks import BaseHook
         from kaos_agents.permissions import PermissionPolicy
 
@@ -278,17 +290,24 @@ class TestRunnerAnnotationLookup:
         policy = PermissionPolicy()  # empty rules — rely on annotations
         runner = Runner(agent, runtime=runtime, permission_policy=policy)
 
-        # Stub the internal agent's run() to emit a ToolCallStart directly
+        # Stub the internal agent's run() to emit a tool-call START span directly
         async def _fake_run(self_, message, session_id):  # type: ignore[no-untyped-def]
-            from kaos_agents.events import EventEmitter, TurnStart
+            from kaos_agents.events import EventEmitter
 
             emitter = EventEmitter(session_id=session_id, run_id="r")
-            yield emitter.emit(TurnStart, turn_number=1)
-            yield emitter.emit(
-                ToolCallStart,
-                call_id="tc_1",
-                tool_name="kaos-test-delete",
-                arguments=(),
+            yield emitter.span_start(
+                SpanSubject.TURN,
+                name="turn.1",
+                attributes={"turn_number": 1},
+            )
+            yield emitter.span_start(
+                SpanSubject.TOOL_CALL,
+                name="tool.kaos-test-delete",
+                attributes={
+                    "tool_name": "kaos-test-delete",
+                    "call_id": "tc_1",
+                    "arguments": (),
+                },
             )
 
         with patch("kaos_agents.agent.BaseAgent.run", _fake_run):
@@ -300,6 +319,13 @@ class TestRunnerAnnotationLookup:
         approvals = [e for e in events if isinstance(e, ToolCallApprovalRequired)]
         assert len(approvals) == 1
         assert approvals[0].tool_name == "kaos-test-delete"
-        # The raw ToolCallStart should NOT appear (Runner returned before yielding it)
-        tool_starts = [e for e in events if isinstance(e, ToolCallStart)]
+        # The raw tool-call START span should NOT appear (Runner returned
+        # before yielding it).
+        tool_starts = [
+            e
+            for e in events
+            if isinstance(e, Span)
+            and e.subject == SpanSubject.TOOL_CALL
+            and e.phase == SpanPhase.START
+        ]
         assert len(tool_starts) == 0

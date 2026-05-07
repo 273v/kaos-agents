@@ -16,8 +16,8 @@ Three delegation modes supported:
    parent (same memory).
 
 All three modes emit events for observability:
-- ``SubagentStart`` / ``SubagentComplete`` for tool-style delegation
-- ``HandoffStart`` for control transfer
+- ``Span(SUBAGENT, START)`` / ``Span(SUBAGENT, COMPLETE)`` for tool-style delegation
+- ``Span(HANDOFF, START)`` for control transfer
 
 Depth tracking via ``contextvars.ContextVar`` prevents infinite recursion.
 Each delegation call increments the depth; exceeding ``max_depth`` raises

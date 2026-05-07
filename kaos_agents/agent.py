@@ -21,6 +21,7 @@ The 8-step turn (both modes share the same logic):
 
 from __future__ import annotations
 
+import time
 import uuid
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
@@ -34,14 +35,15 @@ from kaos_agents.events import (
     EventEmitter,
     IntentClassified,
     KaosEvent,
-    MemoryUpdated,
+    MemoryEvent,
+    MemoryEventKind,
     RunError,
+    Span,
+    SpanPhase,
+    SpanSubject,
     TextDelta,
-    ToolCallResult,
-    ToolCallStart,
     ToolCallSummary,
-    TurnComplete,
-    TurnStart,
+    TurnSummary,
     UsageObserved,
 )
 from kaos_agents.memory.session import SessionMemory
@@ -160,9 +162,9 @@ class BaseAgent:
 
             async for event in agent.run("Find EPA actions", "session-1"):
                 match event:
-                    case TurnStart(): ...
-                    case ToolCallStart(): ...
-                    case TurnComplete(): ...
+                    case Span(subject=SpanSubject.TURN, phase=SpanPhase.START): ...
+                    case Span(subject=SpanSubject.TOOL_CALL, phase=SpanPhase.START): ...
+                    case TurnSummary(): ...
 
         Args:
             message: The user's message.
@@ -188,7 +190,15 @@ class BaseAgent:
         turn_number = memory.turn_count + 1
         logger.debug("agent.step2_begin_turn: session=%s turn_number=%d", session_id, turn_number)
 
-        yield emitter.emit(TurnStart, turn_number=turn_number)
+        turn_name = f"turn.{turn_number}"
+        turn_t0 = time.monotonic()
+        turn_span = emitter.span_start(
+            SpanSubject.TURN,
+            name=turn_name,
+            attributes={"turn_number": turn_number},
+        )
+        turn_span_id = turn_span.span_id
+        yield turn_span
 
         # Step 3: Add user message
         memory.add(MemoryType.MESSAGES, f"user: {message}")
@@ -273,25 +283,29 @@ class BaseAgent:
                 # Collect response data from terminal events for memory update
                 if isinstance(event, TextDelta):
                     response_text += event.content
-                elif isinstance(event, ToolCallStart):
-                    pass  # Tracked via ToolCallResult
-                elif isinstance(event, ToolCallResult):
-                    tool_calls.append(
-                        ToolCallRecord.from_dict_args(
-                            tool_name=event.tool_name,
-                            arguments={},
-                            result_summary=event.result_summary,
-                            is_error=event.is_error,
+                elif isinstance(event, Span) and event.subject == SpanSubject.TOOL_CALL:
+                    if event.phase == SpanPhase.COMPLETE:
+                        attrs = event.attributes
+                        tn = str(attrs.get("tool_name", ""))
+                        cid = str(attrs.get("call_id", ""))
+                        result_summary = str(attrs.get("result_summary", ""))
+                        is_error = bool(attrs.get("is_error", False))
+                        tool_calls.append(
+                            ToolCallRecord.from_dict_args(
+                                tool_name=tn,
+                                arguments={},
+                                result_summary=result_summary,
+                                is_error=is_error,
+                            )
                         )
-                    )
-                    tool_call_summaries.append(
-                        ToolCallSummary(
-                            tool_name=event.tool_name,
-                            call_id=event.call_id,
-                            is_error=event.is_error,
-                            duration_ms=event.duration_ms,
+                        tool_call_summaries.append(
+                            ToolCallSummary(
+                                tool_name=tn,
+                                call_id=cid,
+                                is_error=is_error,
+                                duration_ms=event.duration_ms or 0.0,
+                            )
                         )
-                    )
                 elif isinstance(event, UsageObserved):
                     turn_usage = turn_usage + InvocationUsage.from_llm_usage(event)
                     # Attribute to a tool when the source matches a tool
@@ -334,9 +348,9 @@ class BaseAgent:
                 summary = f"Tool: {tc.tool_name}({tc.arguments}) → {tc.result_summary}"
                 memory.add(MemoryType.ACTIONS, summary)
             yield emitter.emit(
-                MemoryUpdated,
+                MemoryEvent,
+                kind=MemoryEventKind.ADDED,
                 section=MemoryType.ACTIONS.value,
-                action="add",
                 item_count=len(tool_calls),
             )
 
@@ -378,8 +392,16 @@ class BaseAgent:
                 )
             )
 
+        turn_duration_ms = (time.monotonic() - turn_t0) * 1000.0
+        yield emitter.span_complete(
+            SpanSubject.TURN,
+            span_id=turn_span_id,
+            name=turn_name,
+            duration_ms=turn_duration_ms,
+            attributes={"turn_number": turn_number},
+        )
         yield emitter.emit(
-            TurnComplete,
+            TurnSummary,
             text=response_text,
             intent=intent.intent.value,
             tool_calls=tuple(attributed_summaries),
@@ -438,19 +460,27 @@ class BaseAgent:
 
         # Yield tool call events if any
         for tc in tool_calls:
-            yield emitter.emit(
-                ToolCallStart,
-                call_id=tc.tool_name,  # Use tool_name as call_id for backward compat
-                tool_name=tc.tool_name,
-                arguments=tc.arguments,
+            tc_span = emitter.span_start(
+                SpanSubject.TOOL_CALL,
+                name=f"tool.{tc.tool_name}",
+                attributes={
+                    "tool_name": tc.tool_name,
+                    "call_id": tc.tool_name,  # Use tool_name as call_id for backward compat
+                    "arguments": tc.arguments,
+                },
             )
-            yield emitter.emit(
-                ToolCallResult,
-                call_id=tc.tool_name,
-                tool_name=tc.tool_name,
-                result_summary=tc.result_summary,
-                is_error=tc.is_error,
+            yield tc_span
+            yield emitter.span_complete(
+                SpanSubject.TOOL_CALL,
+                span_id=tc_span.span_id,
+                name=f"tool.{tc.tool_name}",
                 duration_ms=0.0,
+                attributes={
+                    "tool_name": tc.tool_name,
+                    "call_id": tc.tool_name,
+                    "result_summary": tc.result_summary,
+                    "is_error": tc.is_error,
+                },
             )
 
         # Yield the response text
@@ -634,26 +664,31 @@ class BaseAgent:
 def _events_to_response(events: list[KaosEvent], session_id: str) -> AgentResponse:
     """Convert a collected event stream to a single AgentResponse.
 
-    Scans events for TurnComplete (final text + metrics) and IntentClassified
+    Scans events for TurnSummary (final text + metrics) and IntentClassified
     (intent). Falls back gracefully if events are incomplete.
     """
-    # Find the final TurnComplete and IntentClassified events
-    turn_complete: TurnComplete | None = None
+    # Find the final TurnSummary and IntentClassified events
+    turn_summary: TurnSummary | None = None
     intent_event: IntentClassified | None = None
     tool_call_records: list[ToolCallRecord] = []
 
     for event in events:
-        if isinstance(event, TurnComplete):
-            turn_complete = event
+        if isinstance(event, TurnSummary):
+            turn_summary = event
         elif isinstance(event, IntentClassified):
             intent_event = event
-        elif isinstance(event, ToolCallResult):
+        elif (
+            isinstance(event, Span)
+            and event.subject == SpanSubject.TOOL_CALL
+            and event.phase == SpanPhase.COMPLETE
+        ):
+            attrs = event.attributes
             tool_call_records.append(
                 ToolCallRecord.from_dict_args(
-                    tool_name=event.tool_name,
+                    tool_name=str(attrs.get("tool_name", "")),
                     arguments={},
-                    result_summary=event.result_summary,
-                    is_error=event.is_error,
+                    result_summary=str(attrs.get("result_summary", "")),
+                    is_error=bool(attrs.get("is_error", False)),
                 )
             )
 
@@ -664,15 +699,19 @@ def _events_to_response(events: list[KaosEvent], session_id: str) -> AgentRespon
         reasoning=intent_event.reasoning if intent_event else "",
     )
 
-    # Build response from TurnComplete or fallback to concatenated TextDelta
-    if turn_complete:
-        text = turn_complete.text
-        tokens_used = turn_complete.tokens_used
+    # Build response from TurnSummary or fallback to concatenated TextDelta
+    if turn_summary:
+        text = turn_summary.text
+        tokens_used = turn_summary.tokens_used
         turn_number = 0
-        # Find turn number from TurnStart
+        # Find turn number from Span(TURN, START)
         for event in events:
-            if isinstance(event, TurnStart):
-                turn_number = event.turn_number
+            if (
+                isinstance(event, Span)
+                and event.subject == SpanSubject.TURN
+                and event.phase == SpanPhase.START
+            ):
+                turn_number = int(event.attributes.get("turn_number", 0) or 0)
                 break
     else:
         # Fallback: concatenate all TextDelta content

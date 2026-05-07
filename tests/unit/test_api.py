@@ -87,9 +87,11 @@ class TestMessageEndpoints:
 
         # Parse SSE events
         text = resp.text
-        assert "event: turn_start" in text
+        # Span boundaries are wire-typed as "span"; the typed turn-end
+        # aggregate is "turn_summary".
+        assert "event: span" in text
         assert "event: intent_classified" in text
-        assert "event: turn_complete" in text
+        assert "event: turn_summary" in text
 
     @pytest.mark.asyncio
     async def test_send_message_json_via_accept_header(self, client: AsyncClient) -> None:

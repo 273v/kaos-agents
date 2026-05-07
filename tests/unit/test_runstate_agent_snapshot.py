@@ -148,7 +148,7 @@ class TestRunnerPauseCapturesSnapshot:
         from kaos_core.vfs.core import VirtualFileSystem
         from kaos_core.vfs.models import VFSConfig
 
-        from kaos_agents.events import EventEmitter, ToolCallStart
+        from kaos_agents.events import EventEmitter, Span, SpanSubject
         from kaos_agents.runner import Runner
 
         vfs = VirtualFileSystem(
@@ -167,13 +167,16 @@ class TestRunnerPauseCapturesSnapshot:
         runner = Runner(agent, vfs=vfs)
 
         emitter = EventEmitter(session_id="s_pause", run_id="r_pause_test")
-        tool_event = emitter.emit(
-            ToolCallStart,
-            call_id="tc1",
-            tool_name="kaos-source-edgar-lookup",
-            arguments=(("cik", "0000320193"),),
+        tool_event = emitter.span_start(
+            SpanSubject.TOOL_CALL,
+            name="tool.kaos-source-edgar-lookup",
+            attributes={
+                "tool_name": "kaos-source-edgar-lookup",
+                "call_id": "tc1",
+                "arguments": (("cik", "0000320193"),),
+            },
         )
-        assert isinstance(tool_event, ToolCallStart)
+        assert isinstance(tool_event, Span)
 
         approval = await runner._pause_for_approval(
             tool_event,

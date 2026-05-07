@@ -10,6 +10,7 @@ extraction tool (not just the LLM responding from its training data).
 from __future__ import annotations
 
 import os
+from typing import TypeGuard
 
 import pytest
 
@@ -17,11 +18,29 @@ from kaos_agents.config import Agent
 from kaos_agents.events import (
     KaosEvent,
     RunError,
+    Span,
+    SpanPhase,
+    SpanSubject,
     TextDelta,
-    ToolCallResult,
-    ToolCallStart,
 )
 from kaos_agents.runner import Runner
+
+
+def _is_tool_call_start(event: KaosEvent) -> TypeGuard[Span]:
+    return (
+        isinstance(event, Span)
+        and event.subject == SpanSubject.TOOL_CALL
+        and event.phase == SpanPhase.START
+    )
+
+
+def _is_tool_call_result(event: KaosEvent) -> TypeGuard[Span]:
+    return (
+        isinstance(event, Span)
+        and event.subject == SpanSubject.TOOL_CALL
+        and event.phase == SpanPhase.COMPLETE
+    )
+
 
 CONTRACT_EXCERPT = (
     "SPONSORSHIP AGREEMENT\n\n"
@@ -97,25 +116,24 @@ async def test_agent_calls_extract_schema_tool() -> None:
 
     text, events = await _collect(runner, message, "extract-test")
 
-    tool_starts = [e for e in events if isinstance(e, ToolCallStart)]
-    tool_results = [e for e in events if isinstance(e, ToolCallResult)]
+    tool_starts = [e for e in events if _is_tool_call_start(e)]
+    tool_results = [e for e in events if _is_tool_call_result(e)]
     errors = [e for e in events if isinstance(e, RunError)]
 
     assert not errors, f"RunError: {[e.message for e in errors]}"
 
     assert tool_starts, (
-        f"Expected ToolCallStart event — agent didn't call any tool. Response text: {text[:200]}"
+        f"Expected tool-call START span — agent didn't call any tool. Response text: {text[:200]}"
     )
 
-    extract_calls = [e for e in tool_starts if "extract" in e.tool_name.lower()]
-    assert extract_calls, (
-        f"Expected kaos-extract-* tool call but got: {[e.tool_name for e in tool_starts]}"
-    )
+    tool_names = [str(e.attributes.get("tool_name", "")) for e in tool_starts]
+    extract_calls = [n for n in tool_names if "extract" in n.lower()]
+    assert extract_calls, f"Expected kaos-extract-* tool call but got: {tool_names}"
 
-    assert tool_results, "Expected ToolCallResult event after tool execution"
+    assert tool_results, "Expected tool-call COMPLETE span after tool execution"
     assert len(text) > 20, f"Response too short: {text[:100]}"
 
-    print(f"\nAgent called: {[e.tool_name for e in tool_starts]}")
+    print(f"\nAgent called: {tool_names}")
     print(f"Response preview: {text[:300]}")
 
 
@@ -137,7 +155,7 @@ async def test_agent_extraction_with_recipe() -> None:
 
     text, events = await _collect(runner, message, "recipe-test")
 
-    tool_starts = [e for e in events if isinstance(e, ToolCallStart)]
+    tool_starts = [e for e in events if _is_tool_call_start(e)]
     errors = [e for e in events if isinstance(e, RunError)]
 
     if errors:
@@ -145,8 +163,10 @@ async def test_agent_extraction_with_recipe() -> None:
 
     if tool_starts:
         for ts in tool_starts:
-            print(f"Tool called: {ts.tool_name}")
-            args = dict(ts.arguments)
+            attrs = ts.attributes
+            print(f"Tool called: {attrs.get('tool_name', '')}")
+            raw_args = attrs.get("arguments", ()) or ()
+            args = dict(raw_args)
             if "recipe_name" in args:
                 print(f"  recipe_name = {args['recipe_name']}")
 

@@ -25,8 +25,9 @@ from kaos_agents.events import (
     KaosEvent,
     PlanProposed,
     PlanStepSummary,
-    StepComplete,
-    StepStart,
+    Span,
+    SpanPhase,
+    SpanSubject,
     TextDelta,
     emit_usage_observed,
 )
@@ -259,13 +260,22 @@ class PlanExecuteAgent(ChatAgent):
             desc = step_descriptions.get(step_id, step_id)
             step_is_error = is_error_result(str(step_result))
 
-            yield emitter.emit(StepStart, step_id=step_id, description=desc)
-            yield emitter.emit(
-                StepComplete,
-                step_id=step_id,
-                result_summary=str(step_result)[:RESULT_SUMMARY_TRUNCATE],
-                is_error=step_is_error,
+            step_span = emitter.span_start(
+                SpanSubject.STEP,
+                name=f"step.{step_id}",
+                attributes={"step_id": step_id, "description": desc},
+            )
+            yield step_span
+            yield emitter.span_complete(
+                SpanSubject.STEP,
+                span_id=step_span.span_id,
+                name=f"step.{step_id}",
                 duration_ms=0.0,
+                attributes={
+                    "step_id": step_id,
+                    "result_summary": str(step_result)[:RESULT_SUMMARY_TRUNCATE],
+                    "is_error": step_is_error,
+                },
             )
 
         # Emit final response text
@@ -306,7 +316,7 @@ class PlanExecuteAgent(ChatAgent):
         avoiding logic duplication. Aggregates UsageObserved into the
         returned InvocationUsage for the outer turn loop.
         """
-        from kaos_agents.events import EventEmitter, StepComplete, TextDelta, UsageObserved
+        from kaos_agents.events import EventEmitter, TextDelta, UsageObserved
 
         emitter = EventEmitter(session_id="internal", run_id="internal")
 
@@ -316,13 +326,19 @@ class PlanExecuteAgent(ChatAgent):
         async for event in self._handle_plan_streaming(message, memory, context_items, emitter):
             if isinstance(event, TextDelta):
                 response_text += event.content
-            elif isinstance(event, StepComplete):
+            elif (
+                isinstance(event, Span)
+                and event.subject == SpanSubject.STEP
+                and event.phase == SpanPhase.COMPLETE
+            ):
+                attrs = event.attributes
+                step_id = str(attrs.get("step_id", ""))
                 tool_calls.append(
                     ToolCallRecord.from_dict_args(
-                        tool_name=event.step_id,
-                        arguments={"step_id": event.step_id},
-                        result_summary=event.result_summary,
-                        is_error=event.is_error,
+                        tool_name=step_id,
+                        arguments={"step_id": step_id},
+                        result_summary=str(attrs.get("result_summary", "")),
+                        is_error=bool(attrs.get("is_error", False)),
                     )
                 )
             elif isinstance(event, UsageObserved):

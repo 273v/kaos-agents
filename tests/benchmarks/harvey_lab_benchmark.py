@@ -116,7 +116,7 @@ async def _run_freeform_agent(
 
     from kaos_agents.cli_chat import _load_files_into_memory
     from kaos_agents.config import Agent
-    from kaos_agents.events import RunError, TextDelta, TurnComplete
+    from kaos_agents.events import RunError, TextDelta, TurnSummary
     from kaos_agents.memory.session import SessionMemory
     from kaos_agents.memory.store import SessionStore
     from kaos_agents.runner import Runner
@@ -176,9 +176,9 @@ async def _run_freeform_agent(
                 if verbose:
                     sys.stdout.write(event.content)
                     sys.stdout.flush()
-            elif isinstance(event, TurnComplete):
+            elif isinstance(event, TurnSummary):
                 cost_usd += float(getattr(event, "cost_usd", 0.0) or 0.0)
-                # TurnComplete.text is the canonical final response after
+                # TurnSummary.text is the canonical final response after
                 # memory persistence; streamed TextDelta sometimes
                 # truncates on research-pattern Sonnet. Take the longer
                 # of the two so a partial stream never silently wins.

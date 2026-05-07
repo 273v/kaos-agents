@@ -36,20 +36,51 @@ from kaos_agents.delegation import agent_as_tool
 from kaos_agents.events import (
     IntentClassified,
     LifecycleEvent,
+    Span,
+    SpanPhase,
+    SpanSubject,
     StreamDelta,
-    SubagentComplete,
-    SubagentStart,
     TextDelta,
     ToolCallApprovalRequired,
-    ToolCallResult,
-    ToolCallStart,
-    TurnComplete,
-    TurnStart,
+    TurnSummary,
 )
 from kaos_agents.hooks import BaseHook, CostTrackingHook, HookAction, LoggingHook
 from kaos_agents.permissions import PermissionPolicy
 from kaos_agents.runner import Runner
 from kaos_agents.types.providers import BALANCED, FAST
+
+
+def _is_tool_call_start(event: object) -> bool:
+    return (
+        isinstance(event, Span)
+        and event.subject == SpanSubject.TOOL_CALL
+        and event.phase == SpanPhase.START
+    )
+
+
+def _is_tool_call_result(event: object) -> bool:
+    return (
+        isinstance(event, Span)
+        and event.subject == SpanSubject.TOOL_CALL
+        and event.phase == SpanPhase.COMPLETE
+    )
+
+
+def _is_subagent_start(event: object) -> bool:
+    return (
+        isinstance(event, Span)
+        and event.subject == SpanSubject.SUBAGENT
+        and event.phase == SpanPhase.START
+    )
+
+
+def _is_subagent_complete(event: object) -> bool:
+    return (
+        isinstance(event, Span)
+        and event.subject == SpanSubject.SUBAGENT
+        and event.phase == SpanPhase.COMPLETE
+    )
+
 
 pytestmark = pytest.mark.skipif(
     not os.environ.get("ANTHROPIC_API_KEY"),
@@ -143,16 +174,20 @@ async def test_live_chat_agent_streams_events() -> None:
     async for event in runner.run("What is 2+2? Answer in one word.", "live-chat-1"):
         events.append(event)
 
-    assert isinstance(events[0], TurnStart)
-    assert isinstance(events[-1], TurnComplete)
+    first = events[0]
+    last = events[-1]
+    assert isinstance(first, Span)
+    assert first.subject == SpanSubject.TURN
+    assert first.phase == SpanPhase.START
+    # The terminal event in a successful run is the typed TurnSummary
+    # (it fires alongside Span(TURN, COMPLETE)).
+    assert isinstance(last, TurnSummary)
     assert any(isinstance(e, IntentClassified) for e in events)
     # Sequence numbers strictly monotonic
     seqs = [e.sequence for e in events]
     assert seqs == sorted(seqs)
-    # Final TurnComplete has non-empty text
-    final = events[-1]
-    assert isinstance(final, TurnComplete)
-    assert len(final.text) > 0
+    # Final TurnSummary has non-empty text
+    assert len(last.text) > 0
 
 
 @pytest.mark.live
@@ -173,16 +208,18 @@ async def test_live_chat_agent_with_tool_call() -> None:
         events.append(event)
 
     # Tool call events should appear (LLM may invoke calculator one or more times)
-    tool_starts = [e for e in events if isinstance(e, ToolCallStart)]
-    tool_results = [e for e in events if isinstance(e, ToolCallResult)]
-    assert len(tool_starts) >= 1, f"no ToolCallStart events: {[type(e).__name__ for e in events]}"
+    tool_starts = [e for e in events if _is_tool_call_start(e)]
+    tool_results = [e for e in events if _is_tool_call_result(e)]
+    assert len(tool_starts) >= 1, f"no tool-call START spans: {[type(e).__name__ for e in events]}"
     assert len(tool_results) == len(tool_starts)
     # The calculator should have been invoked
-    assert all(t.tool_name == "live-test-calculator" for t in tool_starts)
+    assert all(
+        str(t.attributes.get("tool_name", "")) == "live-test-calculator" for t in tool_starts
+    )
     # At least one result should be successful (not an error). We don't
     # assert the specific value "391" because the LLM may compute the
     # result differently or in steps.
-    assert any(not r.is_error for r in tool_results)
+    assert any(not bool(r.attributes.get("is_error", False)) for r in tool_results)
 
 
 # ---------------------------------------------------------------------------
@@ -258,8 +295,8 @@ async def test_live_hook_can_skip_tool_call() -> None:
     """A hook returning HookAction.SKIP suppresses the tool call event."""
 
     class _BlockCalc(BaseHook):
-        async def on_tool_call_start(self, event: ToolCallStart) -> HookAction:
-            if event.tool_name == "live-test-calculator":
+        async def on_tool_call_start(self, event: Span) -> HookAction:
+            if str(event.attributes.get("tool_name", "")) == "live-test-calculator":
                 return HookAction.SKIP
             return HookAction.CONTINUE
 
@@ -275,10 +312,13 @@ async def test_live_hook_can_skip_tool_call() -> None:
     async for event in runner.run("Calculate 5+5.", "live-skip-1"):
         events.append(event)
 
-    # ToolCallStart events for the calculator should be filtered out.
+    # Tool-call START spans for the calculator should be filtered out.
     # (The LLM may or may not call it; if it does, the hook suppresses it.)
     suppressed = [
-        e for e in events if isinstance(e, ToolCallStart) and e.tool_name == "live-test-calculator"
+        e
+        for e in events
+        if _is_tool_call_start(e)
+        and str(e.attributes.get("tool_name", "")) == "live-test-calculator"
     ]
     assert suppressed == []
 
@@ -421,12 +461,12 @@ async def test_live_delegated_agent_invocable_from_parent() -> None:
     async for event in runner.delegate(write_tool, "Memo on EPA emissions.", "live-deleg-1"):
         events.append(event)
 
-    starts = [e for e in events if isinstance(e, SubagentStart)]
-    completes = [e for e in events if isinstance(e, SubagentComplete)]
+    starts = [e for e in events if _is_subagent_start(e)]
+    completes = [e for e in events if _is_subagent_complete(e)]
     assert len(starts) == 1
     assert len(completes) == 1
-    assert completes[0].subagent_name == "write_memo"
-    assert len(completes[0].result_summary) > 0
+    assert completes[0].attributes.get("subagent_name") == "write_memo"
+    assert len(str(completes[0].attributes.get("result_summary", ""))) > 0
 
 
 # ---------------------------------------------------------------------------

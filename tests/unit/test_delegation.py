@@ -25,7 +25,7 @@ from kaos_agents.delegation import (
     agent_as_tool,
     current_delegation_depth,
 )
-from kaos_agents.events import HandoffStart, SubagentComplete, SubagentStart
+from kaos_agents.events import Span, SpanPhase, SpanSubject
 from kaos_agents.runner import Runner
 from kaos_agents.types import IntentResult, IntentType
 
@@ -198,12 +198,18 @@ class TestRunnerDelegate:
                 events.append(event)
 
         assert len(events) == 2
-        assert isinstance(events[0], SubagentStart)
-        assert events[0].subagent_name == "writer"
-        assert events[0].task == "Draft a memo"
-        assert isinstance(events[1], SubagentComplete)
-        assert events[1].subagent_name == "writer"
-        assert "Memo drafted" in events[1].result_summary
+        start_evt = events[0]
+        complete_evt = events[1]
+        assert isinstance(start_evt, Span)
+        assert start_evt.subject == SpanSubject.SUBAGENT
+        assert start_evt.phase == SpanPhase.START
+        assert start_evt.attributes.get("subagent_name") == "writer"
+        assert start_evt.attributes.get("task") == "Draft a memo"
+        assert isinstance(complete_evt, Span)
+        assert complete_evt.subject == SpanSubject.SUBAGENT
+        assert complete_evt.phase == SpanPhase.COMPLETE
+        assert complete_evt.attributes.get("subagent_name") == "writer"
+        assert "Memo drafted" in str(complete_evt.attributes.get("result_summary", ""))
 
 
 @pytest.mark.unit
@@ -238,12 +244,16 @@ class TestRunnerHandoff:
             ):
                 events.append(event)
 
-        # First event is HandoffStart, followed by target agent's events
-        assert isinstance(events[0], HandoffStart)
-        assert events[0].from_agent == "router"
-        assert events[0].to_agent == "legal"
-        assert events[0].reason == "Legal question"
-        # Target agent emits its own TurnStart/IntentClassified/TurnComplete
+        # First event is Span(HANDOFF, START), followed by target agent's events
+        first = events[0]
+        assert isinstance(first, Span)
+        assert first.subject == SpanSubject.HANDOFF
+        assert first.phase == SpanPhase.START
+        assert first.attributes.get("from_agent") == "router"
+        assert first.attributes.get("to_agent") == "legal"
+        assert first.attributes.get("reason") == "Legal question"
+        # Target agent emits its own Span(TURN, START) / IntentClassified /
+        # Span(TURN, COMPLETE) / TurnSummary stream.
         assert len(events) > 1
 
 

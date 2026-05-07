@@ -15,8 +15,10 @@ from kaos_core.exceptions import RegistryError
 from kaos_agents.base.event import KaosEvent
 from kaos_agents.events import (
     ALL_EVENT_TYPES,
-    StepStart,
-    TurnStart,
+    Span,
+    SpanPhase,
+    SpanSubject,
+    TurnSummary,
 )
 from kaos_agents.registry.event_registry import (
     EventRegistry,
@@ -57,8 +59,8 @@ class TestAutoRegistration:
 class TestEventRegistry:
     def test_register_and_get(self) -> None:
         reg = EventRegistry()
-        reg.register(TurnStart)
-        assert reg.get("turn_start") is TurnStart
+        reg.register(Span)
+        assert reg.get("span") is Span
 
     def test_get_unknown_returns_none(self) -> None:
         reg = EventRegistry()
@@ -67,69 +69,69 @@ class TestEventRegistry:
     def test_double_register_raises(self) -> None:
         """The kaos-core convention is to surface accidental double-registration."""
         reg = EventRegistry()
-        reg.register(TurnStart)
+        reg.register(Span)
 
         # Same class, no force: idempotent (existing == cls).
-        reg.register(TurnStart)
+        reg.register(Span)
 
         # Different class same key: error.
-        class _AltTurnStart(KaosEvent, register=False):
-            """An alternate TurnStart — same discriminator."""
+        class _AltSpan(KaosEvent, register=False):
+            """An alternate Span — same discriminator."""
 
             @classmethod
             def event_type(cls) -> str:
-                return "turn_start"
+                return "span"
 
         with pytest.raises(RegistryError):
-            reg.register(_AltTurnStart)
+            reg.register(_AltSpan)
 
     def test_force_replaces(self) -> None:
         reg = EventRegistry()
-        reg.register(TurnStart)
+        reg.register(Span)
 
-        class _AltTurnStart(KaosEvent, register=False):
-            """Replaces TurnStart for the turn_start discriminator."""
+        class _AltSpan(KaosEvent, register=False):
+            """Replaces Span for the span discriminator."""
 
             @classmethod
             def event_type(cls) -> str:
-                return "turn_start"
+                return "span"
 
-        reg.register(_AltTurnStart, force=True)
-        assert reg.get("turn_start") is _AltTurnStart
+        reg.register(_AltSpan, force=True)
+        assert reg.get("span") is _AltSpan
 
     def test_unregister(self) -> None:
         reg = EventRegistry()
-        reg.register(TurnStart)
-        removed = reg.unregister("turn_start")
-        assert removed is TurnStart
-        assert reg.get("turn_start") is None
+        reg.register(Span)
+        removed = reg.unregister("span")
+        assert removed is Span
+        assert reg.get("span") is None
 
     def test_clear(self) -> None:
         reg = EventRegistry()
-        reg.register(TurnStart)
-        reg.register(StepStart)
+        reg.register(Span)
+        reg.register(TurnSummary)
         reg.clear()
         assert len(reg) == 0
 
     def test_membership(self) -> None:
         reg = EventRegistry()
-        reg.register(TurnStart)
-        assert "turn_start" in reg
+        reg.register(Span)
+        assert "span" in reg
         assert "not_a_real_event" not in reg
         assert 42 not in reg  # non-string keys are False, never raise
 
     def test_list_types_sorted(self) -> None:
         reg = EventRegistry()
-        reg.register(StepStart)
-        reg.register(TurnStart)
-        # Sorted alphabetically — "step_start" < "turn_start".
-        assert reg.list_types() == ["step_start", "turn_start"]
+        reg.register(TurnSummary)
+        reg.register(Span)
+        # Sorted alphabetically — "span" < "turn_summary".
+        assert reg.list_types() == ["span", "turn_summary"]
 
     def test_iter_yields_keys(self) -> None:
         reg = EventRegistry()
-        reg.register(TurnStart)
-        reg.register(StepStart)
-        assert set(reg) == {"turn_start", "step_start"}
+        reg.register(Span)
+        reg.register(TurnSummary)
+        assert set(reg) == {"span", "turn_summary"}
 
 
 @pytest.mark.unit
@@ -139,10 +141,19 @@ class TestSerdeViaRegistry:
     def test_round_trip_uses_default_registry(self) -> None:
         from kaos_agents.events import deserialize_event, serialize_event
 
-        e = TurnStart(timestamp=1.0, sequence=0, session_id="s", run_id="r", turn_number=3)
+        e = Span(
+            timestamp=1.0,
+            sequence=0,
+            session_id="s",
+            run_id="r",
+            subject=SpanSubject.TURN,
+            phase=SpanPhase.START,
+            span_id="span01",
+            attributes={"turn_number": 3},
+        )
         round_tripped = deserialize_event(serialize_event(e))
-        assert isinstance(round_tripped, TurnStart)
-        assert round_tripped.turn_number == 3
+        assert isinstance(round_tripped, Span)
+        assert round_tripped.attributes.get("turn_number") == 3
 
     def test_unknown_type_uses_registry_for_error_message(self) -> None:
         from kaos_agents.errors import EventDeserializationError

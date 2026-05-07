@@ -162,12 +162,22 @@ class TestRunStateVFSPersistence:
         from kaos_core.vfs.core import VirtualFileSystem
         from kaos_core.vfs.models import VFSConfig
 
-        from kaos_agents.events import IntentClassified, TurnStart
+        from kaos_agents.events import IntentClassified, Span, SpanPhase, SpanSubject
         from kaos_agents.interrupts import load_event_log, save_event_log
 
         vfs = VirtualFileSystem(config=VFSConfig(default_backend=StorageBackend.MEMORY))
         events = [
-            TurnStart(timestamp=1.0, sequence=0, session_id="s", run_id="r1", turn_number=1),
+            Span(
+                timestamp=1.0,
+                sequence=0,
+                session_id="s",
+                run_id="r1",
+                subject=SpanSubject.TURN,
+                phase=SpanPhase.START,
+                span_id="t1",
+                name="turn.1",
+                attributes={"turn_number": 1},
+            ),
             IntentClassified(
                 timestamp=1.1,
                 sequence=1,
@@ -182,7 +192,9 @@ class TestRunStateVFSPersistence:
 
         loaded = await load_event_log("r1", vfs)
         assert len(loaded) == 2
-        assert isinstance(loaded[0], TurnStart)
+        assert isinstance(loaded[0], Span)
+        assert loaded[0].subject == SpanSubject.TURN
+        assert loaded[0].phase == SpanPhase.START
         assert isinstance(loaded[1], IntentClassified)
         assert loaded[1].confidence == 0.9
 
@@ -232,9 +244,8 @@ class TestRunnerResume:
         from kaos_agents.config import Agent
         from kaos_agents.events import (
             EventEmitter,
+            SpanSubject,
             ToolCallApprovalRequired,
-            ToolCallStart,
-            TurnStart,
         )
         from kaos_agents.interrupts import (
             event_log_iter_path,
@@ -253,12 +264,19 @@ class TestRunnerResume:
 
         async def _fake_run(self_, message, session_id):  # type: ignore[no-untyped-def]
             emitter = EventEmitter(session_id=session_id, run_id="run_pause_test")
-            yield emitter.emit(TurnStart, turn_number=1)
-            yield emitter.emit(
-                ToolCallStart,
-                call_id="tc_1",
-                tool_name="dangerous-delete",
-                arguments=(),
+            yield emitter.span_start(
+                SpanSubject.TURN,
+                name="turn.1",
+                attributes={"turn_number": 1},
+            )
+            yield emitter.span_start(
+                SpanSubject.TOOL_CALL,
+                name="tool.dangerous-delete",
+                attributes={
+                    "tool_name": "dangerous-delete",
+                    "call_id": "tc_1",
+                    "arguments": (),
+                },
             )
 
         with patch("kaos_agents.agent.BaseAgent.run", _fake_run):

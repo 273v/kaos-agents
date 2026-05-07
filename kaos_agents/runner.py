@@ -38,13 +38,12 @@ from kaos_agents.config import Agent, AgentPattern
 from kaos_agents.delegation import DelegatedAgent
 from kaos_agents.events import (
     EventEmitter,
-    HandoffStart,
     KaosEvent,
     RunError,
-    SubagentComplete,
-    SubagentStart,
+    Span,
+    SpanPhase,
+    SpanSubject,
     ToolCallApprovalRequired,
-    ToolCallStart,
 )
 from kaos_agents.hooks import BaseHook, HookAction, dispatch_hook
 from kaos_agents.interrupts import (
@@ -147,12 +146,20 @@ class Runner:
         event_count = 0
         emitted: list[KaosEvent] = []  # tracked for pause persistence
         async for event in internal.run(message, session_id):
+            # Detect tool-call START spans for hook/permission gating.
+            is_tool_start = (
+                isinstance(event, Span)
+                and event.subject == SpanSubject.TOOL_CALL
+                and event.phase == SpanPhase.START
+            )
+
             # Run hooks
             if self._hooks:
                 action = await dispatch_hook(self._hooks, event)
                 if action == HookAction.SKIP:
                     continue
-                if action == HookAction.REQUIRE_APPROVAL and isinstance(event, ToolCallStart):
+                if action == HookAction.REQUIRE_APPROVAL and is_tool_start:
+                    assert isinstance(event, Span)  # type-narrow for ty
                     approval = await self._pause_for_approval(
                         event,
                         session_id=session_id,
@@ -168,13 +175,15 @@ class Runner:
             # Look up ToolAnnotations from the runtime so readOnlyHint,
             # destructiveHint, humanConfirmationRequired flow through to
             # the policy evaluation.
-            if self._permission_policy and isinstance(event, ToolCallStart):
-                annotations = self._lookup_annotations(event.tool_name)
-                decision = self._permission_policy.evaluate(event.tool_name, annotations)
+            if self._permission_policy and is_tool_start:
+                assert isinstance(event, Span)  # type-narrow for ty
+                tool_name = str(event.attributes.get("tool_name", ""))
+                annotations = self._lookup_annotations(tool_name)
+                decision = self._permission_policy.evaluate(tool_name, annotations)
                 if decision == PermissionDecision.DENY:
                     continue  # Suppress denied tool call
                 if decision == PermissionDecision.ASK:
-                    reason = f"Permission policy requires approval for {event.tool_name}"
+                    reason = f"Permission policy requires approval for {tool_name}"
                     approval = await self._pause_for_approval(
                         event,
                         session_id=session_id,
@@ -192,7 +201,7 @@ class Runner:
 
     async def _pause_for_approval(
         self,
-        tool_event: ToolCallStart,
+        tool_event: Span,
         *,
         session_id: str,
         message: str,
@@ -211,6 +220,18 @@ class Runner:
         persisted RunState, allowing cross-process resume.
         """
         run_id = tool_event.run_id
+        attrs = tool_event.attributes
+        tool_name = str(attrs.get("tool_name", ""))
+        call_id = str(attrs.get("call_id", ""))
+        raw_args = attrs.get("arguments", ()) or ()
+        # Normalize arguments into the wire-shape tuple-of-tuples used by
+        # PendingToolCall and ToolCallApprovalRequired.
+        if isinstance(raw_args, dict):
+            args_tuple: tuple[tuple[str, str], ...] = tuple(
+                (str(k), str(v)) for k, v in raw_args.items()
+            )
+        else:
+            args_tuple = tuple((str(k), str(v)) for k, v in raw_args)
 
         # Persist memory snapshot to VFS at the run-state path
         store = SessionStore(self._vfs)
@@ -247,9 +268,9 @@ class Runner:
             run_id=run_id,
             session_id=session_id,
             pending_tool_call=PendingToolCall(
-                call_id=tool_event.call_id,
-                tool_name=tool_event.tool_name,
-                arguments=tool_event.arguments,
+                call_id=call_id,
+                tool_name=tool_name,
+                arguments=args_tuple,
                 reason=reason,
             ),
             event_count=event_count,
@@ -269,9 +290,9 @@ class Runner:
             sequence=tool_event.sequence,
             session_id=session_id,
             run_id=run_id,
-            call_id=tool_event.call_id,
-            tool_name=tool_event.tool_name,
-            arguments=tool_event.arguments,
+            call_id=call_id,
+            tool_name=tool_name,
+            arguments=args_tuple,
             reason=reason,
             run_state_ref=state_path,
         )
@@ -382,29 +403,32 @@ class Runner:
             IntentClassified,
             RunError,
             TextDelta,
-            ToolCallResult,
-            TurnComplete,
-            TurnStart,
+            TurnSummary,
         )
         from kaos_agents.types import IntentResult, IntentType, ToolCallRecord
 
         text_parts: list[str] = []
         tool_calls: list[ToolCallRecord] = []
         intent_result: IntentResult | None = None
-        turn_complete: TurnComplete | None = None
+        turn_summary: TurnSummary | None = None
         turn_start_number: int = 0
         run_error: RunError | None = None
 
         async for event in self.run(message, session_id):
             if isinstance(event, TextDelta):
                 text_parts.append(event.content)
-            elif isinstance(event, ToolCallResult):
+            elif (
+                isinstance(event, Span)
+                and event.subject == SpanSubject.TOOL_CALL
+                and event.phase == SpanPhase.COMPLETE
+            ):
+                attrs = event.attributes
                 tool_calls.append(
                     ToolCallRecord.from_dict_args(
-                        tool_name=event.tool_name,
+                        tool_name=str(attrs.get("tool_name", "")),
                         arguments={},
-                        result_summary=event.result_summary,
-                        is_error=event.is_error,
+                        result_summary=str(attrs.get("result_summary", "")),
+                        is_error=bool(attrs.get("is_error", False)),
                     )
                 )
             elif isinstance(event, IntentClassified):
@@ -413,19 +437,23 @@ class Runner:
                     confidence=event.confidence,
                     reasoning=event.reasoning,
                 )
-            elif isinstance(event, TurnStart):
-                turn_start_number = event.turn_number
-            elif isinstance(event, TurnComplete):
-                turn_complete = event
+            elif (
+                isinstance(event, Span)
+                and event.subject == SpanSubject.TURN
+                and event.phase == SpanPhase.START
+            ):
+                turn_start_number = int(event.attributes.get("turn_number", 0) or 0)
+            elif isinstance(event, TurnSummary):
+                turn_summary = event
             elif isinstance(event, RunError):
                 run_error = event
 
-        # Prefer TurnComplete's text (which already aggregates TextDelta
+        # Prefer TurnSummary's text (which already aggregates TextDelta
         # content and includes pattern-specific post-processing); fall
-        # back to concatenated deltas when TurnComplete was not emitted
+        # back to concatenated deltas when TurnSummary was not emitted
         # (e.g. early pause, run_error).
-        if turn_complete is not None and turn_complete.text:
-            text = turn_complete.text
+        if turn_summary is not None and turn_summary.text:
+            text = turn_summary.text
         else:
             text = "".join(text_parts)
 
@@ -443,7 +471,7 @@ class Runner:
             metadata["error_type"] = run_error.error_type
             metadata["error_message"] = run_error.message
 
-        tokens_used = turn_complete.tokens_used if turn_complete is not None else 0
+        tokens_used = turn_summary.tokens_used if turn_summary is not None else 0
         return AgentResponse.create(
             text=text,
             intent=intent_result,
@@ -475,11 +503,11 @@ class Runner:
         run_id = _generate_run_id()
         emitter = EventEmitter(session_id=session_id, run_id=run_id)
 
-        yield emitter.emit(
-            SubagentStart,
-            subagent_name=delegated.name,
-            task=task,
+        sub_span = emitter.span_start(
+            SpanSubject.SUBAGENT,
+            attributes={"subagent_name": delegated.name, "task": task},
         )
+        yield sub_span
 
         try:
             result_text = await delegated.call(
@@ -493,11 +521,14 @@ class Runner:
             logger.warning("Runner.delegate: sub-agent '%s' failed: %s", delegated.name, exc)
             raise
 
-        yield emitter.emit(
-            SubagentComplete,
-            subagent_name=delegated.name,
-            result_summary=result_text[:RESULT_SUMMARY_TRUNCATE],
-            tokens_used=0,
+        yield emitter.span_complete(
+            SpanSubject.SUBAGENT,
+            span_id=sub_span.span_id,
+            attributes={
+                "subagent_name": delegated.name,
+                "result_summary": result_text[:RESULT_SUMMARY_TRUNCATE],
+                "tokens_used": 0,
+            },
         )
 
     async def handoff(
@@ -524,11 +555,13 @@ class Runner:
         emitter = EventEmitter(session_id=session_id, run_id=run_id)
 
         target_name = target.name or "unnamed"
-        yield emitter.emit(
-            HandoffStart,
-            from_agent=from_agent_name,
-            to_agent=target_name,
-            reason=reason,
+        yield emitter.span_start(
+            SpanSubject.HANDOFF,
+            attributes={
+                "from_agent": from_agent_name,
+                "to_agent": target_name,
+                "reason": reason,
+            },
         )
 
         target_runner = Runner(

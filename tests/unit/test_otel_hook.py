@@ -34,6 +34,29 @@ def _make_event(event_type: str, **kwargs: Any) -> Any:
     return e
 
 
+def _make_span(
+    *,
+    subject: Any,
+    phase: Any,
+    attributes: dict[str, Any] | None = None,
+    duration_ms: float | None = None,
+    span_id: str = "span-1",
+    name: str = "",
+) -> Any:
+    """Create a minimal Span-shaped event object for OTelHook tests."""
+    return _make_event(
+        "Span",
+        subject=subject,
+        phase=phase,
+        span_id=span_id,
+        name=name,
+        duration_ms=duration_ms,
+        error_type=None,
+        error_message=None,
+        attributes=attributes or {},
+    )
+
+
 @pytest.fixture
 def mock_otel():
     """Patch opentelemetry so OTelHook can be instantiated without real otel."""
@@ -72,54 +95,88 @@ class TestOTelHook:
     @pytest.mark.asyncio
     async def test_turn_lifecycle(self, mock_otel: tuple) -> None:
         mock_tracer, mock_span = mock_otel
+        from kaos_agents.events import SpanPhase, SpanSubject
         from kaos_agents.otel import OTelHook
 
         hook = OTelHook()
 
-        turn_start = _make_event("TurnStart", turn_number=1)
+        turn_start = _make_span(
+            subject=SpanSubject.TURN,
+            phase=SpanPhase.START,
+            attributes={"turn_number": 1},
+        )
         await hook.on_turn_start(turn_start)
         mock_tracer.start_span.assert_called()
         assert ("test-session", "test-run") in hook._turn_spans
 
-        turn_complete = _make_event(
-            "TurnComplete",
+        # Span(TURN, COMPLETE) is the boundary; the OTel span stays open
+        # until on_turn_summary fires with the typed aggregate.
+        turn_complete = _make_span(
+            subject=SpanSubject.TURN,
+            phase=SpanPhase.COMPLETE,
+            duration_ms=12.0,
+            attributes={"turn_number": 1},
+        )
+        await hook.on_turn_complete(turn_complete)
+        # The OTel span is still open at this point.
+        assert ("test-session", "test-run") in hook._turn_spans
+
+        # TurnSummary closes the OTel turn span.
+        from kaos_agents.events import TurnSummary
+
+        summary = TurnSummary(
+            timestamp=1000.0,
+            sequence=1,
+            session_id="test-session",
+            run_id="test-run",
             text="done",
             intent="answer",
             tool_calls=(),
             tokens_used=100,
             cost_usd=0.001,
         )
-        await hook.on_turn_complete(turn_complete)
+        await hook.on_turn_summary(summary)
         mock_span.end.assert_called()
         assert ("test-session", "test-run") not in hook._turn_spans
 
     @pytest.mark.asyncio
     async def test_tool_call_lifecycle(self, mock_otel: tuple) -> None:
         _mock_tracer, _mock_span = mock_otel
+        from kaos_agents.events import SpanPhase, SpanSubject
         from kaos_agents.otel import OTelHook
 
         hook = OTelHook()
 
-        turn_start = _make_event("TurnStart", turn_number=1)
+        turn_start = _make_span(
+            subject=SpanSubject.TURN,
+            phase=SpanPhase.START,
+            attributes={"turn_number": 1},
+        )
         await hook.on_turn_start(turn_start)
 
-        tool_start = _make_event(
-            "ToolCallStart",
-            call_id="call-1",
-            tool_name="kaos-web-search",
-            arguments=(("query", "test"),),
+        tool_start = _make_span(
+            subject=SpanSubject.TOOL_CALL,
+            phase=SpanPhase.START,
+            attributes={
+                "tool_name": "kaos-web-search",
+                "call_id": "call-1",
+                "arguments": (("query", "test"),),
+            },
         )
         action = await hook.on_tool_call_start(tool_start)
         assert action == HookAction.CONTINUE
         assert "call-1" in hook._tool_spans
 
-        tool_result = _make_event(
-            "ToolCallResult",
-            call_id="call-1",
-            tool_name="kaos-web-search",
-            result_summary="3 results found",
-            is_error=False,
+        tool_result = _make_span(
+            subject=SpanSubject.TOOL_CALL,
+            phase=SpanPhase.COMPLETE,
             duration_ms=150.0,
+            attributes={
+                "tool_name": "kaos-web-search",
+                "call_id": "call-1",
+                "result_summary": "3 results found",
+                "is_error": False,
+            },
         )
         await hook.on_tool_call_result(tool_result)
         assert "call-1" not in hook._tool_spans
@@ -127,23 +184,35 @@ class TestOTelHook:
     @pytest.mark.asyncio
     async def test_step_lifecycle(self, mock_otel: tuple) -> None:
         _mock_tracer, _mock_span = mock_otel
+        from kaos_agents.events import SpanPhase, SpanSubject
         from kaos_agents.otel import OTelHook
 
         hook = OTelHook()
 
-        turn_start = _make_event("TurnStart", turn_number=1)
+        turn_start = _make_span(
+            subject=SpanSubject.TURN,
+            phase=SpanPhase.START,
+            attributes={"turn_number": 1},
+        )
         await hook.on_turn_start(turn_start)
 
-        step_start = _make_event("StepStart", step_id="step-1", description="Search for documents")
+        step_start = _make_span(
+            subject=SpanSubject.STEP,
+            phase=SpanPhase.START,
+            attributes={"step_id": "step-1", "description": "Search for documents"},
+        )
         await hook.on_step_start(step_start)
         assert "step-1" in hook._step_spans
 
-        step_complete = _make_event(
-            "StepComplete",
-            step_id="step-1",
-            result_summary="Found 5 docs",
-            is_error=False,
+        step_complete = _make_span(
+            subject=SpanSubject.STEP,
+            phase=SpanPhase.COMPLETE,
             duration_ms=500.0,
+            attributes={
+                "step_id": "step-1",
+                "result_summary": "Found 5 docs",
+                "is_error": False,
+            },
         )
         await hook.on_step_complete(step_complete)
         assert "step-1" not in hook._step_spans
@@ -151,11 +220,16 @@ class TestOTelHook:
     @pytest.mark.asyncio
     async def test_error_ends_turn_span(self, mock_otel: tuple) -> None:
         _mock_tracer, mock_span = mock_otel
+        from kaos_agents.events import SpanPhase, SpanSubject
         from kaos_agents.otel import OTelHook
 
         hook = OTelHook()
 
-        turn_start = _make_event("TurnStart", turn_number=1)
+        turn_start = _make_span(
+            subject=SpanSubject.TURN,
+            phase=SpanPhase.START,
+            attributes={"turn_number": 1},
+        )
         await hook.on_turn_start(turn_start)
 
         error = _make_event(
@@ -171,11 +245,16 @@ class TestOTelHook:
     @pytest.mark.asyncio
     async def test_intent_classified(self, mock_otel: tuple) -> None:
         mock_tracer, _mock_span = mock_otel
+        from kaos_agents.events import SpanPhase, SpanSubject
         from kaos_agents.otel import OTelHook
 
         hook = OTelHook()
 
-        turn_start = _make_event("TurnStart", turn_number=1)
+        turn_start = _make_span(
+            subject=SpanSubject.TURN,
+            phase=SpanPhase.START,
+            attributes={"turn_number": 1},
+        )
         await hook.on_turn_start(turn_start)
 
         intent = _make_event(

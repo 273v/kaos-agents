@@ -22,7 +22,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from kaos_agents.config import Agent
-from kaos_agents.events import IntentClassified, TurnComplete, TurnStart
+from kaos_agents.events import IntentClassified, Span, TurnSummary
 from kaos_agents.hooks import BaseHook
 from kaos_agents.runner import Runner
 from kaos_agents.types import IntentResult, IntentType
@@ -32,14 +32,17 @@ class _RecordingHook(BaseHook):
     def __init__(self) -> None:
         self.events: list[str] = []
 
-    async def on_turn_start(self, event: TurnStart) -> None:
+    async def on_turn_start(self, event: Span) -> None:
         self.events.append("turn_start")
 
     async def on_intent_classified(self, event: IntentClassified) -> None:
         self.events.append("intent_classified")
 
-    async def on_turn_complete(self, event: TurnComplete) -> None:
+    async def on_turn_complete(self, event: Span) -> None:
         self.events.append("turn_complete")
+
+    async def on_turn_summary(self, event: TurnSummary) -> None:
+        self.events.append("turn_summary")
 
 
 @pytest.mark.unit

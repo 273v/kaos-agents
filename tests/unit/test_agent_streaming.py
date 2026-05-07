@@ -20,12 +20,12 @@ from kaos_agents.events import (
     IntentClassified,
     KaosEvent,
     RunError,
+    Span,
+    SpanPhase,
+    SpanSubject,
     TextDelta,
-    ToolCallResult,
-    ToolCallStart,
     ToolCallSummary,
-    TurnComplete,
-    TurnStart,
+    TurnSummary,
 )
 from kaos_agents.types import AgentResponse, IntentResult, IntentType
 
@@ -52,9 +52,19 @@ def _make_mock_vfs() -> Any:
 @pytest.mark.unit
 class TestEventsToResponse:
     def test_basic_conversion(self) -> None:
-        """TurnStart + IntentClassified + TextDelta + TurnComplete → AgentResponse."""
+        """Span(TURN, START) + IntentClassified + TextDelta + TurnSummary → AgentResponse."""
         events: list[KaosEvent] = [
-            TurnStart(timestamp=1.0, sequence=0, session_id="s", run_id="r", turn_number=3),
+            Span(
+                timestamp=1.0,
+                sequence=0,
+                session_id="s",
+                run_id="r",
+                subject=SpanSubject.TURN,
+                phase=SpanPhase.START,
+                span_id="t1",
+                name="turn.3",
+                attributes={"turn_number": 3},
+            ),
             IntentClassified(
                 timestamp=1.1,
                 sequence=1,
@@ -65,7 +75,7 @@ class TestEventsToResponse:
                 reasoning="Simple query",
             ),
             TextDelta(timestamp=1.2, sequence=2, session_id="s", run_id="r", content="Hello!"),
-            TurnComplete(
+            TurnSummary(
                 timestamp=1.3,
                 sequence=3,
                 session_id="s",
@@ -84,9 +94,18 @@ class TestEventsToResponse:
         assert response.tokens_used == 50
 
     def test_with_tool_calls(self) -> None:
-        """ToolCallResult events are collected into AgentResponse.tool_calls."""
+        """Span(TOOL_CALL, COMPLETE) events are collected into AgentResponse.tool_calls."""
         events: list[KaosEvent] = [
-            TurnStart(timestamp=1.0, sequence=0, session_id="s", run_id="r", turn_number=1),
+            Span(
+                timestamp=1.0,
+                sequence=0,
+                session_id="s",
+                run_id="r",
+                subject=SpanSubject.TURN,
+                phase=SpanPhase.START,
+                span_id="t1",
+                attributes={"turn_number": 1},
+            ),
             IntentClassified(
                 timestamp=1.1,
                 sequence=1,
@@ -96,24 +115,31 @@ class TestEventsToResponse:
                 confidence=0.9,
                 reasoning="Needs tools",
             ),
-            ToolCallStart(
+            Span(
                 timestamp=1.2,
                 sequence=2,
                 session_id="s",
                 run_id="r",
-                call_id="tc_01",
-                tool_name="kaos-source-fr-search",
+                subject=SpanSubject.TOOL_CALL,
+                phase=SpanPhase.START,
+                span_id="tc-01",
+                attributes={"tool_name": "kaos-source-fr-search", "call_id": "tc_01"},
             ),
-            ToolCallResult(
+            Span(
                 timestamp=1.3,
                 sequence=3,
                 session_id="s",
                 run_id="r",
-                call_id="tc_01",
-                tool_name="kaos-source-fr-search",
-                result_summary="Found 3",
-                is_error=False,
+                subject=SpanSubject.TOOL_CALL,
+                phase=SpanPhase.COMPLETE,
+                span_id="tc-01",
                 duration_ms=500,
+                attributes={
+                    "tool_name": "kaos-source-fr-search",
+                    "call_id": "tc_01",
+                    "result_summary": "Found 3",
+                    "is_error": False,
+                },
             ),
             TextDelta(
                 timestamp=1.4,
@@ -122,7 +148,7 @@ class TestEventsToResponse:
                 run_id="r",
                 content="Found 3 results.",
             ),
-            TurnComplete(
+            TurnSummary(
                 timestamp=1.5,
                 sequence=5,
                 session_id="s",
@@ -149,7 +175,7 @@ class TestEventsToResponse:
         assert response.turn_number == 0
 
     def test_fallback_to_text_deltas(self) -> None:
-        """Without TurnComplete, response is concatenated TextDelta content."""
+        """Without TurnSummary, response is concatenated TextDelta content."""
         events: list[KaosEvent] = [
             TextDelta(timestamp=1.0, sequence=0, session_id="s", run_id="r", content="Part 1. "),
             TextDelta(timestamp=1.1, sequence=1, session_id="s", run_id="r", content="Part 2."),
@@ -167,7 +193,7 @@ class TestEventsToResponse:
 class TestBaseAgentRun:
     @pytest.mark.asyncio
     async def test_run_yields_turn_start_and_complete(self) -> None:
-        """run() always yields TurnStart as first event and TurnComplete as last."""
+        """run() always yields Span(TURN, START) as first event and TurnSummary as last."""
         vfs = _make_mock_vfs()
         agent = BaseAgent(vfs)
 
@@ -183,9 +209,13 @@ class TestBaseAgentRun:
             async for event in agent.run("Hello", "test-session"):
                 events.append(event)
 
-        assert len(events) >= 3  # TurnStart, IntentClassified, TextDelta/TurnComplete
-        assert isinstance(events[0], TurnStart)
-        assert isinstance(events[-1], TurnComplete)
+        assert len(events) >= 3  # Span(TURN,START), IntentClassified, ..., TurnSummary
+        first = events[0]
+        last = events[-1]
+        assert isinstance(first, Span)
+        assert first.subject == SpanSubject.TURN
+        assert first.phase == SpanPhase.START
+        assert isinstance(last, TurnSummary)
 
     @pytest.mark.asyncio
     async def test_run_yields_intent_classified(self) -> None:

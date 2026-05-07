@@ -36,12 +36,8 @@ if TYPE_CHECKING:
     from kaos_agents.events import (
         IntentClassified,
         RunError,
-        StepComplete,
-        StepStart,
-        ToolCallResult,
-        ToolCallStart,
-        TurnComplete,
-        TurnStart,
+        Span,
+        TurnSummary,
     )
 
 logger = get_logger(__name__)
@@ -93,18 +89,19 @@ class OTelHook(BaseHook):
     def _turn_key(self, event: Any) -> tuple[str, str]:
         return (event.session_id, event.run_id)
 
-    async def on_turn_start(self, event: TurnStart) -> None:
+    async def on_turn_start(self, event: Span) -> None:
         """Start a parent ``agent.turn`` span."""
+        turn_number = int(event.attributes.get("turn_number", 0) or 0)
         span = self._tracer.start_span(
             "agent.turn",
             attributes={
                 "kaos.session_id": event.session_id,
                 "kaos.run_id": event.run_id,
-                "kaos.turn_number": event.turn_number,
+                "kaos.turn_number": turn_number,
             },
         )
         self._turn_spans[self._turn_key(event)] = span
-        logger.debug("otel.turn_start: session=%s turn=%d", event.session_id, event.turn_number)
+        logger.debug("otel.turn_start: session=%s turn=%d", event.session_id, turn_number)
 
     async def on_intent_classified(self, event: IntentClassified) -> None:
         """Create and immediately end an ``agent.intent_classification`` child span."""
@@ -127,7 +124,7 @@ class OTelHook(BaseHook):
         )
         span.end()
 
-    async def on_tool_call_start(self, event: ToolCallStart) -> HookAction:
+    async def on_tool_call_start(self, event: Span) -> HookAction:
         """Start an ``agent.tool_call.{name}`` child span under the turn."""
         key = self._turn_key(event)
         parent = self._turn_spans.get(key)
@@ -136,35 +133,42 @@ class OTelHook(BaseHook):
 
         ctx = trace.set_span_in_context(parent) if parent is not None else None
 
+        attrs = event.attributes
+        tool_name = str(attrs.get("tool_name", ""))
+        call_id = str(attrs.get("call_id", ""))
         span = self._tracer.start_span(
-            f"agent.tool_call.{event.tool_name}",
+            f"agent.tool_call.{tool_name}",
             context=ctx,
             attributes={
-                "kaos.tool_name": event.tool_name,
-                "kaos.call_id": event.call_id,
+                "kaos.tool_name": tool_name,
+                "kaos.call_id": call_id,
                 "kaos.session_id": event.session_id,
             },
         )
-        self._tool_spans[event.call_id] = span
+        self._tool_spans[call_id] = span
         return HookAction.CONTINUE
 
-    async def on_tool_call_result(self, event: ToolCallResult) -> None:
+    async def on_tool_call_result(self, event: Span) -> None:
         """End the tool call span with status and duration."""
-        span = self._tool_spans.pop(event.call_id, None)
+        attrs = event.attributes
+        call_id = str(attrs.get("call_id", ""))
+        span = self._tool_spans.pop(call_id, None)
         if span is None:
             return
 
         from opentelemetry.trace import StatusCode  # type: ignore[import-not-found]
 
-        span.set_attribute("kaos.duration_ms", event.duration_ms)
-        span.set_attribute("kaos.is_error", event.is_error)
-        if event.is_error:
-            span.set_status(StatusCode.ERROR, event.result_summary[:200])
+        is_error = bool(attrs.get("is_error", False))
+        result_summary = str(attrs.get("result_summary", ""))
+        span.set_attribute("kaos.duration_ms", event.duration_ms or 0.0)
+        span.set_attribute("kaos.is_error", is_error)
+        if is_error:
+            span.set_status(StatusCode.ERROR, result_summary[:200])
         else:
             span.set_status(StatusCode.OK)
         span.end()
 
-    async def on_step_start(self, event: StepStart) -> None:
+    async def on_step_start(self, event: Span) -> None:
         """Start an ``agent.step.{id}`` child span under the turn."""
         key = self._turn_key(event)
         parent = self._turn_spans.get(key)
@@ -173,35 +177,52 @@ class OTelHook(BaseHook):
 
         ctx = trace.set_span_in_context(parent) if parent is not None else None
 
+        attrs = event.attributes
+        step_id = str(attrs.get("step_id", ""))
+        description = str(attrs.get("description", ""))
         span = self._tracer.start_span(
-            f"agent.step.{event.step_id}",
+            f"agent.step.{step_id}",
             context=ctx,
             attributes={
-                "kaos.step_id": event.step_id,
-                "kaos.description": event.description[:200],
+                "kaos.step_id": step_id,
+                "kaos.description": description[:200],
                 "kaos.session_id": event.session_id,
             },
         )
-        self._step_spans[event.step_id] = span
+        self._step_spans[step_id] = span
 
-    async def on_step_complete(self, event: StepComplete) -> None:
+    async def on_step_complete(self, event: Span) -> None:
         """End the step span with status and duration."""
-        span = self._step_spans.pop(event.step_id, None)
+        attrs = event.attributes
+        step_id = str(attrs.get("step_id", ""))
+        span = self._step_spans.pop(step_id, None)
         if span is None:
             return
 
         from opentelemetry.trace import StatusCode  # type: ignore[import-not-found]
 
-        span.set_attribute("kaos.duration_ms", event.duration_ms)
-        span.set_attribute("kaos.is_error", event.is_error)
-        if event.is_error:
-            span.set_status(StatusCode.ERROR, event.result_summary[:200])
+        is_error = bool(attrs.get("is_error", False))
+        result_summary = str(attrs.get("result_summary", ""))
+        span.set_attribute("kaos.duration_ms", event.duration_ms or 0.0)
+        span.set_attribute("kaos.is_error", is_error)
+        if is_error:
+            span.set_status(StatusCode.ERROR, result_summary[:200])
         else:
             span.set_status(StatusCode.OK)
         span.end()
 
-    async def on_turn_complete(self, event: TurnComplete) -> None:
-        """End the turn span with token/cost attributes."""
+    async def on_turn_complete(self, event: Span) -> None:
+        """End the turn span (boundary). Token/cost attributes are filled
+        when the matching :class:`TurnSummary` arrives via
+        :meth:`on_turn_summary`."""
+        # Hold the OTel span open until TurnSummary arrives so we can
+        # decorate it with token/cost attributes the boundary doesn't
+        # carry. If TurnSummary never fires (early error), on_error
+        # cleans up.
+        return None
+
+    async def on_turn_summary(self, event: TurnSummary) -> None:
+        """End the turn span with token/cost attributes from the aggregate."""
         key = self._turn_key(event)
         span = self._turn_spans.pop(key, None)
         if span is None:
@@ -216,7 +237,7 @@ class OTelHook(BaseHook):
         span.set_status(StatusCode.OK)
         span.end()
         logger.debug(
-            "otel.turn_complete: session=%s tokens=%d cost=$%.4f",
+            "otel.turn_summary: session=%s tokens=%d cost=$%.4f",
             event.session_id,
             event.tokens_used,
             event.cost_usd,

@@ -961,14 +961,12 @@ async def _run_repl(args: argparse.Namespace) -> _SessionState:
         IntentClassified,
         PlanProposed,
         RunError,
-        StepComplete,
-        StepStart,
+        Span,
+        SpanPhase,
+        SpanSubject,
         TextDelta,
         ThinkingDelta,
-        ToolCallResult,
-        ToolCallStart,
-        TurnComplete,
-        TurnStart,
+        TurnSummary,
     )
     from kaos_agents.runner import Runner
 
@@ -1255,8 +1253,14 @@ async def _run_repl(args: argparse.Namespace) -> _SessionState:
                     log_file.write("\n")
                     log_file.flush()
 
-                if isinstance(event, TurnStart) and verbose:
-                    print(_c(_ANSI_DIM, f"[turn:{event.turn_number}]"))
+                if (
+                    isinstance(event, Span)
+                    and event.subject == SpanSubject.TURN
+                    and event.phase == SpanPhase.START
+                    and verbose
+                ):
+                    turn_number = int(event.attributes.get("turn_number", 0) or 0)
+                    print(_c(_ANSI_DIM, f"[turn:{turn_number}]"))
 
                 elif isinstance(event, IntentClassified):
                     explain.intent = event.intent
@@ -1275,28 +1279,56 @@ async def _run_repl(args: argparse.Namespace) -> _SessionState:
                         tool = f" ({step.tool_name})" if step.tool_name else ""
                         print(f"  {step.step_id}. {step.description}{tool}")
 
-                elif isinstance(event, StepStart) and verbose:
-                    print(_c(_ANSI_CYAN, f"[step:{event.step_id}] {event.description}"))
+                elif (
+                    isinstance(event, Span)
+                    and event.subject == SpanSubject.STEP
+                    and event.phase == SpanPhase.START
+                    and verbose
+                ):
+                    sa = event.attributes
+                    print(
+                        _c(
+                            _ANSI_CYAN,
+                            f"[step:{sa.get('step_id', '')}] {sa.get('description', '')}",
+                        )
+                    )
 
-                elif isinstance(event, StepComplete) and verbose:
-                    status = "failed" if event.is_error else "done"
-                    print(_c(_ANSI_DIM, f"[step:{event.step_id}] {status}"))
+                elif (
+                    isinstance(event, Span)
+                    and event.subject == SpanSubject.STEP
+                    and event.phase == SpanPhase.COMPLETE
+                    and verbose
+                ):
+                    sa = event.attributes
+                    status = "failed" if sa.get("is_error", False) else "done"
+                    print(_c(_ANSI_DIM, f"[step:{sa.get('step_id', '')}] {status}"))
 
-                elif isinstance(event, ToolCallStart):
+                elif (
+                    isinstance(event, Span)
+                    and event.subject == SpanSubject.TOOL_CALL
+                    and event.phase == SpanPhase.START
+                ):
+                    ta = event.attributes
+                    tool_name = str(ta.get("tool_name", ""))
                     if verbose:
-                        args_preview = str(event.arguments)[:120]
-                        print(_c(_ANSI_YELLOW, f"[tool:start] {event.tool_name} {args_preview}"))
+                        args_preview = str(ta.get("arguments", ()))[:120]
+                        print(_c(_ANSI_YELLOW, f"[tool:start] {tool_name} {args_preview}"))
                     else:
-                        print(_c(_ANSI_DIM, f"  [tool: {event.tool_name}]"))
+                        print(_c(_ANSI_DIM, f"  [tool: {tool_name}]"))
 
-                elif isinstance(event, ToolCallResult):
-                    preview = (getattr(event, "result_summary", "") or "")[:100]
-                    duration = getattr(event, "duration_ms", 0) or 0
+                elif (
+                    isinstance(event, Span)
+                    and event.subject == SpanSubject.TOOL_CALL
+                    and event.phase == SpanPhase.COMPLETE
+                ):
+                    ta = event.attributes
+                    preview = str(ta.get("result_summary", "") or "")[:100]
+                    duration = event.duration_ms or 0.0
                     explain.tool_calls.append(
                         {
-                            "tool_name": event.tool_name,
-                            "call_id": event.call_id,
-                            "is_error": event.is_error,
+                            "tool_name": str(ta.get("tool_name", "")),
+                            "call_id": str(ta.get("call_id", "")),
+                            "is_error": bool(ta.get("is_error", False)),
                             "duration_ms": float(duration),
                             "preview": preview,
                         }
@@ -1371,14 +1403,14 @@ async def _run_repl(args: argparse.Namespace) -> _SessionState:
                     )
                     print(_c(_ANSI_RED, f"\n[error] {event.error_type}: {event.message}"))
 
-                elif isinstance(event, TurnComplete):
+                elif isinstance(event, TurnSummary):
                     if text_parts:
                         print()
                     # Phase 4.4: Accumulate session cost
                     state.absorb(event.tokens_used, event.cost_usd)
                     n_tools = len(event.tool_calls)
                     # Backfill the per-tool cost into the explain record
-                    # before finalizing — TurnComplete carries the
+                    # before finalizing — TurnSummary carries the
                     # attributed cost the agent layer just computed.
                     cost_by_call_id = {s.call_id: float(s.cost_usd) for s in event.tool_calls}
                     tokens_by_call_id = {

@@ -87,9 +87,10 @@ async def run_scale_benchmark(
         CitationFound,
         EvidenceInsufficient,
         RunError,
+        Span,
+        SpanPhase,
+        SpanSubject,
         TextDelta,
-        ToolCallResult,
-        ToolCallStart,
     )
     from kaos_agents.runner import Runner
     from kaos_agents.settings import DEFAULT_MODEL
@@ -175,16 +176,27 @@ async def run_scale_benchmark(
                 elif isinstance(event, RunError):
                     errored = True
                     error_msg = event.message[:200]
-                elif isinstance(event, ToolCallStart):
+                elif (
+                    isinstance(event, Span)
+                    and event.subject == SpanSubject.TOOL_CALL
+                    and event.phase == SpanPhase.START
+                ):
+                    attrs = event.attributes
                     tool_trace.append(
                         {
-                            "tool": event.tool_name,
-                            "args": str(event.arguments)[:200],
+                            "tool": str(attrs.get("tool_name", "")),
+                            "args": str(attrs.get("arguments", ()))[:200],
                         }
                     )
-                elif isinstance(event, ToolCallResult) and tool_trace:
-                    tool_trace[-1]["summary"] = getattr(event, "result_summary", "")[:200]
-                    tool_trace[-1]["error"] = event.is_error
+                elif (
+                    isinstance(event, Span)
+                    and event.subject == SpanSubject.TOOL_CALL
+                    and event.phase == SpanPhase.COMPLETE
+                    and tool_trace
+                ):
+                    attrs = event.attributes
+                    tool_trace[-1]["summary"] = str(attrs.get("result_summary", ""))[:200]
+                    tool_trace[-1]["error"] = bool(attrs.get("is_error", False))
         except Exception as exc:
             errored = True
             error_msg = f"{type(exc).__name__}: {exc}"[:200]

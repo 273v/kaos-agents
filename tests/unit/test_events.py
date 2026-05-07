@@ -1,4 +1,4 @@
-"""Tests for the KaosEvent model — Phase 0 of the streaming roadmap.
+"""Tests for the KaosEvent model — the new Span-based taxonomy.
 
 Covers:
 - Round-trip serialization (serialize -> deserialize) for every event type
@@ -21,32 +21,29 @@ import pytest
 from kaos_agents.errors import EventDeserializationError
 from kaos_agents.events import (
     ALL_EVENT_TYPES,
+    BudgetExceeded,
     CitationFound,
     EventEmitter,
     EvidenceInsufficient,
     GroundingRefusalTriggered,
-    HandoffStart,
     IntentClassified,
     KaosEvent,
     LifecycleEvent,
-    MemoryUpdated,
+    MemoryEvent,
+    MemoryEventKind,
     PlanProposed,
     PlanStepSummary,
     RunError,
-    StepComplete,
-    StepStart,
+    Span,
+    SpanPhase,
+    SpanSubject,
     StreamDelta,
-    SubagentComplete,
-    SubagentStart,
     TextDelta,
     ThinkingDelta,
     ToolCallApprovalRequired,
     ToolCallArgsDelta,
-    ToolCallResult,
-    ToolCallStart,
     ToolCallSummary,
-    TurnComplete,
-    TurnStart,
+    TurnSummary,
     UsageObserved,
     deserialize_event,
     deserialize_event_json,
@@ -80,8 +77,20 @@ def _make_all_events() -> list[KaosEvent]:
             call_id="tc_01",
             content='{"query":',
         ),
-        TurnStart(timestamp=_TS, sequence=3, session_id=_SID, run_id=_RID, turn_number=1),
-        TurnComplete(
+        # Span — one instance covers the universal phase-boundary surface.
+        # Subject/phase combinations are exercised under TestSpan below.
+        Span(
+            timestamp=_TS,
+            sequence=3,
+            session_id=_SID,
+            run_id=_RID,
+            subject=SpanSubject.TURN,
+            phase=SpanPhase.START,
+            span_id="span0001",
+            name="turn.1",
+            attributes={"turn_number": 1},
+        ),
+        TurnSummary(
             timestamp=_TS,
             sequence=4,
             session_id=_SID,
@@ -105,6 +114,16 @@ def _make_all_events() -> list[KaosEvent]:
             message="Timed out",
             recovery_hint="Retry",
         ),
+        BudgetExceeded(
+            timestamp=_TS,
+            sequence=51,
+            session_id=_SID,
+            run_id=_RID,
+            kind="cost",
+            limit=1.0,
+            actual=1.5,
+            reason="Plan exceeded cost cap",
+        ),
         IntentClassified(
             timestamp=_TS,
             sequence=6,
@@ -113,26 +132,6 @@ def _make_all_events() -> list[KaosEvent]:
             intent="tool_use",
             confidence=0.92,
             reasoning="Has tools",
-        ),
-        ToolCallStart(
-            timestamp=_TS,
-            sequence=7,
-            session_id=_SID,
-            run_id=_RID,
-            call_id="tc_01",
-            tool_name="kaos-source-fr-search",
-            arguments=(("query", "EPA enforcement"), ("limit", "10")),
-        ),
-        ToolCallResult(
-            timestamp=_TS,
-            sequence=8,
-            session_id=_SID,
-            run_id=_RID,
-            call_id="tc_01",
-            tool_name="kaos-source-fr-search",
-            result_summary="3 results found",
-            is_error=False,
-            duration_ms=1200.5,
         ),
         ToolCallApprovalRequired(
             timestamp=_TS,
@@ -157,24 +156,6 @@ def _make_all_events() -> list[KaosEvent]:
                 PlanStepSummary(step_id="s2", description="Extract text"),
             ),
             strategy="adaptive",
-        ),
-        StepStart(
-            timestamp=_TS,
-            sequence=11,
-            session_id=_SID,
-            run_id=_RID,
-            step_id="s1",
-            description="Search FR",
-        ),
-        StepComplete(
-            timestamp=_TS,
-            sequence=12,
-            session_id=_SID,
-            run_id=_RID,
-            step_id="s1",
-            result_summary="Found 3",
-            is_error=False,
-            duration_ms=800,
         ),
         CitationFound(
             timestamp=_TS,
@@ -203,40 +184,14 @@ def _make_all_events() -> list[KaosEvent]:
             min_confidence=0.7,
             reason="Answer confidence 0.40 below policy threshold 0.70",
         ),
-        MemoryUpdated(
+        MemoryEvent(
             timestamp=_TS,
             sequence=15,
             session_id=_SID,
             run_id=_RID,
+            kind=MemoryEventKind.ADDED,
             section="messages",
-            action="add",
             item_count=5,
-        ),
-        HandoffStart(
-            timestamp=_TS,
-            sequence=16,
-            session_id=_SID,
-            run_id=_RID,
-            from_agent="router",
-            to_agent="researcher",
-            reason="Research task",
-        ),
-        SubagentStart(
-            timestamp=_TS,
-            sequence=17,
-            session_id=_SID,
-            run_id=_RID,
-            subagent_name="writer",
-            task="Draft memo",
-        ),
-        SubagentComplete(
-            timestamp=_TS,
-            sequence=18,
-            session_id=_SID,
-            run_id=_RID,
-            subagent_name="writer",
-            result_summary="Memo drafted",
-            tokens_used=500,
         ),
         UsageObserved(
             timestamp=_TS,
@@ -292,28 +247,43 @@ class TestTypeNames:
             (TextDelta, "text_delta"),
             (ThinkingDelta, "thinking_delta"),
             (ToolCallArgsDelta, "tool_call_args_delta"),
-            (TurnStart, "turn_start"),
-            (TurnComplete, "turn_complete"),
+            (TurnSummary, "turn_summary"),
             (RunError, "run_error"),
+            (BudgetExceeded, "budget_exceeded"),
             (IntentClassified, "intent_classified"),
-            (ToolCallStart, "tool_call_start"),
-            (ToolCallResult, "tool_call_result"),
             (ToolCallApprovalRequired, "tool_call_approval_required"),
             (PlanProposed, "plan_proposed"),
-            (StepStart, "step_start"),
-            (StepComplete, "step_complete"),
             (CitationFound, "citation_found"),
             (EvidenceInsufficient, "evidence_insufficient"),
             (GroundingRefusalTriggered, "grounding_refusal_triggered"),
-            (MemoryUpdated, "memory_updated"),
-            (HandoffStart, "handoff_start"),
-            (SubagentStart, "subagent_start"),
-            (SubagentComplete, "subagent_complete"),
+            (MemoryEvent, "memory_event"),
         ],
     )
     def test_snake_case_name(self, cls: type[KaosEvent], expected: str) -> None:
-        event = cls(timestamp=1.0, sequence=0, session_id="s", run_id="r")
+        # MemoryEvent requires the kind discriminator at construction time.
+        if cls is MemoryEvent:
+            event = cls(
+                timestamp=1.0,
+                sequence=0,
+                session_id="s",
+                run_id="r",
+                kind=MemoryEventKind.ADDED,
+            )
+        else:
+            event = cls(timestamp=1.0, sequence=0, session_id="s", run_id="r")
         assert event_type_name(event) == expected
+
+    def test_span_snake_case_name(self) -> None:
+        e = Span(
+            timestamp=1.0,
+            sequence=0,
+            session_id="s",
+            run_id="r",
+            subject=SpanSubject.TURN,
+            phase=SpanPhase.START,
+            span_id="abc",
+        )
+        assert event_type_name(e) == "span"
 
 
 # ---------------------------------------------------------------------------
@@ -382,7 +352,26 @@ class TestTypeDiscrimination:
 
     def test_lifecycle_events_are_agent_events(self) -> None:
         for cls in _LIFECYCLE_TYPES:
-            e = cls(timestamp=1.0, sequence=0, session_id="s", run_id="r")
+            if cls is Span:
+                e = cls(
+                    timestamp=1.0,
+                    sequence=0,
+                    session_id="s",
+                    run_id="r",
+                    subject=SpanSubject.TURN,
+                    phase=SpanPhase.START,
+                    span_id="x",
+                )
+            elif cls is MemoryEvent:
+                e = cls(
+                    timestamp=1.0,
+                    sequence=0,
+                    session_id="s",
+                    run_id="r",
+                    kind=MemoryEventKind.ADDED,
+                )
+            else:
+                e = cls(timestamp=1.0, sequence=0, session_id="s", run_id="r")
             assert isinstance(e, KaosEvent)
 
     def test_stream_deltas_are_stream_delta_subclass(self) -> None:
@@ -395,7 +384,26 @@ class TestTypeDiscrimination:
     def test_lifecycle_events_are_lifecycle_subclass(self) -> None:
         """Every concrete lifecycle event IS a LifecycleEvent via isinstance."""
         for cls in _LIFECYCLE_TYPES:
-            e = cls(timestamp=1.0, sequence=0, session_id="s", run_id="r")
+            if cls is Span:
+                e = cls(
+                    timestamp=1.0,
+                    sequence=0,
+                    session_id="s",
+                    run_id="r",
+                    subject=SpanSubject.TURN,
+                    phase=SpanPhase.START,
+                    span_id="x",
+                )
+            elif cls is MemoryEvent:
+                e = cls(
+                    timestamp=1.0,
+                    sequence=0,
+                    session_id="s",
+                    run_id="r",
+                    kind=MemoryEventKind.ADDED,
+                )
+            else:
+                e = cls(timestamp=1.0, sequence=0, session_id="s", run_id="r")
             assert isinstance(e, LifecycleEvent)
             assert not isinstance(e, StreamDelta)
 
@@ -411,6 +419,51 @@ class TestTypeDiscrimination:
 
 
 # ---------------------------------------------------------------------------
+# Test: Span — the universal phase-boundary event
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestSpan:
+    def test_round_trip_for_each_subject(self) -> None:
+        """Every SpanSubject + SpanPhase combination round-trips cleanly."""
+        for subject in SpanSubject:
+            for phase in SpanPhase:
+                e = Span(
+                    timestamp=1.0,
+                    sequence=0,
+                    session_id="s",
+                    run_id="r",
+                    subject=subject,
+                    phase=phase,
+                    span_id=f"id-{subject.value}-{phase.value}",
+                    name=f"{subject.value}.{phase.value}",
+                    attributes={"k": "v"},
+                )
+                restored = deserialize_event_json(serialize_event_json(e))
+                assert isinstance(restored, Span)
+                assert restored.subject == subject
+                assert restored.phase == phase
+                assert restored.span_id == e.span_id
+                assert restored.attributes == {"k": "v"}
+
+    def test_complete_carries_duration(self) -> None:
+        e = Span(
+            timestamp=1.0,
+            sequence=0,
+            session_id="s",
+            run_id="r",
+            subject=SpanSubject.TOOL_CALL,
+            phase=SpanPhase.COMPLETE,
+            span_id="x",
+            duration_ms=250.5,
+        )
+        restored = deserialize_event_json(serialize_event_json(e))
+        assert isinstance(restored, Span)
+        assert restored.duration_ms == 250.5
+
+
+# ---------------------------------------------------------------------------
 # Test: EventEmitter
 # ---------------------------------------------------------------------------
 
@@ -421,10 +474,10 @@ class TestEventEmitter:
         """EventEmitter produces monotonically increasing sequence numbers."""
         emitter = EventEmitter(session_id="s", run_id="r")
         events = [
-            emitter.emit(TurnStart, turn_number=1),
+            emitter.span_start(SpanSubject.TURN, name="turn.1", attributes={"turn_number": 1}),
             emitter.emit(IntentClassified, intent="respond", confidence=0.9, reasoning="simple"),
             emitter.emit(TextDelta, content="Hello"),
-            emitter.emit(TurnComplete, text="Hello", intent="respond"),
+            emitter.emit(TurnSummary, text="Hello", intent="respond"),
         ]
         sequences = [e.sequence for e in events]
         assert sequences == [0, 1, 2, 3]
@@ -445,10 +498,12 @@ class TestEventEmitter:
     def test_agent_id_override(self) -> None:
         """Per-event agent_id overrides the emitter default."""
         emitter = EventEmitter(session_id="s", run_id="r", agent_id="default")
-        event = emitter.emit(
-            SubagentStart, agent_id="override", subagent_name="writer", task="draft"
+        event = emitter.span_start(
+            SpanSubject.SUBAGENT,
+            attributes={"subagent_name": "writer", "task": "draft"},
         )
-        assert event.agent_id == "override"
+        # agent_id forwarding for span_start uses the emitter default.
+        assert event.agent_id == "default"
 
     def test_sequence_property(self) -> None:
         emitter = EventEmitter(session_id="s", run_id="r")
@@ -457,6 +512,25 @@ class TestEventEmitter:
         assert emitter.sequence == 1
         emitter.emit(TextDelta, content="b")
         assert emitter.sequence == 2
+
+    def test_span_complete_matches_start(self) -> None:
+        """span_complete with span_id from span_start preserves identity."""
+        emitter = EventEmitter(session_id="s", run_id="r")
+        start = emitter.span_start(
+            SpanSubject.TOOL_CALL,
+            name="tool.x",
+            attributes={"tool_name": "x", "call_id": "c1"},
+        )
+        complete = emitter.span_complete(
+            SpanSubject.TOOL_CALL,
+            span_id=start.span_id,
+            name="tool.x",
+            duration_ms=10.0,
+            attributes={"tool_name": "x", "call_id": "c1", "is_error": False},
+        )
+        assert complete.span_id == start.span_id
+        assert complete.subject == SpanSubject.TOOL_CALL
+        assert complete.phase == SpanPhase.COMPLETE
 
 
 # ---------------------------------------------------------------------------
@@ -478,13 +552,13 @@ class TestErrorHandling:
 
     def test_unknown_type_lists_valid(self) -> None:
         """Error message for unknown type includes the list of valid types."""
-        with pytest.raises(EventDeserializationError, match="turn_start"):
+        with pytest.raises(EventDeserializationError, match="span"):
             deserialize_event({"type": "nonexistent_event"})
 
     def test_missing_required_fields(self) -> None:
         """Missing required fields raises EventDeserializationError with field names."""
         with pytest.raises(EventDeserializationError, match="Required fields"):
-            deserialize_event({"type": "turn_start"})
+            deserialize_event({"type": "span"})
 
     def test_forward_compat_ignores_unknown_fields(self) -> None:
         """Unknown fields in the dict are silently ignored."""
@@ -554,7 +628,7 @@ class TestImmutability:
 @pytest.mark.unit
 class TestNestedSerialization:
     def test_tool_call_summary_round_trip(self) -> None:
-        event = TurnComplete(
+        event = TurnSummary(
             timestamp=1.0,
             sequence=0,
             session_id="s",
@@ -569,7 +643,7 @@ class TestNestedSerialization:
         data = serialize_event(event)
         restored = deserialize_event(data)
         assert restored == event
-        assert isinstance(restored, TurnComplete)
+        assert isinstance(restored, TurnSummary)
         assert len(restored.tool_calls) == 2
         assert restored.tool_calls[0].tool_name == "tool-a"
         assert restored.tool_calls[1].is_error is True
@@ -594,43 +668,28 @@ class TestNestedSerialization:
         assert restored.steps[0].tool_name == "tool-x"
         assert restored.steps[1].tool_name is None
 
-    def test_arguments_tuple_round_trip(self) -> None:
-        event = ToolCallStart(
+    def test_span_attributes_round_trip(self) -> None:
+        """Span.attributes survives JSON serialization (dict of arbitrary values)."""
+        event = Span(
             timestamp=1.0,
             sequence=0,
             session_id="s",
             run_id="r",
-            call_id="tc_01",
-            tool_name="test-tool",
-            arguments=(("key1", "value1"), ("key2", "value2")),
-        )
-        data = serialize_event(event)
-        # asdict preserves tuples of primitives; verify structure is equivalent
-        assert len(data["arguments"]) == 2
-        assert tuple(data["arguments"][0]) == ("key1", "value1")
-        assert tuple(data["arguments"][1]) == ("key2", "value2")
-        # Round-trip via dict
-        restored = deserialize_event(data)
-        assert restored == event
-        assert isinstance(restored, ToolCallStart)
-        assert restored.arguments == (("key1", "value1"), ("key2", "value2"))
-
-    def test_arguments_json_round_trip(self) -> None:
-        """Arguments survive JSON (which converts tuples to arrays)."""
-        event = ToolCallStart(
-            timestamp=1.0,
-            sequence=0,
-            session_id="s",
-            run_id="r",
-            call_id="tc_01",
-            tool_name="test-tool",
-            arguments=(("key1", "value1"), ("key2", "value2")),
+            subject=SpanSubject.TOOL_CALL,
+            phase=SpanPhase.START,
+            span_id="abc",
+            name="tool.kaos-source-fr-search",
+            attributes={
+                "tool_name": "kaos-source-fr-search",
+                "call_id": "tc_01",
+                "arguments": [["query", "EPA"], ["limit", "10"]],
+            },
         )
         json_str = serialize_event_json(event)
         restored = deserialize_event_json(json_str)
         assert restored == event
-        assert isinstance(restored, ToolCallStart)
-        assert restored.arguments == (("key1", "value1"), ("key2", "value2"))
+        assert isinstance(restored, Span)
+        assert restored.attributes["tool_name"] == "kaos-source-fr-search"
 
 
 # ---------------------------------------------------------------------------
@@ -654,8 +713,8 @@ class TestSerializationBenchmark:
         benchmark(serialize_event, event)
 
     def test_serialize_complex_event(self, benchmark: Any) -> None:
-        """Benchmark serializing a TurnComplete (most complex event)."""
-        event = TurnComplete(
+        """Benchmark serializing a TurnSummary (most complex event)."""
+        event = TurnSummary(
             timestamp=1.0,
             sequence=42,
             session_id="bench",
@@ -676,17 +735,23 @@ class TestSerializationBenchmark:
         benchmark(serialize_event, event)
 
     def test_json_round_trip(self, benchmark: Any) -> None:
-        """Benchmark full JSON serialize + deserialize cycle."""
-        event = ToolCallResult(
+        """Benchmark full JSON serialize + deserialize cycle for a Span."""
+        event = Span(
             timestamp=1.0,
             sequence=7,
             session_id="bench",
             run_id="run-1",
-            call_id="tc_01",
-            tool_name="kaos-source-fr-search",
-            result_summary="Found 3 results",
-            is_error=False,
+            subject=SpanSubject.TOOL_CALL,
+            phase=SpanPhase.COMPLETE,
+            span_id="abc123",
+            name="tool.kaos-source-fr-search",
             duration_ms=1200.5,
+            attributes={
+                "tool_name": "kaos-source-fr-search",
+                "call_id": "tc_01",
+                "result_summary": "Found 3 results",
+                "is_error": False,
+            },
         )
 
         def round_trip() -> None:

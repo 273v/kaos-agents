@@ -22,9 +22,10 @@ from kaos_agents.agent import BaseAgent
 from kaos_agents.events import (
     EventEmitter,
     KaosEvent,
+    Span,
+    SpanPhase,
+    SpanSubject,
     TextDelta,
-    ToolCallResult,
-    ToolCallStart,
     UsageObserved,
     emit_usage_observed,
 )
@@ -242,25 +243,35 @@ class ChatAgent(BaseAgent):
                 for obs in iteration.tool_results:
                     total_tool_calls += 1
                     result_preview = str(obs.result)[:200] if obs.result else ""
+                    call_id = obs.tool_call_id or obs.tool_name
+                    args_tuple = tuple(sorted(obs.arguments.items())) if obs.arguments else ()
                     logger.debug(
                         "chat_agent.tool_call: tool=%s, is_error=%s, result_preview=%r",
                         obs.tool_name,
                         obs.is_error,
                         result_preview[:80],
                     )
-                    yield emitter.emit(
-                        ToolCallStart,
-                        call_id=obs.tool_call_id or obs.tool_name,
-                        tool_name=obs.tool_name,
-                        arguments=tuple(sorted(obs.arguments.items())) if obs.arguments else (),
+                    tc_span = emitter.span_start(
+                        SpanSubject.TOOL_CALL,
+                        name=f"tool.{obs.tool_name}",
+                        attributes={
+                            "tool_name": obs.tool_name,
+                            "call_id": call_id,
+                            "arguments": args_tuple,
+                        },
                     )
-                    yield emitter.emit(
-                        ToolCallResult,
-                        call_id=obs.tool_call_id or obs.tool_name,
-                        tool_name=obs.tool_name,
-                        result_summary=result_preview,
-                        is_error=obs.is_error,
+                    yield tc_span
+                    yield emitter.span_complete(
+                        SpanSubject.TOOL_CALL,
+                        span_id=tc_span.span_id,
+                        name=f"tool.{obs.tool_name}",
                         duration_ms=0.0,  # Per-tool timing not available from trajectory
+                        attributes={
+                            "tool_name": obs.tool_name,
+                            "call_id": call_id,
+                            "result_summary": result_preview,
+                            "is_error": obs.is_error,
+                        },
                     )
 
             # Emit the final response
@@ -319,13 +330,18 @@ class ChatAgent(BaseAgent):
         async for event in self._handle_tool_use_streaming(message, memory, context_items, emitter):
             if isinstance(event, TextDelta):
                 response_text += event.content
-            elif isinstance(event, ToolCallResult):
+            elif (
+                isinstance(event, Span)
+                and event.subject == SpanSubject.TOOL_CALL
+                and event.phase == SpanPhase.COMPLETE
+            ):
+                attrs = event.attributes
                 tool_calls.append(
                     ToolCallRecord.from_dict_args(
-                        tool_name=event.tool_name,
+                        tool_name=str(attrs.get("tool_name", "")),
                         arguments={},
-                        result_summary=event.result_summary,
-                        is_error=event.is_error,
+                        result_summary=str(attrs.get("result_summary", "")),
+                        is_error=bool(attrs.get("is_error", False)),
                     )
                 )
             elif isinstance(event, UsageObserved):

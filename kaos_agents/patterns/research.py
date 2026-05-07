@@ -27,9 +27,10 @@ from kaos_agents.events import (
     EventEmitter,
     EvidenceInsufficient,
     KaosEvent,
+    Span,
+    SpanPhase,
+    SpanSubject,
     TextDelta,
-    ToolCallResult,
-    ToolCallStart,
     UsageObserved,
     emit_usage_observed,
 )
@@ -449,11 +450,14 @@ class ResearchAgent(ChatAgent):
             "one-shot returned insufficient evidence, corpus_size=%d",
             corpus_size,
         )
-        yield emitter.emit(
-            ToolCallStart,
-            call_id="react-escalation",
-            tool_name="react-escalation",
-            arguments=(("reason", "one-shot RAG returned insufficient evidence"),),
+        yield emitter.span_start(
+            SpanSubject.TOOL_CALL,
+            name="tool.react-escalation",
+            attributes={
+                "tool_name": "react-escalation",
+                "call_id": "react-escalation",
+                "arguments": (("reason", "one-shot RAG returned insufficient evidence"),),
+            },
         )
 
         saved_instructions = self._instructions
@@ -554,12 +558,19 @@ class ResearchAgent(ChatAgent):
             )
 
             # Emit a tool call event for the RAG query
-            yield emitter.emit(
-                ToolCallStart,
-                call_id="rag-query",
-                tool_name="rag-query",
-                arguments=(("question", message), ("n_documents", str(n_docs_label))),
+            rag_query_span = emitter.span_start(
+                SpanSubject.TOOL_CALL,
+                name="tool.rag-query",
+                attributes={
+                    "tool_name": "rag-query",
+                    "call_id": "rag-query",
+                    "arguments": (
+                        ("question", message),
+                        ("n_documents", str(n_docs_label)),
+                    ),
+                },
             )
+            yield rag_query_span
 
             # P7: prepend a corpus outline to the question so the LLM sees
             # the corpus's "table of contents" up-front and can reason
@@ -702,13 +713,19 @@ class ResearchAgent(ChatAgent):
                     n_errors = len(result.verification_errors)
                     response_text += f"\n\n[Warning: {n_errors} citation(s) could not be verified]"
 
-                yield emitter.emit(
-                    ToolCallResult,
-                    call_id="rag-query",
-                    tool_name="rag-query",
-                    result_summary=f"{len(answer.claims)} claims, verified={result.is_verified}",
-                    is_error=False,
+                yield emitter.span_complete(
+                    SpanSubject.TOOL_CALL,
+                    span_id=rag_query_span.span_id,
+                    name="tool.rag-query",
                     duration_ms=0.0,
+                    attributes={
+                        "tool_name": "rag-query",
+                        "call_id": "rag-query",
+                        "result_summary": (
+                            f"{len(answer.claims)} claims, verified={result.is_verified}"
+                        ),
+                        "is_error": False,
+                    },
                 )
 
                 if response_text:
@@ -751,15 +768,19 @@ class ResearchAgent(ChatAgent):
                         retry_query[:80],
                         len(corpus),
                     )
-                    yield emitter.emit(
-                        ToolCallStart,
-                        call_id="rag-retry",
-                        tool_name="rag-retry",
-                        arguments=(
-                            ("retry_query", retry_query),
-                            ("reason", refusal.reason[:100]),
-                        ),
+                    rag_retry_span = emitter.span_start(
+                        SpanSubject.TOOL_CALL,
+                        name="tool.rag-retry",
+                        attributes={
+                            "tool_name": "rag-retry",
+                            "call_id": "rag-retry",
+                            "arguments": (
+                                ("retry_query", retry_query),
+                                ("reason", refusal.reason[:100]),
+                            ),
+                        },
                     )
+                    yield rag_retry_span
 
                     # Search for additional documents using the hint
                     from kaos_agents.memory.search import search_memory
@@ -826,13 +847,19 @@ class ResearchAgent(ChatAgent):
                                 f"\n\n[Retry succeeded: {len(answer.claims)} claim(s) "
                                 f"after expanding search with: {retry_query[:60]}]"
                             )
-                            yield emitter.emit(
-                                ToolCallResult,
-                                call_id="rag-retry",
-                                tool_name="rag-retry",
-                                result_summary=f"Retry succeeded: {len(answer.claims)} claims",
-                                is_error=False,
+                            yield emitter.span_complete(
+                                SpanSubject.TOOL_CALL,
+                                span_id=rag_retry_span.span_id,
+                                name="tool.rag-retry",
                                 duration_ms=0.0,
+                                attributes={
+                                    "tool_name": "rag-retry",
+                                    "call_id": "rag-retry",
+                                    "result_summary": (
+                                        f"Retry succeeded: {len(answer.claims)} claims"
+                                    ),
+                                    "is_error": False,
+                                },
                             )
                             yield emitter.emit(TextDelta, content=response_text)
 
@@ -862,13 +889,17 @@ class ResearchAgent(ChatAgent):
                         reason=refusal.reason,
                         what_would_resolve=refusal.what_would_resolve or "",
                     )
-                    yield emitter.emit(
-                        ToolCallResult,
-                        call_id="rag-query",
-                        tool_name="rag-query",
-                        result_summary=f"Insufficient evidence: {refusal.reason[:100]}",
-                        is_error=False,
+                    yield emitter.span_complete(
+                        SpanSubject.TOOL_CALL,
+                        span_id=rag_query_span.span_id,
+                        name="tool.rag-query",
                         duration_ms=0.0,
+                        attributes={
+                            "tool_name": "rag-query",
+                            "call_id": "rag-query",
+                            "result_summary": (f"Insufficient evidence: {refusal.reason[:100]}"),
+                            "is_error": False,
+                        },
                     )
 
                     response_text = (
@@ -929,13 +960,18 @@ class ResearchAgent(ChatAgent):
         async for event in self._handle_research_streaming(message, memory, context_items, emitter):
             if isinstance(event, TextDelta):
                 response_text += event.content
-            elif isinstance(event, ToolCallResult):
+            elif (
+                isinstance(event, Span)
+                and event.subject == SpanSubject.TOOL_CALL
+                and event.phase == SpanPhase.COMPLETE
+            ):
+                attrs = event.attributes
                 tool_calls.append(
                     ToolCallRecord.from_dict_args(
-                        tool_name=event.tool_name,
+                        tool_name=str(attrs.get("tool_name", "")),
                         arguments={},
-                        result_summary=event.result_summary,
-                        is_error=event.is_error,
+                        result_summary=str(attrs.get("result_summary", "")),
+                        is_error=bool(attrs.get("is_error", False)),
                     )
                 )
             elif isinstance(event, UsageObserved):

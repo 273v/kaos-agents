@@ -19,11 +19,11 @@ import pytest
 from kaos_agents.events import (
     IntentClassified,
     KaosEvent,
+    Span,
+    SpanPhase,
+    SpanSubject,
     TextDelta,
-    ToolCallResult,
-    ToolCallStart,
-    TurnComplete,
-    TurnStart,
+    TurnSummary,
 )
 from kaos_agents.wire import events_to_jsonl, events_to_sse, events_to_ws
 
@@ -31,7 +31,17 @@ from kaos_agents.wire import events_to_jsonl, events_to_sse, events_to_ws
 async def _make_event_stream() -> list[KaosEvent]:
     """Create a realistic event sequence."""
     return [
-        TurnStart(timestamp=1.0, sequence=0, session_id="s", run_id="r", turn_number=1),
+        Span(
+            timestamp=1.0,
+            sequence=0,
+            session_id="s",
+            run_id="r",
+            subject=SpanSubject.TURN,
+            phase=SpanPhase.START,
+            span_id="turn-1",
+            name="turn.1",
+            attributes={"turn_number": 1},
+        ),
         IntentClassified(
             timestamp=1.1,
             sequence=1,
@@ -41,27 +51,40 @@ async def _make_event_stream() -> list[KaosEvent]:
             confidence=0.9,
             reasoning="needs tools",
         ),
-        ToolCallStart(
+        Span(
             timestamp=1.2,
             sequence=2,
             session_id="s",
             run_id="r",
-            call_id="tc_01",
-            tool_name="kaos-source-fr-search",
+            subject=SpanSubject.TOOL_CALL,
+            phase=SpanPhase.START,
+            span_id="tc-01",
+            name="tool.kaos-source-fr-search",
+            attributes={
+                "tool_name": "kaos-source-fr-search",
+                "call_id": "tc_01",
+                "arguments": (),
+            },
         ),
-        ToolCallResult(
+        Span(
             timestamp=1.3,
             sequence=3,
             session_id="s",
             run_id="r",
-            call_id="tc_01",
-            tool_name="kaos-source-fr-search",
-            result_summary="Found 3",
-            is_error=False,
+            subject=SpanSubject.TOOL_CALL,
+            phase=SpanPhase.COMPLETE,
+            span_id="tc-01",
+            name="tool.kaos-source-fr-search",
             duration_ms=500,
+            attributes={
+                "tool_name": "kaos-source-fr-search",
+                "call_id": "tc_01",
+                "result_summary": "Found 3",
+                "is_error": False,
+            },
         ),
         TextDelta(timestamp=1.4, sequence=4, session_id="s", run_id="r", content="I found 3"),
-        TurnComplete(
+        TurnSummary(
             timestamp=1.5,
             sequence=5,
             session_id="s",
@@ -103,12 +126,24 @@ class TestSSE:
     @pytest.mark.asyncio
     async def test_sse_event_type(self) -> None:
         """SSE event: field matches the snake_case type name."""
-        events = [TurnStart(timestamp=1.0, sequence=0, session_id="s", run_id="r", turn_number=1)]
+        events = [
+            Span(
+                timestamp=1.0,
+                sequence=0,
+                session_id="s",
+                run_id="r",
+                subject=SpanSubject.TURN,
+                phase=SpanPhase.START,
+                span_id="t1",
+                name="turn.1",
+                attributes={"turn_number": 1},
+            )
+        ]
         messages: list[str] = []
         async for msg in events_to_sse(_async_iter(events)):
             messages.append(msg)
 
-        assert "event: turn_start\n" in messages[0]
+        assert "event: span\n" in messages[0]
 
     @pytest.mark.asyncio
     async def test_sse_data_is_valid_json(self) -> None:
@@ -172,12 +207,12 @@ class TestJSONL:
             types.append(parsed["type"])
 
         assert types == [
-            "turn_start",
+            "span",
             "intent_classified",
-            "tool_call_start",
-            "tool_call_result",
+            "span",
+            "span",
             "text_delta",
-            "turn_complete",
+            "turn_summary",
         ]
 
 

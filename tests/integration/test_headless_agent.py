@@ -21,7 +21,7 @@ from kaos_agents.events import (
     KaosEvent,
     RunError,
     TextDelta,
-    TurnComplete,
+    TurnSummary,
 )
 from kaos_agents.runner import Runner
 
@@ -73,7 +73,7 @@ async def test_single_turn_response() -> None:
 
     assert len(text) > 50, f"Response too short: {text[:100]}"
     assert any(isinstance(e, TextDelta) for e in events)
-    assert any(isinstance(e, TurnComplete) for e in events)
+    assert any(isinstance(e, TurnSummary) for e in events)
     assert not any(isinstance(e, RunError) for e in events)
 
 

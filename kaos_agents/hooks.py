@@ -46,16 +46,12 @@ if TYPE_CHECKING:
         EvidenceInsufficient,
         IntentClassified,
         KaosEvent,
-        MemoryUpdated,
+        MemoryEvent,
         PlanProposed,
         RunError,
-        StepComplete,
-        StepStart,
+        Span,
         TextDelta,
-        ToolCallResult,
-        ToolCallStart,
-        TurnComplete,
-        TurnStart,
+        TurnSummary,
     )
 
 logger = get_logger(__name__)
@@ -90,27 +86,30 @@ class BaseHook:
     ``REQUIRE_APPROVAL > SKIP > CONTINUE``.
     """
 
-    async def on_turn_start(self, event: TurnStart) -> None:
-        """Called at the beginning of a turn."""
+    async def on_turn_start(self, event: Span) -> None:
+        """Called at the beginning of a turn (``Span(TURN, START)``)."""
 
     async def on_intent_classified(self, event: IntentClassified) -> None:
         """Called after intent classification."""
 
-    async def on_tool_call_start(self, event: ToolCallStart) -> HookAction:
-        """Called before a tool is executed. Return action to control execution."""
+    async def on_tool_call_start(self, event: Span) -> HookAction:
+        """Called before a tool is executed (``Span(TOOL_CALL, START)``).
+
+        Return action to control execution.
+        """
         return HookAction.CONTINUE
 
-    async def on_tool_call_result(self, event: ToolCallResult) -> None:
-        """Called after a tool completes."""
+    async def on_tool_call_result(self, event: Span) -> None:
+        """Called after a tool completes (``Span(TOOL_CALL, COMPLETE)``)."""
 
     async def on_text_delta(self, event: TextDelta) -> None:
         """Called for each streaming text chunk."""
 
-    async def on_step_start(self, event: StepStart) -> None:
-        """Called when a plan step begins."""
+    async def on_step_start(self, event: Span) -> None:
+        """Called when a plan step begins (``Span(STEP, START)``)."""
 
-    async def on_step_complete(self, event: StepComplete) -> None:
-        """Called when a plan step completes."""
+    async def on_step_complete(self, event: Span) -> None:
+        """Called when a plan step completes (``Span(STEP, COMPLETE)``)."""
 
     async def on_plan_proposed(self, event: PlanProposed) -> None:
         """Called when a plan is proposed before execution."""
@@ -121,11 +120,14 @@ class BaseHook:
     async def on_evidence_insufficient(self, event: EvidenceInsufficient) -> None:
         """Called when RAG cannot find sufficient evidence."""
 
-    async def on_memory_updated(self, event: MemoryUpdated) -> None:
-        """Called when a memory section is modified."""
+    async def on_memory_event(self, event: MemoryEvent) -> None:
+        """Called when a memory section is modified (added / evicted / etc.)."""
 
-    async def on_turn_complete(self, event: TurnComplete) -> None:
-        """Called at the end of a turn."""
+    async def on_turn_complete(self, event: Span) -> None:
+        """Called at the end of a turn (``Span(TURN, COMPLETE)``)."""
+
+    async def on_turn_summary(self, event: TurnSummary) -> None:
+        """Called with the typed turn-end aggregate (text / intent / usage)."""
 
     async def on_error(self, event: RunError) -> None:
         """Called when an error occurs during execution."""
@@ -143,11 +145,11 @@ class LoggingHook(BaseHook):
     All events are logged at DEBUG level except errors (WARNING).
     """
 
-    async def on_turn_start(self, event: TurnStart) -> None:
+    async def on_turn_start(self, event: Span) -> None:
         logger.debug(
-            "hook.turn_start: session=%s turn=%d",
+            "hook.turn_start: session=%s turn=%s",
             event.session_id,
-            event.turn_number,
+            event.attributes.get("turn_number"),
         )
 
     async def on_intent_classified(self, event: IntentClassified) -> None:
@@ -157,33 +159,54 @@ class LoggingHook(BaseHook):
             event.confidence,
         )
 
-    async def on_tool_call_start(self, event: ToolCallStart) -> HookAction:
-        logger.debug("hook.tool_start: %s (call_id=%s)", event.tool_name, event.call_id)
+    async def on_tool_call_start(self, event: Span) -> HookAction:
+        attrs = event.attributes
+        logger.debug(
+            "hook.tool_start: %s (call_id=%s)",
+            attrs.get("tool_name", ""),
+            attrs.get("call_id", ""),
+        )
         return HookAction.CONTINUE
 
-    async def on_tool_call_result(self, event: ToolCallResult) -> None:
-        level = "warning" if event.is_error else "debug"
+    async def on_tool_call_result(self, event: Span) -> None:
+        attrs = event.attributes
+        is_error = bool(attrs.get("is_error", False))
+        level = "warning" if is_error else "debug"
         getattr(logger, level)(
             "hook.tool_result: %s %s (%.0fms)",
-            event.tool_name,
-            "ERROR" if event.is_error else "OK",
-            event.duration_ms,
+            attrs.get("tool_name", ""),
+            "ERROR" if is_error else "OK",
+            event.duration_ms or 0.0,
         )
 
-    async def on_step_start(self, event: StepStart) -> None:
-        logger.debug("hook.step_start: %s — %s", event.step_id, event.description)
+    async def on_step_start(self, event: Span) -> None:
+        attrs = event.attributes
+        logger.debug(
+            "hook.step_start: %s — %s",
+            attrs.get("step_id", ""),
+            attrs.get("description", ""),
+        )
 
-    async def on_step_complete(self, event: StepComplete) -> None:
+    async def on_step_complete(self, event: Span) -> None:
+        attrs = event.attributes
+        is_error = bool(attrs.get("is_error", False))
         logger.debug(
             "hook.step_complete: %s %s (%.0fms)",
-            event.step_id,
-            "ERROR" if event.is_error else "OK",
-            event.duration_ms,
+            attrs.get("step_id", ""),
+            "ERROR" if is_error else "OK",
+            event.duration_ms or 0.0,
         )
 
-    async def on_turn_complete(self, event: TurnComplete) -> None:
+    async def on_turn_complete(self, event: Span) -> None:
         logger.debug(
-            "hook.turn_complete: session=%s tokens=%d cost=$%.4f",
+            "hook.turn_complete: session=%s duration_ms=%.0f",
+            event.session_id,
+            event.duration_ms or 0.0,
+        )
+
+    async def on_turn_summary(self, event: TurnSummary) -> None:
+        logger.debug(
+            "hook.turn_summary: session=%s tokens=%d cost=$%.4f",
             event.session_id,
             event.tokens_used,
             event.cost_usd,
@@ -201,7 +224,7 @@ class LoggingHook(BaseHook):
 class CostTrackingHook(BaseHook):
     """Tracks token usage and cost per session.
 
-    Accumulates ``TurnComplete.tokens_used`` and ``TurnComplete.cost_usd``
+    Accumulates ``TurnSummary.tokens_used`` and ``TurnSummary.cost_usd``
     into a per-session totals dict. Useful for billing, budget enforcement,
     and usage reports.
 
@@ -227,7 +250,7 @@ class CostTrackingHook(BaseHook):
         else:
             self._totals.pop(session_id, None)
 
-    async def on_turn_complete(self, event: TurnComplete) -> None:
+    async def on_turn_summary(self, event: TurnSummary) -> None:
         tokens, cost, turns = self._totals.get(event.session_id, (0, 0.0, 0))
         self._totals[event.session_id] = (
             tokens + event.tokens_used,
@@ -284,26 +307,29 @@ class AuditHook(BaseHook):
         except Exception as exc:
             logger.warning("hook.audit: failed to persist event (swallowed): %s", exc)
 
-    async def on_turn_start(self, event: TurnStart) -> None:
+    async def on_turn_start(self, event: Span) -> None:
         await self._append(event)
 
     async def on_intent_classified(self, event: IntentClassified) -> None:
         await self._append(event)
 
-    async def on_tool_call_start(self, event: ToolCallStart) -> HookAction:
+    async def on_tool_call_start(self, event: Span) -> HookAction:
         await self._append(event)
         return HookAction.CONTINUE
 
-    async def on_tool_call_result(self, event: ToolCallResult) -> None:
+    async def on_tool_call_result(self, event: Span) -> None:
         await self._append(event)
 
-    async def on_step_start(self, event: StepStart) -> None:
+    async def on_step_start(self, event: Span) -> None:
         await self._append(event)
 
-    async def on_step_complete(self, event: StepComplete) -> None:
+    async def on_step_complete(self, event: Span) -> None:
         await self._append(event)
 
-    async def on_turn_complete(self, event: TurnComplete) -> None:
+    async def on_turn_complete(self, event: Span) -> None:
+        await self._append(event)
+
+    async def on_turn_summary(self, event: TurnSummary) -> None:
         await self._append(event)
 
     async def on_error(self, event: RunError) -> None:
@@ -342,48 +368,56 @@ async def dispatch_hook(
         CitationFound,
         EvidenceInsufficient,
         IntentClassified,
-        MemoryUpdated,
+        MemoryEvent,
         PlanProposed,
         RunError,
-        StepComplete,
-        StepStart,
+        Span,
+        SpanPhase,
+        SpanSubject,
         TextDelta,
-        ToolCallResult,
-        ToolCallStart,
-        TurnComplete,
-        TurnStart,
+        TurnSummary,
     )
 
     most_restrictive = HookAction.CONTINUE
 
     for hook in hooks:
         try:
-            if isinstance(event, TurnStart):
-                await hook.on_turn_start(event)
+            if isinstance(event, Span):
+                # Route by (subject, phase). Other span subjects/phases
+                # (PROGRESS, CANCELLED, RUN, SUBAGENT, HANDOFF, LLM_CALL)
+                # are intentionally not routed to typed BaseHook methods —
+                # consumers needing them implement on_event() externally.
+                if event.subject == SpanSubject.TURN:
+                    if event.phase == SpanPhase.START:
+                        await hook.on_turn_start(event)
+                    elif event.phase == SpanPhase.COMPLETE:
+                        await hook.on_turn_complete(event)
+                elif event.subject == SpanSubject.TOOL_CALL:
+                    if event.phase == SpanPhase.START:
+                        action = await hook.on_tool_call_start(event)
+                        if _ACTION_PRIORITY.get(action, 0) > _ACTION_PRIORITY[most_restrictive]:
+                            most_restrictive = action
+                    elif event.phase == SpanPhase.COMPLETE:
+                        await hook.on_tool_call_result(event)
+                elif event.subject == SpanSubject.STEP:
+                    if event.phase == SpanPhase.START:
+                        await hook.on_step_start(event)
+                    elif event.phase == SpanPhase.COMPLETE:
+                        await hook.on_step_complete(event)
             elif isinstance(event, IntentClassified):
                 await hook.on_intent_classified(event)
-            elif isinstance(event, ToolCallStart):
-                action = await hook.on_tool_call_start(event)
-                if _ACTION_PRIORITY.get(action, 0) > _ACTION_PRIORITY[most_restrictive]:
-                    most_restrictive = action
-            elif isinstance(event, ToolCallResult):
-                await hook.on_tool_call_result(event)
             elif isinstance(event, TextDelta):
                 await hook.on_text_delta(event)
-            elif isinstance(event, StepStart):
-                await hook.on_step_start(event)
-            elif isinstance(event, StepComplete):
-                await hook.on_step_complete(event)
             elif isinstance(event, PlanProposed):
                 await hook.on_plan_proposed(event)
             elif isinstance(event, CitationFound):
                 await hook.on_citation_found(event)
             elif isinstance(event, EvidenceInsufficient):
                 await hook.on_evidence_insufficient(event)
-            elif isinstance(event, MemoryUpdated):
-                await hook.on_memory_updated(event)
-            elif isinstance(event, TurnComplete):
-                await hook.on_turn_complete(event)
+            elif isinstance(event, MemoryEvent):
+                await hook.on_memory_event(event)
+            elif isinstance(event, TurnSummary):
+                await hook.on_turn_summary(event)
             elif isinstance(event, RunError):
                 await hook.on_error(event)
         except Exception as exc:
