@@ -5,7 +5,12 @@ from __future__ import annotations
 from kaos_agents._version import __version__
 from kaos_agents.base import KaosAgent, KaosPattern
 from kaos_agents.config import Agent, AgentPattern
-from kaos_agents.context import TriageResult, assemble_context, triage_corpus
+from kaos_agents.context import (
+    TriageResult,
+    assemble_context,
+    expand_with_graph,
+    triage_corpus,
+)
 from kaos_agents.decorators import FunctionHook, hook
 from kaos_agents.errors import (
     EventDeserializationError,
@@ -65,6 +70,12 @@ from kaos_agents.memory import (
     SessionMemory,
     SessionStore,
     SummarizationPolicy,
+    agent_iri,
+    doc_iri,
+    emit_from_event,
+    finding_iri,
+    step_iri,
+    tool_call_iri,
 )
 from kaos_agents.patterns import ChatAgent, PlanExecuteAgent, ResearchAgent
 from kaos_agents.planning import (
@@ -223,6 +234,7 @@ __all__ = [
     "TurnSummary",
     "__version__",
     "agent_as_tool",
+    "agent_iri",
     "assemble_context",
     "current_delegation_depth",
     "default_event_registry",
@@ -232,11 +244,17 @@ __all__ = [
     "deserialize_event",
     "deserialize_event_json",
     "dispatch_hook",
+    "doc_iri",
+    "emit_from_event",
     "events_to_jsonl",
     "events_to_sse",
+    "expand_with_graph",
+    "finding_iri",
     "hook",
     "register_agent_tools",
     "serialize_event",
     "serialize_event_json",
+    "step_iri",
+    "tool_call_iri",
     "triage_corpus",
 ]

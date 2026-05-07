@@ -89,7 +89,14 @@ kaos-agents (mirrors kaos-core layout: base/ + types/ + registry/ + decorators/ 
     │                       Built-ins: LoggingHook, AuditHook, CostTrackingHook, OTelHook
     │                       ProviderConfig with ModelRole (classify/respond/plan/research/evaluate)
     │                       FAST/BALANCED/STRONG presets
-    ├── SessionMemory     — 13-section context management with budgets, eviction, BM25 search, persistence
+    ├── SessionMemory     — 14-section context management with budgets, eviction, BM25 search, persistence
+    │                       Section 14 is MemoryType.GRAPH — per-session RDF graph (PROV-O + CiTO + kaos:)
+    │                       populated by emit_from_event hook on the run loop; persisted as Turtle
+    ├── KnowledgeGraph    — Per-session kaos_graph.Graph (B1-B4):
+    │                       B1: SessionMemory.graph lazy-init + Turtle save/load
+    │                       B2: emit_from_event(KaosEvent → triples) for tool calls / steps / citations
+    │                       B3: 3 MCP tools (graph-walk / graph-sparql / graph-projection)
+    │                       B4: assemble_context auto-injects 1-hop graph context for retrieved findings
     ├── ToolBridge        — wraps KaosTool → kaos-llm-core Tool for ReAct
     ├── AgentLoop         — 8-step turn: add message → assemble context → classify → dispatch → update memory
     ├── Permissions        — PermissionRule (glob pattern + allow/deny/ask) + PermissionPolicy
@@ -147,7 +154,7 @@ No new external dependencies.
 
 ## MCP Tools
 
-9 tools registered via `register_agent_tools(runtime)`:
+12 tools registered via `register_agent_tools(runtime)`:
 
 | Tool | Name | Purpose |
 |------|------|---------|
@@ -160,6 +167,9 @@ No new external dependencies.
 | ExtractSchemaTool | `kaos-extract-schema` | WS-TR.PR-4 — schema-driven structured extraction on a single document (read-only, closed-world). Pass `schema_json` or `recipe_name` |
 | ExtractCorpusTool | `kaos-extract-corpus` | WS-TR.PR-4 — resumable corpus fan-out (composes `extract_corpus` + `batch_run`) |
 | ExtractVerifyTool | `kaos-extract-verify` | WS-TR.PR-4 — verify a `Cited[T]`-shaped claim's spans against source text (no LLM needed) |
+| AgentGraphWalkTool | `kaos-agent-graph-walk` | Track 3 B3 — N-hop ego subgraph from a starting IRI in the session knowledge graph |
+| AgentGraphSparqlTool | `kaos-agent-graph-sparql` | Track 3 B3 — SPARQL SELECT/ASK over the session graph (requires `kaos-graph[rdf]`) |
+| AgentGraphProjectionTool | `kaos-agent-graph-projection` | Track 3 B3 — pre-built typed views (findings_with_citations, tool_calls_by_step, step_timeline, all_nodes) |
 
 ## Recipe Library
 
