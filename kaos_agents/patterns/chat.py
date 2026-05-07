@@ -31,6 +31,7 @@ from kaos_agents.events import (
 from kaos_agents.runtime.agent import BaseAgent
 from kaos_agents.types import (
     ZERO_USAGE,
+    AgentMetadata,
     IntentResult,
     IntentType,
     InvocationUsage,
@@ -84,6 +85,17 @@ class ChatAgent(BaseAgent):
         )
         response = await agent.turn("Extract dates from report.pdf", session_id="abc")
     """
+
+    @classmethod
+    def metadata(cls) -> AgentMetadata:
+        """Pattern identity — ``pattern="chat"``, supports respond /
+        tool_use / clarify intents."""
+        return AgentMetadata(
+            name="chat-agent",
+            description="Conversational agent with ReAct tool calling.",
+            pattern="chat",
+            tags=("chat", "tool-use", "react"),
+        )
 
     def __init__(
         self,

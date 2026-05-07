@@ -35,6 +35,7 @@ from kaos_agents.patterns.chat import ChatAgent
 from kaos_agents.planning.recall import recall
 from kaos_agents.types import (
     ZERO_USAGE,
+    AgentMetadata,
     IntentResult,
     IntentType,
     InvocationUsage,
@@ -75,6 +76,17 @@ class PlanExecuteAgent(ChatAgent):
             session_id="abc",
         )
     """
+
+    @classmethod
+    def metadata(cls) -> AgentMetadata:
+        """Pattern identity — ``pattern="plan"``, supports plan intent
+        plus the ChatAgent inherited intents."""
+        return AgentMetadata(
+            name="plan-execute-agent",
+            description="Multi-step plan-propose / execute / observe pattern.",
+            pattern="plan",
+            tags=("plan", "multi-step", "adaptive"),
+        )
 
     def __init__(
         self,

@@ -37,6 +37,7 @@ from kaos_agents.events import (
 from kaos_agents.patterns.chat import ChatAgent
 from kaos_agents.types import (
     ZERO_USAGE,
+    AgentMetadata,
     IntentResult,
     IntentType,
     InvocationUsage,
@@ -111,11 +112,23 @@ class ResearchAgent(ChatAgent):
     When the intent classifier detects RESEARCH (question + documents present),
     the agent dispatches to kaos-llm-core's RAG program.
 
+
     Usage:
         agent = ResearchAgent(vfs=vfs, model="anthropic:claude-sonnet-4-6")
         agent.load_document(memory, "doc:report-1", document_text)
         response = await agent.turn("What is the effective date?", session_id="abc")
     """
+
+    @classmethod
+    def metadata(cls) -> AgentMetadata:
+        """Pattern identity — ``pattern="research"``, RAG-backed Q&A
+        with citation verification."""
+        return AgentMetadata(
+            name="research-agent",
+            description="RAG-backed document Q&A with citation verification.",
+            pattern="research",
+            tags=("research", "rag", "citation", "verified"),
+        )
 
     def __init__(
         self,
