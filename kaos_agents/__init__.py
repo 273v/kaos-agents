@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from kaos_agents._version import __version__
+from kaos_agents.base import KaosAgent, KaosPattern
 from kaos_agents.config import Agent, AgentPattern
 from kaos_agents.context import TriageResult, assemble_context, triage_corpus
 from kaos_agents.decorators import FunctionHook, hook
@@ -65,6 +66,7 @@ from kaos_agents.memory import (
     SessionStore,
     SummarizationPolicy,
 )
+from kaos_agents.patterns import ChatAgent, PlanExecuteAgent, ResearchAgent
 from kaos_agents.planning import (
     ComposeResult,
     Decision,
@@ -82,8 +84,10 @@ from kaos_agents.planning import (
 from kaos_agents.registry import (
     EventRegistry,
     HookRegistry,
+    PatternRegistry,
     default_event_registry,
     default_hook_registry,
+    default_pattern_registry,
 )
 from kaos_agents.runtime.agent import BaseAgent
 from kaos_agents.runtime.delegation import (
@@ -124,6 +128,7 @@ __all__ = [
     "AuditHook",
     "BaseAgent",
     "BudgetExceeded",
+    "ChatAgent",
     "CitationFound",
     "ComposeResult",
     "CostTrackingHook",
@@ -148,10 +153,12 @@ __all__ = [
     "IntentResult",
     "IntentType",
     "Judgment",
+    "KaosAgent",
     "KaosAgentError",
     "KaosAgentSettings",
     "KaosEvent",
     "KaosHook",
+    "KaosPattern",
     "LifecycleEvent",
     "LoggingHook",
     "MemoryBudgetExceededError",
@@ -162,18 +169,21 @@ __all__ = [
     "ModelRole",
     "OTelHook",
     "PatternMetadata",
+    "PatternRegistry",
     "PendingToolCall",
     "PermissionDecision",
     "PermissionPolicy",
     "PermissionRule",
     "PersistenceMode",
     "PlanBudget",
+    "PlanExecuteAgent",
     "PlanGraph",
     "PlanProposed",
     "PlanStepSummary",
     "PrimitiveTrace",
     "ProviderConfig",
     "RecipeMetadata",
+    "ResearchAgent",
     "RouteResult",
     "RunError",
     "RunState",
@@ -208,6 +218,7 @@ __all__ = [
     "current_delegation_depth",
     "default_event_registry",
     "default_hook_registry",
+    "default_pattern_registry",
     "deserialize_event",
     "deserialize_event_json",
     "dispatch_hook",
