@@ -143,7 +143,7 @@ async def _run_agent(
     from kaos_core.registry.container import KaosRuntime
     from kaos_core.vfs.core import VirtualFileSystem
 
-    from kaos_agents.cli_chat import _load_files_into_memory
+    from kaos_agents.cli.chat import _load_files_into_memory
     from kaos_agents.config import Agent
     from kaos_agents.events import RunError, TextDelta, TurnSummary
     from kaos_agents.memory.session import SessionMemory
@@ -251,7 +251,7 @@ async def _run_structured(
     from kaos_llm_core.programs.extract import extract_corpus
     from kaos_llm_core.signatures.extraction import ExtractionSchema
 
-    from kaos_agents.cli_chat import _parse_file_to_document
+    from kaos_agents.cli.chat import _parse_file_to_document
     from kaos_agents.recipes import load_extraction_recipe
 
     sys.stdout.write(f"Loading {len(documents)} documents from {_DOCS_DIR}...\n")

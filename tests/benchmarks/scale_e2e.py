@@ -57,7 +57,7 @@ _SCALE_GROUND_TRUTH_OVERRIDES: dict[str, dict] = {
 
 def _find_all_fixtures(repo_root: Path) -> list[Path]:
     """Find all parseable fixture files across the repo."""
-    from kaos_agents.cli_chat import _SUPPORTED_EXTENSIONS
+    from kaos_agents.cli.chat import _SUPPORTED_EXTENSIONS
 
     files: list[Path] = []
     for rel in _FIXTURE_ROOTS:
@@ -102,7 +102,7 @@ async def run_scale_benchmark(
     sys.stdout.flush()
 
     # Build ContentDocumentCorpus (passage-level retrieval, not flat text)
-    from kaos_agents.cli_chat import _load_files_to_corpus
+    from kaos_agents.cli.chat import _load_files_to_corpus
 
     t0 = time.perf_counter()
     corpus, uris = _load_files_to_corpus(files, verbose=verbose)

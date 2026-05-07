@@ -114,7 +114,7 @@ async def _run_freeform_agent(
     from kaos_core.registry.container import KaosRuntime
     from kaos_core.vfs.core import VirtualFileSystem
 
-    from kaos_agents.cli_chat import _load_files_into_memory
+    from kaos_agents.cli.chat import _load_files_into_memory
     from kaos_agents.config import Agent
     from kaos_agents.events import RunError, TextDelta, TurnSummary
     from kaos_agents.memory.session import SessionMemory

@@ -33,7 +33,7 @@ from pathlib import Path
 
 import pytest
 
-from kaos_agents.cli_chat import (
+from kaos_agents.cli.chat import (
     _EXIT_BUDGET,
     _EXIT_ERROR,
     _EXIT_OK,

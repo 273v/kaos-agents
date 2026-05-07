@@ -64,8 +64,8 @@ dev = [
 ]
 
 [project.scripts]
-kaos-agent = "kaos_agents.cli_chat:main"
-kaos-extract = "kaos_agents.cli_extract:main"
+kaos-agent = "kaos_agents.cli.chat:main"
+kaos-extract = "kaos_agents.cli.extract:main"
 kaos-agents-serve = "kaos_agents.serve:main"
 
 [project.urls]

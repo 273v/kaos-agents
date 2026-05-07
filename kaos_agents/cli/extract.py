@@ -102,7 +102,7 @@ async def _run_extraction(args: argparse.Namespace) -> None:
     """Run the extraction pipeline."""
     from kaos_content import serialize_text
 
-    from kaos_agents.cli_chat import _SUPPORTED_EXTENSIONS, _parse_file_to_document
+    from kaos_agents.cli.chat import _SUPPORTED_EXTENSIONS, _parse_file_to_document
     from kaos_agents.settings import DEFAULT_MODEL
 
     # 1. Load files
