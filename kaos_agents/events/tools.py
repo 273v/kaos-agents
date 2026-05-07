@@ -27,6 +27,12 @@ class ToolCallSummary(KaosModel):
     invocation when the tool itself drove an LLM call (e.g. RAG's
     rag-query verifier, or a delegated sub-agent). Plain tools that
     don't call an LLM stay at ``0.0``.
+
+    ``plan_id`` / ``step_id`` correlate the call to a plan-execute
+    step. Both are ``None`` for tool calls outside a plan (chat /
+    research / direct-respond turns). The kelvin-agent
+    ``ActionExecution.plan_id`` pattern — explicit causality rather
+    than parsing event timestamps.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
@@ -38,6 +44,8 @@ class ToolCallSummary(KaosModel):
     cost_usd: float = 0.0
     input_tokens: int = 0
     output_tokens: int = 0
+    plan_id: str | None = None
+    step_id: str | None = None
 
 
 class ToolCallApprovalRequired(LifecycleEvent):

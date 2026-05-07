@@ -333,12 +333,21 @@ class PlanExecuteAgent(ChatAgent):
             ):
                 attrs = event.attributes
                 step_id = str(attrs.get("step_id", ""))
+                # Each completed plan step ships as a "tool call" record
+                # in the legacy non-streaming response shape. Tag with
+                # the plan_id (run-level) and step_id so downstream
+                # consumers (UI, audit, OTel) can correlate to the
+                # originating plan/step without parsing event timestamps.
+                # ``Span.span_id`` of the matching plan-execute run is
+                # not threaded here yet — Track 6 polishes this when
+                # ContextVar-based span correlation lands.
                 tool_calls.append(
                     ToolCallRecord.from_dict_args(
                         tool_name=step_id,
                         arguments={"step_id": step_id},
                         result_summary=str(attrs.get("result_summary", "")),
                         is_error=bool(attrs.get("is_error", False)),
+                        step_id=step_id,
                     )
                 )
             elif isinstance(event, UsageObserved):
