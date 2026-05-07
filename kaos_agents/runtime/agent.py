@@ -288,6 +288,13 @@ class BaseAgent(KaosAgent):
             async for event in self._dispatch_streaming(
                 intent, message, memory, context_items, emitter
             ):
+                # Track 3 chunk B2 — emit RDF triples for the events the
+                # session knowledge graph cares about (tool calls, steps,
+                # citations). emit_from_event is a no-op for events outside
+                # the v1 vocabulary and never raises.
+                from kaos_agents.memory.triples import emit_from_event
+
+                emit_from_event(event, memory)
                 yield event
                 # Collect response data from terminal events for memory update
                 if isinstance(event, TextDelta):
