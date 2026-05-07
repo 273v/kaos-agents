@@ -25,7 +25,7 @@ from kaos_agents.events import (
 )
 from kaos_agents.types.intents import IntentResult, IntentType
 from kaos_agents.types.response import AgentResponse
-from kaos_agents.types.tool_call import ToolCallRecord
+from kaos_agents.types.tool_call import ToolExecution
 
 if TYPE_CHECKING:
     from kaos_agents.base.event import KaosEvent
@@ -50,7 +50,7 @@ def events_to_response(events: list[KaosEvent], session_id: str) -> AgentRespons
     turn_summary: TurnSummary | None = None
     intent_event: IntentClassified | None = None
     turn_number = 0
-    tool_call_records: list[ToolCallRecord] = []
+    tool_call_records: list[ToolExecution] = []
 
     for event in events:
         if isinstance(event, TurnSummary):
@@ -64,7 +64,7 @@ def events_to_response(events: list[KaosEvent], session_id: str) -> AgentRespons
             elif event.subject == SpanSubject.TOOL_CALL and event.phase == SpanPhase.COMPLETE:
                 attrs = event.attributes
                 tool_call_records.append(
-                    ToolCallRecord.from_dict_args(
+                    ToolExecution.from_dict_args(
                         tool_name=str(attrs.get("tool_name", "")),
                         arguments={},  # Args are on the START span; we don't replay them here
                         result_summary=str(attrs.get("result_summary", "")),

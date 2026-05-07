@@ -117,6 +117,7 @@ from kaos_agents.types import (
     PermissionRule,
     RecipeMetadata,
     ToolCallRecord,
+    ToolExecution,
 )
 from kaos_agents.types.providers import BALANCED, FAST, STRONG, ModelRole, ProviderConfig
 from kaos_agents.wire import events_to_jsonl, events_to_sse
@@ -217,6 +218,7 @@ __all__ = [
     "ToolCallArgsDelta",
     "ToolCallRecord",
     "ToolCallSummary",
+    "ToolExecution",
     "TriageResult",
     "TurnSummary",
     "__version__",

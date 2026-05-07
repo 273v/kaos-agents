@@ -405,10 +405,10 @@ class Runner:
             TextDelta,
             TurnSummary,
         )
-        from kaos_agents.types import IntentResult, IntentType, ToolCallRecord
+        from kaos_agents.types import IntentResult, IntentType, ToolExecution
 
         text_parts: list[str] = []
-        tool_calls: list[ToolCallRecord] = []
+        tool_calls: list[ToolExecution] = []
         intent_result: IntentResult | None = None
         turn_summary: TurnSummary | None = None
         turn_start_number: int = 0
@@ -424,7 +424,7 @@ class Runner:
             ):
                 attrs = event.attributes
                 tool_calls.append(
-                    ToolCallRecord.from_dict_args(
+                    ToolExecution.from_dict_args(
                         tool_name=str(attrs.get("tool_name", "")),
                         arguments={},
                         result_summary=str(attrs.get("result_summary", "")),

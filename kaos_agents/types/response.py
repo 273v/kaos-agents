@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from kaos_agents.types.intents import IntentResult
-from kaos_agents.types.tool_call import ToolCallRecord
+from kaos_agents.types.tool_call import ToolExecution
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,7 +19,7 @@ class AgentResponse:
 
     text: str
     intent: IntentResult
-    tool_calls: tuple[ToolCallRecord, ...] = ()
+    tool_calls: tuple[ToolExecution, ...] = ()
     artifacts: tuple[str, ...] = ()  # Artifact URIs produced
     turn_number: int = 0
     tokens_used: int = 0
@@ -32,7 +32,7 @@ class AgentResponse:
         text: str,
         intent: IntentResult,
         *,
-        tool_calls: tuple[ToolCallRecord, ...] = (),
+        tool_calls: tuple[ToolExecution, ...] = (),
         artifacts: tuple[str, ...] = (),
         turn_number: int = 0,
         tokens_used: int = 0,

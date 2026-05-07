@@ -35,7 +35,14 @@ from kaos_agents.events import (
     emit_usage_observed,
 )
 from kaos_agents.patterns.chat import ChatAgent
-from kaos_agents.types import ZERO_USAGE, IntentResult, IntentType, InvocationUsage, ToolCallRecord
+from kaos_agents.types import (
+    ZERO_USAGE,
+    IntentResult,
+    IntentType,
+    InvocationUsage,
+    ToolCallRecord,
+    ToolExecution,
+)
 from kaos_agents.types.memory import MemoryType
 
 if TYPE_CHECKING:
@@ -945,7 +952,7 @@ class ResearchAgent(ChatAgent):
         message: str,
         memory: SessionMemory,
         context_items: dict[MemoryType, list[MemoryItem]],
-    ) -> tuple[str, list[ToolCallRecord], InvocationUsage]:
+    ) -> tuple[str, list[ToolExecution], InvocationUsage]:
         """Handle document Q&A (non-streaming, backward compat).
 
         Delegates to _handle_research_streaming and collects events,
@@ -955,7 +962,7 @@ class ResearchAgent(ChatAgent):
         emitter = EventEmitter(session_id="internal", run_id="internal")
 
         response_text = ""
-        tool_calls: list[ToolCallRecord] = []
+        tool_calls: list[ToolExecution] = []
         usage_total = ZERO_USAGE
         async for event in self._handle_research_streaming(message, memory, context_items, emitter):
             if isinstance(event, TextDelta):

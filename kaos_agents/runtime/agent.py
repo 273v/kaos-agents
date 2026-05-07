@@ -43,7 +43,6 @@ from kaos_agents.events import (
     SpanPhase,
     SpanSubject,
     TextDelta,
-    ToolCallSummary,
     TurnSummary,
     UsageObserved,
 )
@@ -55,7 +54,7 @@ from kaos_agents.types import (
     IntentResult,
     IntentType,
     InvocationUsage,
-    ToolCallRecord,
+    ToolExecution,
 )
 from kaos_agents.types.memory import MemoryType
 
@@ -258,10 +257,16 @@ class BaseAgent(KaosAgent):
             intent.confidence,
         )
 
-        # Step 6: Dispatch to streaming handler — yields events from the handler
+        # Step 6: Dispatch to streaming handler — yields events from the handler.
+        #
+        # Track-3 chunk A2 collapsed the parallel ``tool_calls`` /
+        # ``tool_call_summaries`` lists into a single ``tool_executions``
+        # list of :class:`ToolExecution` value records. The wire-side
+        # :class:`ToolCallSummary` is derived via ``ToolExecution.to_summary()``
+        # at TurnSummary emission time, with per-tool cost attribution
+        # backfilled via dataclass replace.
         response_text = ""
-        tool_calls: list[ToolCallRecord] = []
-        tool_call_summaries: list[ToolCallSummary] = []
+        tool_executions: list[ToolExecution] = []
         # Per-tool LLM usage attribution (P8 / N2). Keyed by tool_name —
         # ``UsageObserved.source`` is informational and the convention is
         # for tool implementations to set ``source`` to the tool name (or
@@ -290,24 +295,16 @@ class BaseAgent(KaosAgent):
                 elif isinstance(event, Span) and event.subject == SpanSubject.TOOL_CALL:
                     if event.phase == SpanPhase.COMPLETE:
                         attrs = event.attributes
-                        tn = str(attrs.get("tool_name", ""))
-                        cid = str(attrs.get("call_id", ""))
-                        result_summary = str(attrs.get("result_summary", ""))
-                        is_error = bool(attrs.get("is_error", False))
-                        tool_calls.append(
-                            ToolCallRecord.from_dict_args(
-                                tool_name=tn,
-                                arguments={},
-                                result_summary=result_summary,
-                                is_error=is_error,
-                            )
-                        )
-                        tool_call_summaries.append(
-                            ToolCallSummary(
-                                tool_name=tn,
-                                call_id=cid,
-                                is_error=is_error,
+                        tool_executions.append(
+                            ToolExecution.from_dict_args(
+                                tool_name=str(attrs.get("tool_name", "")),
+                                arguments={},  # Args live on the START span; not threaded here
+                                call_id=str(attrs.get("call_id", "")),
+                                result_summary=str(attrs.get("result_summary", "")),
+                                is_error=bool(attrs.get("is_error", False)),
                                 duration_ms=event.duration_ms or 0.0,
+                                plan_id=str(attrs.get("plan_id") or "") or None,
+                                step_id=str(attrs.get("step_id") or "") or None,
                             )
                         )
                 elif isinstance(event, UsageObserved):
@@ -341,21 +338,33 @@ class BaseAgent(KaosAgent):
             "agent.step6_complete: session=%s response_len=%d tool_calls=%d",
             session_id,
             len(response_text),
-            len(tool_calls),
+            len(tool_executions),
         )
 
-        # Step 7: Update memory
+        # Step 7: Update memory.
+        #
+        # MESSAGES gets the rendered string content for prompt assembly.
+        # ACTIONS items keep the human-readable rendered string as
+        # ``content`` (still useful in prompts) AND carry the structured
+        # ToolExecution under ``metadata['tool_execution']`` so
+        # downstream consumers (graph triple emitter in chunk B2, audit
+        # hook, MCP memory-query tool) can read typed data without
+        # re-parsing the rendered string.
         if response_text:
             memory.add(MemoryType.MESSAGES, f"assistant: {response_text}")
-        if tool_calls:
-            for tc in tool_calls:
-                summary = f"Tool: {tc.tool_name}({tc.arguments}) → {tc.result_summary}"
-                memory.add(MemoryType.ACTIONS, summary)
+        if tool_executions:
+            for te in tool_executions:
+                summary = f"Tool: {te.tool_name}({te.arguments}) → {te.result_summary}"
+                memory.add(
+                    MemoryType.ACTIONS,
+                    summary,
+                    metadata={"tool_execution": te.to_dict()},
+                )
             yield emitter.emit(
                 MemoryEvent,
                 kind=MemoryEventKind.ADDED,
                 section=MemoryType.ACTIONS.value,
-                item_count=len(tool_calls),
+                item_count=len(tool_executions),
             )
 
         # Step 8: Summarize (if needed), end turn, persist
@@ -374,27 +383,30 @@ class BaseAgent(KaosAgent):
             memory.total_tokens,
         )
 
-        # Backfill per-tool cost attribution into the summaries before
-        # we emit TurnComplete. Builds a fresh tuple so the summaries
-        # stay frozen-by-immutability — we just reconstruct each one
-        # with the per-tool slice of usage on top of the base shape.
-        attributed_summaries: list[ToolCallSummary] = []
-        for s in tool_call_summaries:
-            usage = per_tool_usage.get(s.tool_name, ZERO_USAGE)
+        # Backfill per-tool cost attribution onto the executions before
+        # we project them to wire-side summaries for TurnSummary. Builds
+        # a fresh list of frozen :class:`ToolExecution` records — we
+        # ``dataclasses.replace`` each one with the per-tool slice of
+        # usage on top of the base shape.
+        from dataclasses import replace as _dc_replace
+
+        attributed_executions: list[ToolExecution] = []
+        for te in tool_executions:
+            usage = per_tool_usage.get(te.tool_name, ZERO_USAGE)
             if usage is ZERO_USAGE:
-                attributed_summaries.append(s)
+                attributed_executions.append(te)
                 continue
-            attributed_summaries.append(
-                ToolCallSummary(
-                    tool_name=s.tool_name,
-                    call_id=s.call_id,
-                    is_error=s.is_error,
-                    duration_ms=s.duration_ms,
+            attributed_executions.append(
+                _dc_replace(
+                    te,
                     cost_usd=usage.cost_usd,
                     input_tokens=usage.input_tokens,
                     output_tokens=usage.output_tokens,
                 )
             )
+
+        # Project to wire-side summaries for the event stream.
+        attributed_summaries = tuple(te.to_summary() for te in attributed_executions)
 
         turn_duration_ms = (time.monotonic() - turn_t0) * 1000.0
         yield emitter.span_complete(
@@ -408,7 +420,7 @@ class BaseAgent(KaosAgent):
             TurnSummary,
             text=response_text,
             intent=intent.intent.value,
-            tool_calls=tuple(attributed_summaries),
+            tool_calls=attributed_summaries,
             tokens_used=turn_usage.total_tokens,
             cost_usd=turn_usage.cost_usd,
             input_tokens=turn_usage.input_tokens,
@@ -521,7 +533,7 @@ class BaseAgent(KaosAgent):
         message: str,
         memory: SessionMemory,
         context_items: dict[MemoryType, list[Any]],
-    ) -> tuple[str, list[ToolCallRecord], InvocationUsage]:
+    ) -> tuple[str, list[ToolExecution], InvocationUsage]:
         """Dispatch to the appropriate handler based on intent.
 
         Returns ``(response_text, tool_calls, usage)``. ``usage`` is the
@@ -549,7 +561,7 @@ class BaseAgent(KaosAgent):
         message: str,
         memory: SessionMemory,
         context_items: dict[MemoryType, list[Any]],
-    ) -> tuple[str, list[ToolCallRecord], InvocationUsage]:
+    ) -> tuple[str, list[ToolExecution], InvocationUsage]:
         """Handle simple conversational response. Uses a Call."""
         response, usage = await self._simple_respond(message, memory, context_items=context_items)
         return response, [], usage
@@ -559,7 +571,7 @@ class BaseAgent(KaosAgent):
         message: str,
         memory: SessionMemory,
         context_items: dict[MemoryType, list[Any]],
-    ) -> tuple[str, list[ToolCallRecord], InvocationUsage]:
+    ) -> tuple[str, list[ToolExecution], InvocationUsage]:
         """Handle clarification request."""
         response, usage = await self._simple_respond(
             message,
@@ -573,7 +585,7 @@ class BaseAgent(KaosAgent):
         message: str,
         memory: SessionMemory,
         context_items: dict[MemoryType, list[Any]],
-    ) -> tuple[str, list[ToolCallRecord], InvocationUsage]:
+    ) -> tuple[str, list[ToolExecution], InvocationUsage]:
         """Handle tool-using request. Override in ChatAgent to use ReAct."""
         # BaseAgent falls back to simple response (no tools configured)
         return await self._handle_respond(message, memory, context_items)
@@ -583,7 +595,7 @@ class BaseAgent(KaosAgent):
         message: str,
         memory: SessionMemory,
         context_items: dict[MemoryType, list[Any]],
-    ) -> tuple[str, list[ToolCallRecord], InvocationUsage]:
+    ) -> tuple[str, list[ToolExecution], InvocationUsage]:
         """Handle research/document Q&A. Override to use RAG."""
         return await self._handle_respond(message, memory, context_items)
 
@@ -592,7 +604,7 @@ class BaseAgent(KaosAgent):
         message: str,
         memory: SessionMemory,
         context_items: dict[MemoryType, list[Any]],
-    ) -> tuple[str, list[ToolCallRecord], InvocationUsage]:
+    ) -> tuple[str, list[ToolExecution], InvocationUsage]:
         """Handle multi-step plan. Override in PlanExecuteAgent."""
         return await self._handle_respond(message, memory, context_items)
 

@@ -33,7 +33,14 @@ from kaos_agents.events import (
 )
 from kaos_agents.patterns.chat import ChatAgent
 from kaos_agents.planning.recall import recall
-from kaos_agents.types import ZERO_USAGE, IntentResult, IntentType, InvocationUsage, ToolCallRecord
+from kaos_agents.types import (
+    ZERO_USAGE,
+    IntentResult,
+    IntentType,
+    InvocationUsage,
+    ToolCallRecord,
+    ToolExecution,
+)
 from kaos_agents.types.memory import MemoryType
 from kaos_agents.types.plan import StopReason
 
@@ -309,7 +316,7 @@ class PlanExecuteAgent(ChatAgent):
         message: str,
         memory: SessionMemory,
         context_items: dict[MemoryType, list[MemoryItem]],
-    ) -> tuple[str, list[ToolCallRecord], InvocationUsage]:
+    ) -> tuple[str, list[ToolExecution], InvocationUsage]:
         """Handle multi-step plan (non-streaming, backward compat).
 
         Delegates to _handle_plan_streaming and collects events,
@@ -321,7 +328,7 @@ class PlanExecuteAgent(ChatAgent):
         emitter = EventEmitter(session_id="internal", run_id="internal")
 
         response_text = ""
-        tool_calls: list[ToolCallRecord] = []
+        tool_calls: list[ToolExecution] = []
         usage_total = ZERO_USAGE
         async for event in self._handle_plan_streaming(message, memory, context_items, emitter):
             if isinstance(event, TextDelta):

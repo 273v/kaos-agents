@@ -62,7 +62,7 @@ from kaos_agents.types.providers import (
     ProviderConfig,
 )
 from kaos_agents.types.response import AgentResponse
-from kaos_agents.types.tool_call import ToolCallRecord
+from kaos_agents.types.tool_call import ToolCallRecord, ToolExecution
 from kaos_agents.types.usage import ZERO_USAGE, InvocationUsage
 
 __all__ = [
@@ -104,6 +104,7 @@ __all__ = [
     "StopReason",
     "SummarizationPolicy",
     "ToolCallRecord",
+    "ToolExecution",
     "create_item",
     "estimate_tokens",
 ]
