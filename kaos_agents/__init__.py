@@ -6,9 +6,11 @@ from kaos_agents._version import __version__
 from kaos_agents.base import KaosAgent, KaosPattern
 from kaos_agents.config import Agent, AgentPattern
 from kaos_agents.context import (
+    CatalogMode,
     TriageResult,
     assemble_context,
     expand_with_graph,
+    render_tool_catalog,
     triage_corpus,
 )
 from kaos_agents.decorators import FunctionHook, hook
@@ -155,6 +157,7 @@ __all__ = [
     "AuditHook",
     "BaseAgent",
     "BudgetExceeded",
+    "CatalogMode",
     "ChatAgent",
     "CitationFound",
     "ComposeResult",
@@ -268,6 +271,7 @@ __all__ = [
     "finding_iri",
     "hook",
     "register_agent_tools",
+    "render_tool_catalog",
     "serialize_event",
     "serialize_event_json",
     "step_iri",
