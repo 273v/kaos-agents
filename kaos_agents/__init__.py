@@ -49,7 +49,8 @@ from kaos_agents.events import (
     deserialize_event,
     serialize_event,
 )
-from kaos_agents.hooks import AuditHook, BaseHook, CostTrackingHook, HookAction, LoggingHook
+from kaos_agents.hooks import AuditHook, CostTrackingHook, HookAction, KaosHook, LoggingHook
+from kaos_agents.hooks.otel import OTelHook
 from kaos_agents.interrupts import PendingToolCall, RunState
 from kaos_agents.memory import (
     EvictionPolicy,
@@ -62,7 +63,6 @@ from kaos_agents.memory import (
     SessionStore,
     SummarizationPolicy,
 )
-from kaos_agents.otel import OTelHook
 from kaos_agents.permissions import PermissionPolicy
 from kaos_agents.planning import (
     ComposeResult,
@@ -101,7 +101,6 @@ __all__ = [
     "AgentResponse",
     "AuditHook",
     "BaseAgent",
-    "BaseHook",
     "BudgetExceeded",
     "CitationFound",
     "ComposeResult",
@@ -125,6 +124,7 @@ __all__ = [
     "KaosAgentError",
     "KaosAgentSettings",
     "KaosEvent",
+    "KaosHook",
     "LifecycleEvent",
     "LoggingHook",
     "MemoryBudgetExceededError",

@@ -1,7 +1,7 @@
 """Tests for hooks (Phase 4).
 
 Covers:
-- BaseHook default no-op behavior
+- KaosHook default no-op behavior
 - HookAction enum values
 - dispatch_hook calls correct method per event type
 - dispatch_hook returns most restrictive action
@@ -30,9 +30,9 @@ from kaos_agents.events import (
 )
 from kaos_agents.hooks import (
     AuditHook,
-    BaseHook,
     CostTrackingHook,
     HookAction,
+    KaosHook,
     LoggingHook,
     dispatch_hook,
 )
@@ -153,14 +153,14 @@ class TestHookAction:
 class TestBaseHook:
     @pytest.mark.asyncio
     async def test_default_no_ops(self) -> None:
-        """BaseHook methods are no-ops that don't raise."""
-        hook = BaseHook()
+        """KaosHook methods are no-ops that don't raise."""
+        hook = KaosHook()
         await hook.on_turn_start(_turn_start())
 
     @pytest.mark.asyncio
     async def test_tool_call_start_returns_continue(self) -> None:
         """Default on_tool_call_start returns CONTINUE."""
-        hook = BaseHook()
+        hook = KaosHook()
         action = await hook.on_tool_call_start(_tool_call_start())
         assert action == HookAction.CONTINUE
 
@@ -172,7 +172,7 @@ class TestDispatchHook:
         """dispatch_hook calls on_turn_start for Span(TURN, START) events."""
         calls: list[Span] = []
 
-        class TrackingHook(BaseHook):
+        class TrackingHook(KaosHook):
             async def on_turn_start(self, event: Span) -> None:
                 calls.append(event)
 
@@ -185,7 +185,7 @@ class TestDispatchHook:
     async def test_dispatch_tool_call_start_returns_action(self) -> None:
         """dispatch_hook returns the action from on_tool_call_start."""
 
-        class SkipHook(BaseHook):
+        class SkipHook(KaosHook):
             async def on_tool_call_start(self, event: Span) -> HookAction:
                 return HookAction.SKIP
 
@@ -196,11 +196,11 @@ class TestDispatchHook:
     async def test_most_restrictive_wins(self) -> None:
         """When multiple hooks return different actions, most restrictive wins."""
 
-        class ContinueHook(BaseHook):
+        class ContinueHook(KaosHook):
             async def on_tool_call_start(self, event: Span) -> HookAction:
                 return HookAction.CONTINUE
 
-        class ApprovalHook(BaseHook):
+        class ApprovalHook(KaosHook):
             async def on_tool_call_start(self, event: Span) -> HookAction:
                 return HookAction.REQUIRE_APPROVAL
 
@@ -211,7 +211,7 @@ class TestDispatchHook:
     async def test_hook_exception_swallowed(self) -> None:
         """Hook exceptions are logged and swallowed, not propagated."""
 
-        class BrokenHook(BaseHook):
+        class BrokenHook(KaosHook):
             async def on_turn_start(self, event: Span) -> None:
                 msg = "hook exploded"
                 raise RuntimeError(msg)
@@ -228,7 +228,7 @@ class TestDispatchHook:
         event = ThinkingDelta(
             timestamp=1.0, sequence=0, session_id="s", run_id="r", content="thinking"
         )
-        action = await dispatch_hook((BaseHook(),), event)
+        action = await dispatch_hook((KaosHook(),), event)
         assert action == HookAction.CONTINUE
 
 
@@ -281,7 +281,7 @@ class TestRunnerHookIntegration:
         """Runner.run() dispatches hooks for each event."""
         seen_types: list[str] = []
 
-        class TrackingHook(BaseHook):
+        class TrackingHook(KaosHook):
             async def on_turn_start(self, event: Span) -> None:
                 seen_types.append("turn_start")
 
@@ -323,7 +323,7 @@ class TestRunnerHookIntegration:
     async def test_skip_suppresses_event(self) -> None:
         """HookAction.SKIP prevents the event from being yielded."""
 
-        class SkipTextHook(BaseHook):
+        class SkipTextHook(KaosHook):
             async def on_text_delta(self, event: TextDelta) -> None:
                 pass
 
@@ -360,7 +360,7 @@ class TestRunnerHookIntegration:
         """HookAction.SKIP on a Span(TOOL_CALL, START) emitted by the dispatch
         path prevents it from being yielded by Runner.run()."""
 
-        class _SkipAllTools(BaseHook):
+        class _SkipAllTools(KaosHook):
             async def on_tool_call_start(self, event: Span) -> HookAction:
                 return HookAction.SKIP
 

@@ -44,7 +44,7 @@ from kaos_agents.events import (
     ToolCallApprovalRequired,
     TurnSummary,
 )
-from kaos_agents.hooks import BaseHook, CostTrackingHook, HookAction, LoggingHook
+from kaos_agents.hooks import CostTrackingHook, HookAction, KaosHook, LoggingHook
 from kaos_agents.permissions import PermissionPolicy
 from kaos_agents.runner import Runner
 from kaos_agents.types.providers import BALANCED, FAST
@@ -294,7 +294,7 @@ async def test_live_hooks_compose_and_track_cost() -> None:
 async def test_live_hook_can_skip_tool_call() -> None:
     """A hook returning HookAction.SKIP suppresses the tool call event."""
 
-    class _BlockCalc(BaseHook):
+    class _BlockCalc(KaosHook):
         async def on_tool_call_start(self, event: Span) -> HookAction:
             if str(event.attributes.get("tool_name", "")) == "live-test-calculator":
                 return HookAction.SKIP

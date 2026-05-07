@@ -87,7 +87,7 @@ def mock_otel():
 class TestOTelHook:
     @pytest.mark.asyncio
     async def test_construction(self, mock_otel: tuple) -> None:
-        from kaos_agents.otel import OTelHook
+        from kaos_agents.hooks.otel import OTelHook
 
         hook = OTelHook(service_name="test")
         assert hook._tracer is not None
@@ -96,7 +96,7 @@ class TestOTelHook:
     async def test_turn_lifecycle(self, mock_otel: tuple) -> None:
         mock_tracer, mock_span = mock_otel
         from kaos_agents.events import SpanPhase, SpanSubject
-        from kaos_agents.otel import OTelHook
+        from kaos_agents.hooks.otel import OTelHook
 
         hook = OTelHook()
 
@@ -143,7 +143,7 @@ class TestOTelHook:
     async def test_tool_call_lifecycle(self, mock_otel: tuple) -> None:
         _mock_tracer, _mock_span = mock_otel
         from kaos_agents.events import SpanPhase, SpanSubject
-        from kaos_agents.otel import OTelHook
+        from kaos_agents.hooks.otel import OTelHook
 
         hook = OTelHook()
 
@@ -185,7 +185,7 @@ class TestOTelHook:
     async def test_step_lifecycle(self, mock_otel: tuple) -> None:
         _mock_tracer, _mock_span = mock_otel
         from kaos_agents.events import SpanPhase, SpanSubject
-        from kaos_agents.otel import OTelHook
+        from kaos_agents.hooks.otel import OTelHook
 
         hook = OTelHook()
 
@@ -221,7 +221,7 @@ class TestOTelHook:
     async def test_error_ends_turn_span(self, mock_otel: tuple) -> None:
         _mock_tracer, mock_span = mock_otel
         from kaos_agents.events import SpanPhase, SpanSubject
-        from kaos_agents.otel import OTelHook
+        from kaos_agents.hooks.otel import OTelHook
 
         hook = OTelHook()
 
@@ -246,7 +246,7 @@ class TestOTelHook:
     async def test_intent_classified(self, mock_otel: tuple) -> None:
         mock_tracer, _mock_span = mock_otel
         from kaos_agents.events import SpanPhase, SpanSubject
-        from kaos_agents.otel import OTelHook
+        from kaos_agents.hooks.otel import OTelHook
 
         hook = OTelHook()
 
@@ -276,14 +276,14 @@ class TestOTelHookImportError:
             # Force re-import to pick up the patched modules
             import importlib
 
-            import kaos_agents.otel
+            import kaos_agents.hooks.otel
 
-            importlib.reload(kaos_agents.otel)
+            importlib.reload(kaos_agents.hooks.otel)
             with pytest.raises(ImportError, match="opentelemetry-api"):
-                kaos_agents.otel.OTelHook()
+                kaos_agents.hooks.otel.OTelHook()
 
     def test_importable_without_opentelemetry(self) -> None:
         """OTelHook class should be importable even without opentelemetry."""
-        from kaos_agents.otel import OTelHook
+        from kaos_agents.hooks.otel import OTelHook
 
         assert OTelHook is not None

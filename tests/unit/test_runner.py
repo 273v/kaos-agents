@@ -255,7 +255,7 @@ class TestRunnerAnnotationLookup:
         )
 
         from kaos_agents.events import ToolCallApprovalRequired
-        from kaos_agents.hooks import BaseHook
+        from kaos_agents.hooks import KaosHook
         from kaos_agents.permissions import PermissionPolicy
 
         class _DestructiveTool(KaosTool):
@@ -282,7 +282,7 @@ class TestRunnerAnnotationLookup:
         runtime.tools.register_tool(_DestructiveTool())
 
         # Simulate the agent emitting a ToolCallStart for the destructive tool
-        class _InjectHook(BaseHook):
+        class _InjectHook(KaosHook):
             async def on_turn_start(self, event):  # type: ignore[no-untyped-def, override]
                 pass
 

@@ -23,5 +23,14 @@ from kaos_agents.registry.event_registry import (
     EventRegistry,
     default_event_registry,
 )
+from kaos_agents.registry.hook_registry import (
+    HookRegistry,
+    default_hook_registry,
+)
 
-__all__ = ["EventRegistry", "default_event_registry"]
+__all__ = [
+    "EventRegistry",
+    "HookRegistry",
+    "default_event_registry",
+    "default_hook_registry",
+]

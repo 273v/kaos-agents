@@ -18,7 +18,7 @@ raises ``ImportError`` early if the package is missing.
 
 Usage::
 
-    from kaos_agents.otel import OTelHook
+    from kaos_agents.hooks.otel import OTelHook
 
     hook = OTelHook(service_name="kaos-agents")
     runner = Runner(agent, hooks=(hook,))
@@ -30,7 +30,8 @@ from typing import TYPE_CHECKING, Any
 
 from kaos_core.logging import get_logger
 
-from kaos_agents.hooks import BaseHook, HookAction
+from kaos_agents.hooks.base import HookAction, KaosHook
+from kaos_agents.types.metadata import HookMetadata
 
 if TYPE_CHECKING:
     from kaos_agents.events import (
@@ -43,7 +44,7 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-class OTelHook(BaseHook):
+class OTelHook(KaosHook):
     """Emits OpenTelemetry spans for agent lifecycle events.
 
     Each turn becomes a parent span. Tool calls and plan steps become
@@ -85,6 +86,19 @@ class OTelHook(BaseHook):
         self._turn_spans: dict[tuple[str, str], Any] = {}
         self._tool_spans: dict[str, Any] = {}
         self._step_spans: dict[str, Any] = {}
+
+    @classmethod
+    def metadata(cls) -> HookMetadata:
+        return HookMetadata(
+            name="kaos-agents-otel-hook",
+            description="Emits OpenTelemetry spans for agent lifecycle events.",
+            listens_to=(
+                "span",
+                "intent_classified",
+                "turn_summary",
+                "run_error",
+            ),
+        )
 
     def _turn_key(self, event: Any) -> tuple[str, str]:
         return (event.session_id, event.run_id)
@@ -212,13 +226,13 @@ class OTelHook(BaseHook):
         span.end()
 
     async def on_turn_complete(self, event: Span) -> None:
-        """End the turn span (boundary). Token/cost attributes are filled
-        when the matching :class:`TurnSummary` arrives via
-        :meth:`on_turn_summary`."""
-        # Hold the OTel span open until TurnSummary arrives so we can
-        # decorate it with token/cost attributes the boundary doesn't
-        # carry. If TurnSummary never fires (early error), on_error
-        # cleans up.
+        """Boundary marker — turn span stays open until :meth:`on_turn_summary`.
+
+        Holding the OTel span open through to ``TurnSummary`` lets us
+        decorate it with token/cost attributes the boundary span doesn't
+        carry. If ``TurnSummary`` never fires (e.g. early error),
+        :meth:`on_error` cleans up.
+        """
         return None
 
     async def on_turn_summary(self, event: TurnSummary) -> None:
@@ -257,3 +271,6 @@ class OTelHook(BaseHook):
         span.set_attribute("kaos.recovery_hint", event.recovery_hint[:200])
         span.end()
         logger.warning("otel.error: %s — %s", event.error_type, event.message)
+
+
+__all__ = ["OTelHook"]

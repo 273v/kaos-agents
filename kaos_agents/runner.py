@@ -45,7 +45,7 @@ from kaos_agents.events import (
     SpanSubject,
     ToolCallApprovalRequired,
 )
-from kaos_agents.hooks import BaseHook, HookAction, dispatch_hook
+from kaos_agents.hooks import HookAction, KaosHook, dispatch_hook
 from kaos_agents.interrupts import (
     PendingToolCall,
     RunState,
@@ -98,7 +98,7 @@ class Runner:
         runtime: KaosRuntime | None = None,
         context: KaosContext | None = None,
         vfs: VirtualFileSystem | None = None,
-        hooks: tuple[BaseHook, ...] = (),
+        hooks: tuple[KaosHook, ...] = (),
         permission_policy: PermissionPolicy | None = None,
         corpus: Any | None = None,
     ) -> None:
