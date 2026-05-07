@@ -3,16 +3,9 @@
 from __future__ import annotations
 
 from kaos_agents._version import __version__
-from kaos_agents.agent import BaseAgent
 from kaos_agents.config import Agent, AgentPattern
 from kaos_agents.context import TriageResult, assemble_context, triage_corpus
 from kaos_agents.decorators import FunctionHook, hook
-from kaos_agents.delegation import (
-    DelegatedAgent,
-    DelegationDepthExceeded,
-    agent_as_tool,
-    current_delegation_depth,
-)
 from kaos_agents.errors import (
     EventDeserializationError,
     EventSerializationError,
@@ -61,7 +54,6 @@ from kaos_agents.hooks import (
     dispatch_hook,
 )
 from kaos_agents.hooks.otel import OTelHook
-from kaos_agents.interrupts import PendingToolCall, RunState
 from kaos_agents.memory import (
     EvictionPolicy,
     MemoryItem,
@@ -73,7 +65,6 @@ from kaos_agents.memory import (
     SessionStore,
     SummarizationPolicy,
 )
-from kaos_agents.permissions import PermissionPolicy
 from kaos_agents.planning import (
     ComposeResult,
     Decision,
@@ -94,7 +85,16 @@ from kaos_agents.registry import (
     default_event_registry,
     default_hook_registry,
 )
-from kaos_agents.runner import Runner
+from kaos_agents.runtime.agent import BaseAgent
+from kaos_agents.runtime.delegation import (
+    DelegatedAgent,
+    DelegationDepthExceeded,
+    agent_as_tool,
+    current_delegation_depth,
+)
+from kaos_agents.runtime.interrupts import PendingToolCall, RunState
+from kaos_agents.runtime.permissions import PermissionPolicy
+from kaos_agents.runtime.runner import Runner
 from kaos_agents.settings import KaosAgentSettings
 from kaos_agents.tools import register_agent_tools
 from kaos_agents.types import (

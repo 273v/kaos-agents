@@ -23,7 +23,7 @@ from kaos_agents.events import (
     SpanSubject,
     TextDelta,
 )
-from kaos_agents.runner import Runner
+from kaos_agents.runtime.runner import Runner
 
 
 def _is_tool_call_start(event: KaosEvent) -> TypeGuard[Span]:

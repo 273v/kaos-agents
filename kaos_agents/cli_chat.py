@@ -968,7 +968,7 @@ async def _run_repl(args: argparse.Namespace) -> _SessionState:
         ThinkingDelta,
         TurnSummary,
     )
-    from kaos_agents.runner import Runner
+    from kaos_agents.runtime.runner import Runner
 
     runtime = KaosRuntime.default()
 

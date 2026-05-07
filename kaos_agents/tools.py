@@ -142,7 +142,7 @@ class AgentChatTool(KaosTool):
 
         try:
             from kaos_agents.config import Agent, AgentPattern
-            from kaos_agents.runner import Runner
+            from kaos_agents.runtime.runner import Runner
             from kaos_agents.settings import DEFAULT_MODEL
 
             runtime = context.runtime if context else None
@@ -285,7 +285,7 @@ class AgentPlanTool(KaosTool):
 
         try:
             from kaos_agents.config import Agent, AgentPattern
-            from kaos_agents.runner import Runner
+            from kaos_agents.runtime.runner import Runner
             from kaos_agents.settings import DEFAULT_MODEL
 
             runtime = context.runtime if context else None

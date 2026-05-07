@@ -15,7 +15,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from kaos_agents.agent import BaseAgent, _events_to_response
 from kaos_agents.events import (
     IntentClassified,
     KaosEvent,
@@ -27,6 +26,7 @@ from kaos_agents.events import (
     ToolCallSummary,
     TurnSummary,
 )
+from kaos_agents.runtime.agent import BaseAgent, _events_to_response
 from kaos_agents.types import AgentResponse, IntentResult, IntentType
 
 # ---------------------------------------------------------------------------

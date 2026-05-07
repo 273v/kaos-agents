@@ -31,10 +31,10 @@ from kaos_core.types.results import ToolResult
 from kaos_core.vfs.core import VirtualFileSystem
 from kaos_core.vfs.models import VFSConfig
 
-from kaos_agents.agent import BaseAgent
 from kaos_agents.config import Agent, AgentPattern
 from kaos_agents.patterns.chat import ChatAgent
-from kaos_agents.runner import Runner
+from kaos_agents.runtime.agent import BaseAgent
+from kaos_agents.runtime.runner import Runner
 
 
 def _vfs() -> VirtualFileSystem:

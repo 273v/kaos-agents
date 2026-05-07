@@ -23,7 +23,7 @@ from __future__ import annotations
 import pytest
 
 from kaos_agents.config import Agent, AgentPattern
-from kaos_agents.interrupts import AgentSnapshot, PendingToolCall, RunState
+from kaos_agents.runtime.interrupts import AgentSnapshot, PendingToolCall, RunState
 
 
 @pytest.mark.unit
@@ -149,7 +149,7 @@ class TestRunnerPauseCapturesSnapshot:
         from kaos_core.vfs.models import VFSConfig
 
         from kaos_agents.events import EventEmitter, Span, SpanSubject
-        from kaos_agents.runner import Runner
+        from kaos_agents.runtime.runner import Runner
 
         vfs = VirtualFileSystem(
             config=VFSConfig(
@@ -189,7 +189,7 @@ class TestRunnerPauseCapturesSnapshot:
 
         # Load the persisted RunState back from VFS and assert the
         # snapshot round-tripped with the original Agent config.
-        from kaos_agents.interrupts import load_run_state
+        from kaos_agents.runtime.interrupts import load_run_state
 
         state = await load_run_state("r_pause_test", vfs)
         assert state.agent_config is not None, (

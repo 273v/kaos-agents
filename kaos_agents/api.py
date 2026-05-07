@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 from starlette.responses import StreamingResponse
 
 from kaos_agents.config import Agent, AgentPattern
-from kaos_agents.runner import Runner
+from kaos_agents.runtime.runner import Runner
 from kaos_agents.settings import DEFAULT_MODEL
 from kaos_agents.wire import events_to_sse
 
@@ -243,7 +243,7 @@ def _register_routes(app: FastAPI) -> None:
         Returns 404 if no RunState exists for the run_id (the run was
         never paused, or the VFS state has expired).
         """
-        from kaos_agents.interrupts import load_run_state
+        from kaos_agents.runtime.interrupts import load_run_state
 
         try:
             state = await load_run_state(run_id, app.state.vfs)

@@ -18,7 +18,6 @@ from kaos_llm_core import InputField, OutputField, Signature
 
 from kaos_agents._constants import FALLBACK_RECENT_MESSAGES
 from kaos_agents.actions.tool_bridge import bridge_runtime_tools
-from kaos_agents.agent import BaseAgent
 from kaos_agents.events import (
     EventEmitter,
     KaosEvent,
@@ -29,6 +28,7 @@ from kaos_agents.events import (
     UsageObserved,
     emit_usage_observed,
 )
+from kaos_agents.runtime.agent import BaseAgent
 from kaos_agents.types import ZERO_USAGE, IntentResult, IntentType, InvocationUsage, ToolCallRecord
 from kaos_agents.types.memory import MemoryType
 

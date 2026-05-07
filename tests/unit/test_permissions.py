@@ -15,7 +15,7 @@ from __future__ import annotations
 import pytest
 from kaos_core.types.annotations import ToolAnnotations
 
-from kaos_agents.permissions import PermissionPolicy
+from kaos_agents.runtime.permissions import PermissionPolicy
 from kaos_agents.types import PermissionDecision, PermissionRule
 
 

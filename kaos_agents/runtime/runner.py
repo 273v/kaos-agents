@@ -35,7 +35,6 @@ from kaos_core.logging import get_logger
 
 from kaos_agents._constants import RESULT_SUMMARY_TRUNCATE
 from kaos_agents.config import Agent, AgentPattern
-from kaos_agents.delegation import DelegatedAgent
 from kaos_agents.events import (
     EventEmitter,
     KaosEvent,
@@ -46,15 +45,16 @@ from kaos_agents.events import (
     ToolCallApprovalRequired,
 )
 from kaos_agents.hooks import HookAction, KaosHook, dispatch_hook
-from kaos_agents.interrupts import (
+from kaos_agents.memory.store import SessionStore
+from kaos_agents.runtime.delegation import DelegatedAgent
+from kaos_agents.runtime.interrupts import (
     PendingToolCall,
     RunState,
     memory_snapshot_path,
     save_event_log,
     save_run_state,
 )
-from kaos_agents.memory.store import SessionStore
-from kaos_agents.permissions import PermissionPolicy
+from kaos_agents.runtime.permissions import PermissionPolicy
 from kaos_agents.types import AgentResponse, PermissionDecision
 
 if TYPE_CHECKING:
@@ -260,7 +260,7 @@ class Runner:
         # (e.g. POST /v1/runs/{id}/approve) rebuilds the Runner with the
         # original pattern/model/tools/instructions rather than falling
         # back to a default chat Agent.
-        from kaos_agents.interrupts import AgentSnapshot
+        from kaos_agents.runtime.interrupts import AgentSnapshot
 
         agent_config = AgentSnapshot.from_agent(self._agent)
 
@@ -339,7 +339,7 @@ class Runner:
             return
 
         # Replay pre-pause events first so the consumer sees the full timeline
-        from kaos_agents.interrupts import load_event_log
+        from kaos_agents.runtime.interrupts import load_event_log
 
         try:
             replay = await load_event_log(run_state.run_id, self._vfs)
@@ -498,7 +498,7 @@ class Runner:
         Raises:
             DelegationDepthExceeded: If nested delegation exceeds max_depth.
         """
-        from kaos_agents.agent import _generate_run_id
+        from kaos_agents.runtime.agent import _generate_run_id
 
         run_id = _generate_run_id()
         emitter = EventEmitter(session_id=session_id, run_id=run_id)
@@ -549,7 +549,7 @@ class Runner:
         Yields:
             HandoffStart event, then all events from the target agent's run.
         """
-        from kaos_agents.agent import _generate_run_id
+        from kaos_agents.runtime.agent import _generate_run_id
 
         run_id = _generate_run_id()
         emitter = EventEmitter(session_id=session_id, run_id=run_id)
@@ -689,7 +689,7 @@ class Runner:
 
             async def _handoff_invoke(task: str) -> str:
                 """Hand off to another agent with the given task; returns its response."""
-                from kaos_agents.delegation import (
+                from kaos_agents.runtime.delegation import (
                     DelegationDepthExceeded,
                     _delegation_depth,
                 )
@@ -799,7 +799,7 @@ class Runner:
                 retrieval_tool = create_retrieval_agent(self._runtime, model=model)
                 # Build the delegation wrapper for the retrieval agent
                 if retrieval_tool is not None:
-                    from kaos_agents.delegation import DelegatedAgent
+                    from kaos_agents.runtime.delegation import DelegatedAgent
 
                     if isinstance(retrieval_tool, DelegatedAgent):
                         da_tool = self._build_single_delegation_tool(retrieval_tool, session_id)
@@ -866,7 +866,7 @@ class Runner:
 
 # Type alias for the internal agent (any BaseAgent subclass).
 # Used only for _build_internal_agent return type annotation.
-from kaos_agents.agent import BaseAgent as _InternalAgent  # noqa: E402
+from kaos_agents.runtime.agent import BaseAgent as _InternalAgent  # noqa: E402
 
 
 def _resolve_vfs(runtime: KaosRuntime | None) -> VirtualFileSystem:

@@ -110,7 +110,7 @@ async def run_agent_eval(
         TextDelta,
     )
     from kaos_agents.memory.store import SessionStore
-    from kaos_agents.runner import Runner
+    from kaos_agents.runtime.runner import Runner
     from kaos_agents.tools import register_agent_tools
     from kaos_agents.types.memory import MemoryType
 

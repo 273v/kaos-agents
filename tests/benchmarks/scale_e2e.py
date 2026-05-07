@@ -92,7 +92,7 @@ async def run_scale_benchmark(
         SpanSubject,
         TextDelta,
     )
-    from kaos_agents.runner import Runner
+    from kaos_agents.runtime.runner import Runner
     from kaos_agents.settings import DEFAULT_MODEL
     from kaos_agents.tools import register_agent_tools
 

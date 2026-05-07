@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from kaos_core.base.tool import KaosTool
     from kaos_core.registry.container import KaosRuntime
 
-    from kaos_agents.permissions import PermissionPolicy
+    from kaos_agents.runtime.permissions import PermissionPolicy
 
 logger = get_logger(__name__)
 

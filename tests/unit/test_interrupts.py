@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 
 from kaos_agents.errors import EventDeserializationError
-from kaos_agents.interrupts import PendingToolCall, RunState
+from kaos_agents.runtime.interrupts import PendingToolCall, RunState
 
 
 @pytest.mark.unit
@@ -120,7 +120,7 @@ class TestRunStateVFSPersistence:
         from kaos_core.vfs.core import VirtualFileSystem
         from kaos_core.vfs.models import VFSConfig
 
-        from kaos_agents.interrupts import load_run_state, save_run_state
+        from kaos_agents.runtime.interrupts import load_run_state, save_run_state
 
         vfs = VirtualFileSystem(config=VFSConfig(default_backend=StorageBackend.MEMORY))
         state = RunState(
@@ -150,7 +150,7 @@ class TestRunStateVFSPersistence:
         from kaos_core.vfs.core import VirtualFileSystem
         from kaos_core.vfs.models import VFSConfig
 
-        from kaos_agents.interrupts import load_run_state
+        from kaos_agents.runtime.interrupts import load_run_state
 
         vfs = VirtualFileSystem(config=VFSConfig(default_backend=StorageBackend.MEMORY))
         with pytest.raises(EventDeserializationError, match="No persisted RunState"):
@@ -163,7 +163,7 @@ class TestRunStateVFSPersistence:
         from kaos_core.vfs.models import VFSConfig
 
         from kaos_agents.events import IntentClassified, Span, SpanPhase, SpanSubject
-        from kaos_agents.interrupts import load_event_log, save_event_log
+        from kaos_agents.runtime.interrupts import load_event_log, save_event_log
 
         vfs = VirtualFileSystem(config=VFSConfig(default_backend=StorageBackend.MEMORY))
         events = [
@@ -212,7 +212,7 @@ class TestRunnerResume:
 
         from kaos_agents.config import Agent
         from kaos_agents.events import RunError
-        from kaos_agents.runner import Runner
+        from kaos_agents.runtime.runner import Runner
 
         vfs = VirtualFileSystem(config=VFSConfig(default_backend=StorageBackend.MEMORY))
         runner = Runner(Agent(), vfs=vfs)
@@ -247,13 +247,13 @@ class TestRunnerResume:
             SpanSubject,
             ToolCallApprovalRequired,
         )
-        from kaos_agents.interrupts import (
+        from kaos_agents.runtime.interrupts import (
             event_log_iter_path,
             load_run_state,
             run_state_path,
         )
-        from kaos_agents.permissions import PermissionPolicy
-        from kaos_agents.runner import Runner
+        from kaos_agents.runtime.permissions import PermissionPolicy
+        from kaos_agents.runtime.runner import Runner
         from kaos_agents.types import PermissionDecision, PermissionRule
 
         vfs = VirtualFileSystem(config=VFSConfig(default_backend=StorageBackend.MEMORY))
@@ -279,7 +279,7 @@ class TestRunnerResume:
                 },
             )
 
-        with patch("kaos_agents.agent.BaseAgent.run", _fake_run):
+        with patch("kaos_agents.runtime.agent.BaseAgent.run", _fake_run):
             events = []
             async for event in runner.run("kill it", "sess_pause"):
                 events.append(event)

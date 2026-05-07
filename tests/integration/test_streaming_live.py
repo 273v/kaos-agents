@@ -32,7 +32,6 @@ from kaos_core.vfs.core import VirtualFileSystem
 from kaos_core.vfs.models import VFSConfig
 
 from kaos_agents.config import Agent, AgentPattern
-from kaos_agents.delegation import agent_as_tool
 from kaos_agents.events import (
     IntentClassified,
     LifecycleEvent,
@@ -45,8 +44,9 @@ from kaos_agents.events import (
     TurnSummary,
 )
 from kaos_agents.hooks import CostTrackingHook, HookAction, KaosHook, LoggingHook
-from kaos_agents.permissions import PermissionPolicy
-from kaos_agents.runner import Runner
+from kaos_agents.runtime.delegation import agent_as_tool
+from kaos_agents.runtime.permissions import PermissionPolicy
+from kaos_agents.runtime.runner import Runner
 from kaos_agents.types.providers import BALANCED, FAST
 
 
@@ -394,7 +394,7 @@ async def test_live_destructive_tool_triggers_approval_via_annotations() -> None
     # interpretation. If it did, we should see an approval event.
     if approval:
         # State should be persisted to VFS
-        from kaos_agents.interrupts import load_run_state
+        from kaos_agents.runtime.interrupts import load_run_state
 
         state = await load_run_state(approval[0].run_id, vfs)
         assert state.session_id == "live-perm-1"
@@ -406,7 +406,7 @@ async def test_live_destructive_tool_triggers_approval_via_annotations() -> None
 async def test_live_resume_denied_yields_run_error() -> None:
     """resume(approved=False) on a real (paused) state yields RunError."""
     from kaos_agents.events import RunError
-    from kaos_agents.interrupts import PendingToolCall, RunState
+    from kaos_agents.runtime.interrupts import PendingToolCall, RunState
 
     vfs = _make_vfs()
     agent = Agent(model=_LIVE_MODEL)

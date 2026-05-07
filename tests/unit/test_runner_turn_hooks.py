@@ -24,7 +24,7 @@ import pytest
 from kaos_agents.config import Agent
 from kaos_agents.events import IntentClassified, Span, TurnSummary
 from kaos_agents.hooks import KaosHook
-from kaos_agents.runner import Runner
+from kaos_agents.runtime.runner import Runner
 from kaos_agents.types import IntentResult, IntentType
 
 
@@ -62,12 +62,12 @@ class TestRunnerTurnDelegatesToRun:
         )
         with (
             patch(
-                "kaos_agents.agent.BaseAgent._classify",
+                "kaos_agents.runtime.agent.BaseAgent._classify",
                 new_callable=AsyncMock,
                 return_value=mock_intent,
             ),
             patch(
-                "kaos_agents.agent.BaseAgent._dispatch",
+                "kaos_agents.runtime.agent.BaseAgent._dispatch",
                 new_callable=AsyncMock,
                 return_value=("hello from agent", []),
             ),
@@ -97,12 +97,12 @@ class TestRunnerTurnDelegatesToRun:
         )
         with (
             patch(
-                "kaos_agents.agent.BaseAgent._classify",
+                "kaos_agents.runtime.agent.BaseAgent._classify",
                 new_callable=AsyncMock,
                 return_value=mock_intent,
             ),
             patch(
-                "kaos_agents.agent.BaseAgent._dispatch",
+                "kaos_agents.runtime.agent.BaseAgent._dispatch",
                 new_callable=AsyncMock,
                 return_value=("response body", []),
             ),
@@ -125,12 +125,12 @@ class TestRunnerTurnDelegatesToRun:
         mock_intent = IntentResult(intent=IntentType.RESPOND, confidence=1.0, reasoning="")
         with (
             patch(
-                "kaos_agents.agent.BaseAgent._classify",
+                "kaos_agents.runtime.agent.BaseAgent._classify",
                 new_callable=AsyncMock,
                 return_value=mock_intent,
             ),
             patch(
-                "kaos_agents.agent.BaseAgent._dispatch",
+                "kaos_agents.runtime.agent.BaseAgent._dispatch",
                 new_callable=AsyncMock,
                 return_value=("ok", []),
             ),

@@ -168,7 +168,7 @@ class TestPlanExecuteAgentForwardsTimeout:
                 side_effect=_fake_adaptive,
             ),
             patch(
-                "kaos_agents.agent.BaseAgent._classify",
+                "kaos_agents.runtime.agent.BaseAgent._classify",
                 new_callable=AsyncMock,
                 return_value=IntentResult(
                     intent=IntentType.PLAN,

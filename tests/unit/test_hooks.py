@@ -36,7 +36,7 @@ from kaos_agents.hooks import (
     LoggingHook,
     dispatch_hook,
 )
-from kaos_agents.runner import Runner
+from kaos_agents.runtime.runner import Runner
 from kaos_agents.types import IntentResult, IntentType
 
 
@@ -300,12 +300,12 @@ class TestRunnerHookIntegration:
         mock_intent = IntentResult(intent=IntentType.RESPOND, confidence=1.0, reasoning="test")
         with (
             patch(
-                "kaos_agents.agent.BaseAgent._classify",
+                "kaos_agents.runtime.agent.BaseAgent._classify",
                 new_callable=AsyncMock,
                 return_value=mock_intent,
             ),
             patch(
-                "kaos_agents.agent.BaseAgent._dispatch",
+                "kaos_agents.runtime.agent.BaseAgent._dispatch",
                 new_callable=AsyncMock,
                 return_value=("Response", []),
             ),
@@ -336,12 +336,12 @@ class TestRunnerHookIntegration:
         mock_intent = IntentResult(intent=IntentType.RESPOND, confidence=1.0, reasoning="test")
         with (
             patch(
-                "kaos_agents.agent.BaseAgent._classify",
+                "kaos_agents.runtime.agent.BaseAgent._classify",
                 new_callable=AsyncMock,
                 return_value=mock_intent,
             ),
             patch(
-                "kaos_agents.agent.BaseAgent._dispatch",
+                "kaos_agents.runtime.agent.BaseAgent._dispatch",
                 new_callable=AsyncMock,
                 return_value=("Response", []),
             ),
@@ -397,7 +397,7 @@ class TestRunnerHookIntegration:
                 intent="tool_use",
             )
 
-        with patch("kaos_agents.agent.BaseAgent.run", _fake_run):
+        with patch("kaos_agents.runtime.agent.BaseAgent.run", _fake_run):
             events = []
             async for event in runner.run("use the tool", "s-skip-real"):
                 events.append(event)

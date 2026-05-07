@@ -126,7 +126,7 @@ class TestProviderPipelineIntegration:
         from kaos_core.vfs.core import VirtualFileSystem
         from kaos_core.vfs.models import VFSConfig
 
-        from kaos_agents.agent import BaseAgent
+        from kaos_agents.runtime.agent import BaseAgent
 
         vfs = VirtualFileSystem(config=VFSConfig(default_backend=StorageBackend.MEMORY))
         agent = BaseAgent(vfs, provider=BALANCED)
@@ -141,7 +141,7 @@ class TestProviderPipelineIntegration:
         from kaos_core.vfs.core import VirtualFileSystem
         from kaos_core.vfs.models import VFSConfig
 
-        from kaos_agents.agent import BaseAgent
+        from kaos_agents.runtime.agent import BaseAgent
 
         vfs = VirtualFileSystem(config=VFSConfig(default_backend=StorageBackend.MEMORY))
         agent = BaseAgent(vfs, model="custom:model-x")
@@ -153,7 +153,7 @@ class TestProviderPipelineIntegration:
 
     def test_runner_threads_provider_to_internal_agent(self) -> None:
         """Runner passes agent.provider to the constructed internal agent."""
-        from kaos_agents.runner import Runner
+        from kaos_agents.runtime.runner import Runner
 
         agent = Agent(provider=BALANCED)
         runner = Runner(agent)

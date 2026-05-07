@@ -9,9 +9,9 @@ from __future__ import annotations
 import pytest
 from kaos_core.vfs.core import IsolationMode, StorageBackend, VFSConfig, VirtualFileSystem
 
-from kaos_agents.agent import BaseAgent
 from kaos_agents.context.classify import classify_intent
 from kaos_agents.memory.session import SessionMemory
+from kaos_agents.runtime.agent import BaseAgent
 from kaos_agents.types import IntentType
 
 

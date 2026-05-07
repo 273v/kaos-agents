@@ -13,8 +13,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from kaos_core.vfs.core import IsolationMode, StorageBackend, VFSConfig, VirtualFileSystem
 
-from kaos_agents.agent import BaseAgent
 from kaos_agents.memory.store import SessionStore
+from kaos_agents.runtime.agent import BaseAgent
 from kaos_agents.types import IntentResult, IntentType
 from kaos_agents.types.memory import MemoryType
 from kaos_agents.types.usage import ZERO_USAGE

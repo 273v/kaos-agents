@@ -15,7 +15,7 @@ The evaluation order follows the KAOS permission hierarchy:
 
 Usage::
 
-    from kaos_agents.permissions import PermissionPolicy
+    from kaos_agents.runtime.permissions import PermissionPolicy
     from kaos_agents.types import PermissionDecision, PermissionRule
 
     policy = PermissionPolicy(rules=(

@@ -23,7 +23,7 @@ from kaos_agents.events import (
     TextDelta,
     TurnSummary,
 )
-from kaos_agents.runner import Runner
+from kaos_agents.runtime.runner import Runner
 
 
 def _has_key() -> bool:

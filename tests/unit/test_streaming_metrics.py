@@ -30,7 +30,7 @@ from httpx import ASGITransport, AsyncClient
 from kaos_agents.api import create_app
 from kaos_agents.config import Agent
 from kaos_agents.events import KaosEvent
-from kaos_agents.runner import Runner
+from kaos_agents.runtime.runner import Runner
 from kaos_agents.types import IntentResult, IntentType
 
 # Numeric targets in seconds (or bytes for memory).
@@ -45,7 +45,7 @@ def _patch_llm() -> Any:
     """Context manager: patches BaseAgent's LLM-bound methods to bypass the network."""
     mock_intent = IntentResult(intent=IntentType.RESPOND, confidence=1.0, reasoning="bench")
     return patch.multiple(
-        "kaos_agents.agent.BaseAgent",
+        "kaos_agents.runtime.agent.BaseAgent",
         _classify=AsyncMock(return_value=mock_intent),
         _dispatch=AsyncMock(return_value=("benchmark response", [])),
     )

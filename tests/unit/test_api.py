@@ -67,12 +67,12 @@ class TestMessageEndpoints:
         mock_intent = IntentResult(intent=IntentType.RESPOND, confidence=1.0, reasoning="test")
         with (
             patch(
-                "kaos_agents.agent.BaseAgent._classify",
+                "kaos_agents.runtime.agent.BaseAgent._classify",
                 new_callable=AsyncMock,
                 return_value=mock_intent,
             ),
             patch(
-                "kaos_agents.agent.BaseAgent._dispatch",
+                "kaos_agents.runtime.agent.BaseAgent._dispatch",
                 new_callable=AsyncMock,
                 return_value=("Hello from agent!", []),
             ),
@@ -99,12 +99,12 @@ class TestMessageEndpoints:
         mock_intent = IntentResult(intent=IntentType.RESPOND, confidence=1.0, reasoning="test")
         with (
             patch(
-                "kaos_agents.agent.BaseAgent._classify",
+                "kaos_agents.runtime.agent.BaseAgent._classify",
                 new_callable=AsyncMock,
                 return_value=mock_intent,
             ),
             patch(
-                "kaos_agents.agent.BaseAgent._dispatch",
+                "kaos_agents.runtime.agent.BaseAgent._dispatch",
                 new_callable=AsyncMock,
                 return_value=("JSON response!", []),
             ),
@@ -134,7 +134,7 @@ class TestMessageEndpoints:
     @pytest.mark.asyncio
     async def test_approve_endpoint_streams_resume_events(self, client: AsyncClient, app) -> None:
         """POST /v1/runs/{id}/approve with a denied run streams a RunError."""
-        from kaos_agents.interrupts import PendingToolCall, RunState, save_run_state
+        from kaos_agents.runtime.interrupts import PendingToolCall, RunState, save_run_state
 
         # Persist a fake RunState so the endpoint can find it
         state = RunState(
@@ -242,12 +242,12 @@ class TestMessageEndpoints:
         mock_intent = IntentResult(intent=IntentType.RESPOND, confidence=1.0, reasoning="test")
         with (
             patch(
-                "kaos_agents.agent.BaseAgent._classify",
+                "kaos_agents.runtime.agent.BaseAgent._classify",
                 new_callable=AsyncMock,
                 return_value=mock_intent,
             ),
             patch(
-                "kaos_agents.agent.BaseAgent._dispatch",
+                "kaos_agents.runtime.agent.BaseAgent._dispatch",
                 new_callable=AsyncMock,
                 return_value=("stream me", []),
             ),

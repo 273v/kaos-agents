@@ -169,7 +169,7 @@ class DelegatedAgent:
                 f"Alternative: use Agent.handoffs for flat routing instead of nested calls."
             )
 
-        from kaos_agents.runner import Runner
+        from kaos_agents.runtime.runner import Runner
 
         sub_session_id = (
             f"{parent_session_id}/subagent-{self.name}"

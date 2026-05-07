@@ -23,7 +23,7 @@ from kaos_agents.events import (
     SpanSubject,
     TurnSummary,
 )
-from kaos_agents.runner import Runner
+from kaos_agents.runtime.runner import Runner
 from kaos_agents.types import AgentResponse, IntentResult, IntentType
 
 
@@ -60,12 +60,12 @@ class TestRunnerRun:
         # Patch the internal agent's classify and dispatch
         with (
             patch(
-                "kaos_agents.agent.BaseAgent._classify",
+                "kaos_agents.runtime.agent.BaseAgent._classify",
                 new_callable=AsyncMock,
                 return_value=mock_intent,
             ),
             patch(
-                "kaos_agents.agent.BaseAgent._dispatch",
+                "kaos_agents.runtime.agent.BaseAgent._dispatch",
                 new_callable=AsyncMock,
                 return_value=("Hello!", []),
             ),
@@ -91,12 +91,12 @@ class TestRunnerRun:
 
         with (
             patch(
-                "kaos_agents.agent.BaseAgent._classify",
+                "kaos_agents.runtime.agent.BaseAgent._classify",
                 new_callable=AsyncMock,
                 return_value=mock_intent,
             ),
             patch(
-                "kaos_agents.agent.BaseAgent._dispatch",
+                "kaos_agents.runtime.agent.BaseAgent._dispatch",
                 new_callable=AsyncMock,
                 return_value=("Response", []),
             ),
@@ -118,12 +118,12 @@ class TestRunnerTurn:
 
         with (
             patch(
-                "kaos_agents.agent.BaseAgent._classify",
+                "kaos_agents.runtime.agent.BaseAgent._classify",
                 new_callable=AsyncMock,
                 return_value=mock_intent,
             ),
             patch(
-                "kaos_agents.agent.BaseAgent._dispatch",
+                "kaos_agents.runtime.agent.BaseAgent._dispatch",
                 new_callable=AsyncMock,
                 return_value=("Hello back!", []),
             ),
@@ -142,12 +142,12 @@ class TestRunnerTurn:
 
         with (
             patch(
-                "kaos_agents.agent.BaseAgent._classify",
+                "kaos_agents.runtime.agent.BaseAgent._classify",
                 new_callable=AsyncMock,
                 return_value=mock_intent,
             ),
             patch(
-                "kaos_agents.agent.BaseAgent._dispatch",
+                "kaos_agents.runtime.agent.BaseAgent._dispatch",
                 new_callable=AsyncMock,
                 return_value=("Plan result", []),
             ),
@@ -166,12 +166,12 @@ class TestRunnerTurn:
 
         with (
             patch(
-                "kaos_agents.agent.BaseAgent._classify",
+                "kaos_agents.runtime.agent.BaseAgent._classify",
                 new_callable=AsyncMock,
                 return_value=mock_intent,
             ),
             patch(
-                "kaos_agents.agent.BaseAgent._dispatch",
+                "kaos_agents.runtime.agent.BaseAgent._dispatch",
                 new_callable=AsyncMock,
                 return_value=("Research result", []),
             ),
@@ -256,7 +256,7 @@ class TestRunnerAnnotationLookup:
 
         from kaos_agents.events import ToolCallApprovalRequired
         from kaos_agents.hooks import KaosHook
-        from kaos_agents.permissions import PermissionPolicy
+        from kaos_agents.runtime.permissions import PermissionPolicy
 
         class _DestructiveTool(KaosTool):
             @property
@@ -310,7 +310,7 @@ class TestRunnerAnnotationLookup:
                 },
             )
 
-        with patch("kaos_agents.agent.BaseAgent.run", _fake_run):
+        with patch("kaos_agents.runtime.agent.BaseAgent.run", _fake_run):
             events = []
             async for event in runner.run("delete please", "s-annot"):
                 events.append(event)

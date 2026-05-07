@@ -18,15 +18,15 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from kaos_agents.config import Agent
-from kaos_agents.delegation import (
+from kaos_agents.events import Span, SpanPhase, SpanSubject
+from kaos_agents.runtime.delegation import (
     DelegatedAgent,
     DelegationDepthExceeded,
     _delegation_depth,
     agent_as_tool,
     current_delegation_depth,
 )
-from kaos_agents.events import Span, SpanPhase, SpanSubject
-from kaos_agents.runner import Runner
+from kaos_agents.runtime.runner import Runner
 from kaos_agents.types import IntentResult, IntentType
 
 
@@ -67,12 +67,12 @@ class TestDelegatedAgent:
         mock_intent = IntentResult(intent=IntentType.RESPOND, confidence=1.0, reasoning="test")
         with (
             patch(
-                "kaos_agents.agent.BaseAgent._classify",
+                "kaos_agents.runtime.agent.BaseAgent._classify",
                 new_callable=AsyncMock,
                 return_value=mock_intent,
             ),
             patch(
-                "kaos_agents.agent.BaseAgent._dispatch",
+                "kaos_agents.runtime.agent.BaseAgent._dispatch",
                 new_callable=AsyncMock,
                 return_value=("Memo drafted", []),
             ),
@@ -117,12 +117,12 @@ class TestDelegationDepth:
         mock_intent = IntentResult(intent=IntentType.RESPOND, confidence=1.0, reasoning="test")
         with (
             patch(
-                "kaos_agents.agent.BaseAgent._classify",
+                "kaos_agents.runtime.agent.BaseAgent._classify",
                 new_callable=AsyncMock,
                 return_value=mock_intent,
             ),
             patch(
-                "kaos_agents.agent.BaseAgent._dispatch",
+                "kaos_agents.runtime.agent.BaseAgent._dispatch",
                 new_callable=AsyncMock,
                 side_effect=track_depth,
             ),
@@ -183,12 +183,12 @@ class TestRunnerDelegate:
         mock_intent = IntentResult(intent=IntentType.RESPOND, confidence=1.0, reasoning="test")
         with (
             patch(
-                "kaos_agents.agent.BaseAgent._classify",
+                "kaos_agents.runtime.agent.BaseAgent._classify",
                 new_callable=AsyncMock,
                 return_value=mock_intent,
             ),
             patch(
-                "kaos_agents.agent.BaseAgent._dispatch",
+                "kaos_agents.runtime.agent.BaseAgent._dispatch",
                 new_callable=AsyncMock,
                 return_value=("Memo drafted", []),
             ),
@@ -224,12 +224,12 @@ class TestRunnerHandoff:
         mock_intent = IntentResult(intent=IntentType.RESPOND, confidence=1.0, reasoning="test")
         with (
             patch(
-                "kaos_agents.agent.BaseAgent._classify",
+                "kaos_agents.runtime.agent.BaseAgent._classify",
                 new_callable=AsyncMock,
                 return_value=mock_intent,
             ),
             patch(
-                "kaos_agents.agent.BaseAgent._dispatch",
+                "kaos_agents.runtime.agent.BaseAgent._dispatch",
                 new_callable=AsyncMock,
                 return_value=("Legal answer", []),
             ),
@@ -336,12 +336,12 @@ class TestDelegationInjection:
         mock_intent = IntentResult(intent=IntentType.RESPOND, confidence=1.0, reasoning="test")
         with (
             patch(
-                "kaos_agents.agent.BaseAgent._classify",
+                "kaos_agents.runtime.agent.BaseAgent._classify",
                 new_callable=AsyncMock,
                 return_value=mock_intent,
             ),
             patch(
-                "kaos_agents.agent.BaseAgent._dispatch",
+                "kaos_agents.runtime.agent.BaseAgent._dispatch",
                 new_callable=AsyncMock,
                 return_value=("Memo text", []),
             ),
@@ -362,12 +362,12 @@ class TestDelegationInjection:
         mock_intent = IntentResult(intent=IntentType.RESPOND, confidence=1.0, reasoning="test")
         with (
             patch(
-                "kaos_agents.agent.BaseAgent._classify",
+                "kaos_agents.runtime.agent.BaseAgent._classify",
                 new_callable=AsyncMock,
                 return_value=mock_intent,
             ),
             patch(
-                "kaos_agents.agent.BaseAgent._dispatch",
+                "kaos_agents.runtime.agent.BaseAgent._dispatch",
                 new_callable=AsyncMock,
                 return_value=("Legal answer", []),
             ),
@@ -380,7 +380,7 @@ class TestDelegationInjection:
     @pytest.mark.asyncio
     async def test_handoff_tool_respects_max_delegation_depth(self) -> None:
         """Calling a handoff tool at max_delegation_depth raises DelegationDepthExceeded."""
-        from kaos_agents.delegation import (
+        from kaos_agents.runtime.delegation import (
             DelegationDepthExceeded,
             _delegation_depth,
         )
@@ -472,7 +472,7 @@ class TestDelegationInjection:
     @pytest.mark.asyncio
     async def test_subagent_respects_agent_max_delegation_depth(self) -> None:
         """Agent.max_delegation_depth caps DelegatedAgent's own max_depth."""
-        from kaos_agents.delegation import (
+        from kaos_agents.runtime.delegation import (
             DelegationDepthExceeded,
             _delegation_depth,
         )
