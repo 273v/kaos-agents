@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from kaos_agents._version import __version__
+from kaos_agents.api.wire import events_to_jsonl, events_to_sse
 from kaos_agents.base import KaosAgent, KaosPattern
 from kaos_agents.config import Agent, AgentPattern
 from kaos_agents.context import (
@@ -143,7 +144,6 @@ from kaos_agents.types import (
     ToolGroup,
 )
 from kaos_agents.types.providers import BALANCED, FAST, STRONG, ModelRole, ProviderConfig
-from kaos_agents.wire import events_to_jsonl, events_to_sse
 
 __all__ = [
     "BALANCED",

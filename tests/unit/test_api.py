@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from kaos_agents.api import create_app
+from kaos_agents.api.server import create_app
 from kaos_agents.types import IntentResult, IntentType
 
 

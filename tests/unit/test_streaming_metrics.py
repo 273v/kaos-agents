@@ -27,7 +27,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from kaos_agents.api import create_app
+from kaos_agents.api.server import create_app
 from kaos_agents.config import Agent
 from kaos_agents.events import KaosEvent
 from kaos_agents.runtime.runner import Runner

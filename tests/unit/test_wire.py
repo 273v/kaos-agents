@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 
+from kaos_agents.api.wire import events_to_jsonl, events_to_sse, events_to_ws
 from kaos_agents.events import (
     IntentClassified,
     KaosEvent,
@@ -25,7 +26,6 @@ from kaos_agents.events import (
     TextDelta,
     TurnSummary,
 )
-from kaos_agents.wire import events_to_jsonl, events_to_sse, events_to_ws
 
 
 async def _make_event_stream() -> list[KaosEvent]:

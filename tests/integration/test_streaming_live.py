@@ -483,7 +483,7 @@ async def test_live_api_sse_returns_event_stream() -> None:
     """
     from httpx import ASGITransport, AsyncClient
 
-    from kaos_agents.api import create_app
+    from kaos_agents.api.server import create_app
 
     app = create_app()
     transport = ASGITransport(app=app)
@@ -507,7 +507,7 @@ async def test_live_api_json_returns_full_response() -> None:
     """Same URL with Accept: application/json returns aggregated JSON."""
     from httpx import ASGITransport, AsyncClient
 
-    from kaos_agents.api import create_app
+    from kaos_agents.api.server import create_app
 
     app = create_app()
     transport = ASGITransport(app=app)

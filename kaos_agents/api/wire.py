@@ -15,7 +15,7 @@ Two formats:
 Usage with FastAPI::
 
     from starlette.responses import StreamingResponse
-    from kaos_agents.wire import events_to_sse
+    from kaos_agents.api.wire import events_to_sse
 
     @app.post("/v1/sessions/{session_id}/messages")
     async def send_message(session_id: str, body: MessageRequest):

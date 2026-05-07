@@ -27,10 +27,10 @@ from kaos_core.vfs.models import VFSConfig
 from pydantic import BaseModel, Field
 from starlette.responses import StreamingResponse
 
+from kaos_agents.api.wire import events_to_sse
 from kaos_agents.config import Agent, AgentPattern
 from kaos_agents.runtime.runner import Runner
 from kaos_agents.settings import DEFAULT_MODEL
-from kaos_agents.wire import events_to_sse
 
 logger = get_logger(__name__)
 
