@@ -23,6 +23,15 @@ from kaos_agents.types.memory import MemoryItem, MemoryType
 
 _DEFAULT_RETRIEVAL_THRESHOLD: int = KaosAgentSettings.model_fields["retrieval_threshold"].default
 _DEFAULT_SEARCH_TOP_K: int = KaosAgentSettings.model_fields["retrieval_top_k"].default
+_DEFAULT_GRAPH_CONTEXT_ENABLED: bool = KaosAgentSettings.model_fields[
+    "graph_context_enabled"
+].default
+_DEFAULT_GRAPH_MAX_NEIGHBORS: int = KaosAgentSettings.model_fields[
+    "graph_context_max_neighbors"
+].default
+_DEFAULT_GRAPH_MAX_FINDINGS: int = KaosAgentSettings.model_fields[
+    "graph_context_max_findings"
+].default
 
 if TYPE_CHECKING:
     from kaos_agents.memory.session import SessionMemory
@@ -39,6 +48,9 @@ def assemble_context(
     priority_order: list[MemoryType] | None = None,
     retrieval_threshold: int = _DEFAULT_RETRIEVAL_THRESHOLD,
     search_top_k: int = _DEFAULT_SEARCH_TOP_K,
+    graph_context_enabled: bool = _DEFAULT_GRAPH_CONTEXT_ENABLED,
+    graph_max_neighbors: int = _DEFAULT_GRAPH_MAX_NEIGHBORS,
+    graph_max_findings: int = _DEFAULT_GRAPH_MAX_FINDINGS,
 ) -> dict[MemoryType, list[MemoryItem]]:
     """Assemble context from memory sections, using BM25 for large sections.
 
@@ -104,6 +116,31 @@ def assemble_context(
 
     if bm25_sections:
         _retrieve_from_sections(memory, query, bm25_sections, search_top_k, raw, section_tokens)
+
+    # Track 3 chunk B4 — graph-aware augmentation. After all retrieval
+    # is done, walk the per-session knowledge graph 1 hop from each
+    # selected FINDING to surface its provenance (cited docs, supporting
+    # findings, producing tool calls). The new items land under
+    # MemoryType.GRAPH so the existing budget + binding plumbing
+    # handles them like any other section.
+    if graph_context_enabled and MemoryType.FINDINGS in raw:
+        from kaos_agents.context.graph_expand import expand_with_graph
+
+        graph_items = expand_with_graph(
+            memory,
+            raw,
+            max_neighbors_per_finding=graph_max_neighbors,
+            max_findings=graph_max_findings,
+        )
+        if graph_items:
+            raw[MemoryType.GRAPH] = graph_items
+            section_tokens[MemoryType.GRAPH] = sum(it.token_count for it in graph_items)
+            logger.debug(
+                "assemble.graph_expand: %d findings → %d GRAPH items (%d tokens)",
+                len(raw.get(MemoryType.FINDINGS, [])),
+                len(graph_items),
+                section_tokens[MemoryType.GRAPH],
+            )
 
     total = sum(section_tokens.values())
     if total <= total_budget_tokens:

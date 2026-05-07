@@ -173,6 +173,31 @@ class KaosAgentSettings(ModuleSettings):
         "small corpora silently bypassed retrieval.",
     )
 
+    # Track 3 chunk B4 — graph-aware context expansion.
+    graph_context_enabled: bool = Field(
+        default=True,
+        description=(
+            "When True (default), assemble_context walks the per-session "
+            "knowledge graph 1 hop from each retrieved FINDING and injects "
+            "synthetic MemoryType.GRAPH items describing the provenance "
+            "(cited documents, supporting findings, producing tool calls). "
+            "Adds typically 50-200 tokens per finding to context. Disable "
+            "to save tokens or when the graph is known to be empty/noisy."
+        ),
+    )
+    graph_context_max_neighbors: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Max graph edges followed per finding during expansion.",
+    )
+    graph_context_max_findings: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="Max findings to expand per turn (cap on graph_expand cost).",
+    )
+
     # Refusal-robustness knobs (N4). Sit alongside the existing
     # ``Agent.refusal_policy`` (kaos-llm-core ``RefusalPolicy``) — these
     # are the system-wide defaults that the agent layer applies when the
