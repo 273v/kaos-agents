@@ -111,8 +111,21 @@ kaos-agents (mirrors kaos-core layout: base/ + types/ + registry/ + decorators/ 
     ├── Wire + API        — SSE, JSONL, WebSocket serializers + FastAPI REST API with streaming
     │                       POST /v1/sessions/{id}/messages → SSE event stream
     │                       Session CRUD, memory query/search endpoints
-    ├── MCP Tools         — 9 tools (chat, plan, memory-query, memory-search, memory-clear, recipe-list,
-    │                       extract-schema, extract-corpus, extract-verify)
+    ├── MCP Tools         — 12 tools across 3 groups (Track 4):
+    │                       agent: chat, plan, memory-{query,search,clear}, recipe-list
+    │                       extraction: extract-{schema,corpus,verify}
+    │                       graph: graph-{walk,sparql,projection}  (Track 3 B3)
+    ├── Tool Taxonomy     — Track 4: discovery + composition surface for tools:
+    │                       T4-1 DataType enum (TEXT/MARKDOWN/JSON/JSONL/HTML/CSV/TABLE/RDF/BINARY)
+    │                       T4-1 ToolDataTypeRegistry — type-driven discovery
+    │                            (tools_by_input_type / tools_by_output_type)
+    │                       T4-2 ToolGroup + ToolGroupRegistry — 2-level discovery
+    │                            (groups → tools_in / groups_for_tool)
+    │                       T4-3 FieldSet (SMALL/MEDIUM/LARGE/ALL) + project() — per-tier
+    │                            metadata projection for prompt context
+    │                       T4-4 render_tool_catalog(mode=flat|grouped|compact|full) — prompt-ready
+    │                            catalogue rendering composing T4-1/T4-2/T4-3
+    │                       T4-5 SessionToolSet + filter_tools — per-session allow/deny rules
     ├── Recipes           — 5 built-in workflow playbooks auto-loaded into PLAN_EXAMPLES
     └── Planning          — 7 primitives, 4 strategies, PlanGraph (kaos-graph backed)
     ↓
