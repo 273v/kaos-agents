@@ -126,3 +126,39 @@ async def test_forward_rag_property_exposes_inner_program() -> None:
     stub = _StubRAG(output=_make_answer([_make_span("doc:x", "q")]))
     wrapped = PerceptionRAG(rag_program=stub)  # type: ignore[arg-type]
     assert wrapped.rag is stub
+
+
+@pytest.mark.asyncio
+async def test_forward_walks_slotted_dataclass_for_spans() -> None:
+    """Regression for DEFECT-1 (2026-05-09 live test).
+
+    A slotted ``@dataclass(slots=True)`` has an empty ``__dict__`` even
+    when its fields are populated — slot values live in type-level
+    descriptors. The walker must use ``dataclasses.fields()`` to
+    traverse such objects, otherwise containers like
+    ``kaos_llm_core.programs.rag.RAGResult`` are skipped and zero
+    ``CitationFound`` events are emitted despite valid spans inside.
+    """
+    from dataclasses import dataclass
+
+    span = _make_span("doc:slotted", "from a slotted container")
+
+    @dataclass(frozen=True, slots=True)
+    class _SlottedContainer:
+        text: str
+        nested: Any
+
+    payload = _SlottedContainer(text="answer", nested=_make_answer([span]))
+    stub = _StubRAG(output=payload)
+    rag = PerceptionRAG(rag_program=stub)  # type: ignore[arg-type]
+
+    with collect_events() as events:
+        await rag(question="x")
+
+    citation_events = [e for e in events if isinstance(e, CitationFound)]
+    assert len(citation_events) == 1, (
+        f"Expected 1 CitationFound from slotted container; got "
+        f"{len(citation_events)}. Walker is failing to traverse "
+        f"@dataclass(slots=True) — see DEFECT-1."
+    )
+    assert citation_events[0].source_uri == "doc:slotted"

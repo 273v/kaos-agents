@@ -953,7 +953,10 @@ Plus latency parity within ±10% on the live tier.
 
 > **Resolved 2026-05-09:**
 > - **#1 `[llm]` extra removal** — confirmed dead. kaos-llm-core is a hard dep.
+> - **#3 Pattern selection** — classifier picks at runtime. `IntentExtractor` returns `intent.pattern`; `AgentLoop` uses it to dispatch to the right `Planner`. One AgentLoop instance can fan out to ReAct/PlanExecute/Hierarchical based on the classified intent. Unblocks Phase 3.
 > - **#4 Sub-agent event-merge default** — collapse stream-deltas (`TextDelta`/`ThinkingDelta`/`ToolCallArgsDelta` not forwarded), propagate value events (`UsageObserved`/`CitationFound`/`EvidenceInsufficient`/`Span(SUBAGENT/STEP/...)`/`TurnSummary` forwarded). Configurable per-Hierarchical via `stream_mode='full'|'value-only'|'summary-only'`.
+> - **#5 Memory promotion threshold** — confidence ≥ 0.85 + grounding-verified, no human review. Auto-promote when both gates pass. Trusts the LLM's confidence + the `Cited[T]` verifier; right answer for high-volume use. Phase 4 work.
+> - **#7 Loop detection sensitivity** — TLSH distance ≤ 30 over the last 5 calls. Validate against synthetic adversarial corpus before locking. Phase 4 work.
 > - **#8 Streaming hierarchy** — `AgentLoop.forward()` is blocking; `AgentLoop.stream()` is a thin wrapper that runs `forward()` in an `asyncio.Task` and yields from a Queue the collector pushes into. Symmetric API: every Program has `invoke()` (blocking, returns Invocation/TurnInvocation) and `stream()` (yields events live).
 
 The remaining decisions need a maintainer call before the relevant phase starts.

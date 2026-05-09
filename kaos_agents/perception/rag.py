@@ -25,6 +25,7 @@ replace this with the canonical :class:`EventEmitter`.
 
 from __future__ import annotations
 
+import dataclasses
 import time
 from typing import Any
 
@@ -139,7 +140,18 @@ def _walk_for_spans(value: Any, out: list[Span], depth: int) -> None:
                 continue
             _walk_for_spans(child, out, depth + 1)
         return
-    # Dataclass / arbitrary object with __dict__.
+    # Slotted dataclass — __dict__ is empty even when fields are populated;
+    # iterate dataclasses.fields() instead. Catches RAGResult and any other
+    # @dataclass(slots=True) value type the kaos-llm-core layer returns.
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        for f in dataclasses.fields(value):
+            try:
+                child = getattr(value, f.name)
+            except AttributeError:
+                continue
+            _walk_for_spans(child, out, depth + 1)
+        return
+    # Non-dataclass arbitrary object with __dict__ (e.g., a SimpleNamespace).
     obj_dict = getattr(value, "__dict__", None)
     if isinstance(obj_dict, dict):
         for child in obj_dict.values():
