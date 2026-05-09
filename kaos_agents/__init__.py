@@ -3,6 +3,17 @@
 from __future__ import annotations
 
 from kaos_agents._version import __version__
+from kaos_agents.action import (
+    ActionPlan,
+    ActionRefusal,
+    ActionResult,
+    Actor,
+    ApprovalWorkflow,
+    CircuitBreaker,
+    CircuitState,
+    RateLimiter,
+    Reversibility,
+)
 from kaos_agents.api.wire import events_to_jsonl, events_to_sse
 from kaos_agents.base import KaosAgent, KaosPattern
 from kaos_agents.config import Agent, AgentPattern
@@ -71,6 +82,17 @@ from kaos_agents.hooks import (
     dispatch_hook,
 )
 from kaos_agents.hooks.otel import OTelHook
+from kaos_agents.intent import (
+    Ambiguity,
+    AmbiguityKind,
+    ClarificationLoop,
+    Constraint,
+    ConstraintKind,
+    Goal,
+    IntentExtractor,
+    IntentSignature,
+)
+from kaos_agents.intent import IntentResult as IntentResultV2  # type: ignore[attr-defined]
 from kaos_agents.memory import (
     EvictionPolicy,
     MemoryItem,
@@ -89,6 +111,15 @@ from kaos_agents.memory import (
     tool_call_iri,
 )
 from kaos_agents.patterns import ChatAgent, PlanExecuteAgent, ResearchAgent
+from kaos_agents.perception import (
+    Perceiver,
+    PerceptionItem,
+    PerceptionQuery,
+    PerceptionQueryKind,
+    PerceptionRefusal,
+    PerceptionResult,
+    read_only_tools,
+)
 from kaos_agents.planning import (
     ComposeResult,
     Decision,
@@ -156,6 +187,10 @@ __all__ = [
     "BALANCED",
     "FAST",
     "STRONG",
+    "ActionPlan",
+    "ActionRefusal",
+    "ActionResult",
+    "Actor",
     "Agent",
     "AgentEnvelope",
     "AgentMetadata",
@@ -164,13 +199,21 @@ __all__ = [
     "AgentToolRegistration",
     "AgentToolSpec",
     "AgentToolSpecRegistry",
+    "Ambiguity",
+    "AmbiguityKind",
+    "ApprovalWorkflow",
     "AuditHook",
     "BaseAgent",
     "BudgetExceeded",
     "CatalogMode",
     "ChatAgent",
+    "CircuitBreaker",
+    "CircuitState",
     "CitationFound",
+    "ClarificationLoop",
     "ComposeResult",
+    "Constraint",
+    "ConstraintKind",
     "CostTrackingHook",
     "DataType",
     "Decision",
@@ -187,12 +230,16 @@ __all__ = [
     "EvidenceInsufficient",
     "FieldSet",
     "FunctionHook",
+    "Goal",
     "GroundingRefusalTriggered",
     "HookAction",
     "HookMetadata",
     "HookRegistry",
     "IntentClassified",
+    "IntentExtractor",
     "IntentResult",
+    "IntentResultV2",
+    "IntentSignature",
     "IntentType",
     "Judgment",
     "KaosAgent",
@@ -213,6 +260,12 @@ __all__ = [
     "PatternMetadata",
     "PatternRegistry",
     "PendingToolCall",
+    "Perceiver",
+    "PerceptionItem",
+    "PerceptionQuery",
+    "PerceptionQueryKind",
+    "PerceptionRefusal",
+    "PerceptionResult",
     "PermissionDecision",
     "PermissionPolicy",
     "PermissionRule",
@@ -224,8 +277,10 @@ __all__ = [
     "PlanStepSummary",
     "PrimitiveTrace",
     "ProviderConfig",
+    "RateLimiter",
     "RecipeMetadata",
     "ResearchAgent",
+    "Reversibility",
     "RouteResult",
     "RunError",
     "RunState",
@@ -286,6 +341,7 @@ __all__ = [
     "filter_tools",
     "finding_iri",
     "hook",
+    "read_only_tools",
     "register_agent_tools",
     "render_tool_catalog",
     "serialize_event",
