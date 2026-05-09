@@ -18,6 +18,7 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 from kaos_agents.base.event import KaosEvent
+from kaos_agents.events.collector import active_collector, push_event
 from kaos_agents.events.lifecycle import UsageObserved
 from kaos_agents.events.spans import Span, SpanPhase, SpanSubject
 
@@ -72,7 +73,7 @@ class EventEmitter:
         """
         seq = self._sequence
         self._sequence += 1
-        return cls(
+        event = cls(
             timestamp=time.monotonic(),
             sequence=seq,
             session_id=self._session_id,
@@ -80,6 +81,11 @@ class EventEmitter:
             agent_id=kwargs.pop("agent_id", self._agent_id),
             **kwargs,
         )
+        # Push to the active collector if one is in scope. No-op
+        # otherwise, preserving backward compat for callers that emit
+        # without opening a collect_events() block.
+        push_event(event)
+        return event
 
     # --- Span shortcuts -------------------------------------------------
 
@@ -96,7 +102,27 @@ class EventEmitter:
         error_message: str | None = None,
         attributes: dict[str, Any] | None = None,
     ) -> Span:
-        """Generic Span emission. Most callers use the ``span_*`` shortcuts."""
+        """Generic Span emission. Most callers use the ``span_*`` shortcuts.
+
+        When ``parent_span_id`` is omitted on a START phase and an
+        :class:`EventCollector` is active for the current task, the
+        parent is synthesized from the collector's span stack — this
+        threads OTel parenting through nested ``span_start`` calls
+        without making every caller pass the parent explicitly.
+
+        COMPLETE / ERROR / CANCELLED / PROGRESS phases never auto-
+        synthesize: those phases match a prior START's ``span_id``, and
+        the caller already has the START's ``parent_span_id`` in scope
+        if it wants to propagate it. Auto-synthesis here would read
+        the collector stack *after* the START was popped (or not), and
+        produce surprising parents.
+        """
+        # Synthesize parent from the active collector when the caller
+        # didn't supply one. Only on START — see docstring above.
+        if parent_span_id is None and phase is SpanPhase.START:
+            coll = active_collector()
+            if coll is not None:
+                parent_span_id = coll.current_parent_span_id()
         event = self.emit(
             Span,
             subject=subject,

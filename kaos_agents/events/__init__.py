@@ -44,6 +44,12 @@ from __future__ import annotations
 from kaos_agents.base.event import KaosEvent
 from kaos_agents.events._intermediates import LifecycleEvent
 from kaos_agents.events.budget import BudgetExceeded
+from kaos_agents.events.collector import (
+    EventCollector,
+    active_collector,
+    collect_events,
+    push_event,
+)
 from kaos_agents.events.emitter import (
     EventEmitter,
     emit_usage_observed,
@@ -118,6 +124,7 @@ __all__ = [
     "ALL_EVENT_TYPES",
     "BudgetExceeded",
     "CitationFound",
+    "EventCollector",
     "EventEmitter",
     "EvidenceInsufficient",
     "GroundingRefusalTriggered",
@@ -140,10 +147,13 @@ __all__ = [
     "ToolCallSummary",
     "TurnSummary",
     "UsageObserved",
+    "active_collector",
+    "collect_events",
     "deserialize_event",
     "deserialize_event_json",
     "emit_usage_observed",
     "event_type_name",
+    "push_event",
     "serialize_event",
     "serialize_event_json",
 ]
