@@ -18,10 +18,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum, unique
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from kaos_agents.settings import DEFAULT_MODEL, KaosAgentSettings
 from kaos_agents.types.providers import ProviderConfig
+
+if TYPE_CHECKING:
+    # Imported only for type hints — kaos_agents.core.envelope imports
+    # ``AgentPattern`` from this module, so a top-level import would be
+    # circular. ``to_envelope`` / ``from_envelope`` defer the runtime
+    # import inside the method bodies.
+    from kaos_agents.core.envelope import AgentEnvelope
 
 
 @unique
@@ -210,3 +217,186 @@ class Agent:
     def tool_filter(self) -> list[str] | None:
         """Convert tool glob patterns to a filter list, or None for 'all tools'."""
         return list(self.tools) if self.tools else None
+
+    def clone_with(self, **overrides: Any) -> Agent:
+        """Return a new Agent with the given fields replaced.
+
+        Mirrors ``kaos_llm_core.programs.cloning.clone_call``. Use for
+        delegation and routing — sub-agents are typically a parent agent
+        with a few fields swapped (instructions, model, tools).
+
+        Frozen dataclass + ``dataclasses.replace`` makes this a one-liner.
+        Unknown field names raise ``TypeError`` (the standard library's
+        behaviour, no extra validation needed).
+        """
+        from dataclasses import replace
+
+        return replace(self, **overrides)
+
+    def to_envelope(self) -> AgentEnvelope:
+        """Return a content-addressed AgentEnvelope mirroring this agent.
+
+        Phase 0.D limitation: ``settings`` (the full ``KaosAgentSettings``)
+        and ``refusal_policy`` are NOT round-tripped — they live in
+        environment variables and a typed kaos-llm-core type
+        respectively. Phase 1 will add ``settings_overrides`` projection
+        and refusal-policy capture.
+
+        Recursion: ``delegated_agents`` typically contain
+        ``DelegatedAgent`` wrappers (see ``kaos_agents.runtime.delegation``);
+        each wrapper exposes ``.agent`` which is an ``Agent`` we can
+        envelope. Anything that doesn't expose an Agent via ``.agent``
+        is silently dropped (with a debug log) — recoverable in Phase 4
+        when delegation is rewritten. ``handoffs`` are plain Agents, so
+        they envelope directly.
+        """
+        # Local import — see TYPE_CHECKING note at the top of this module.
+        from kaos_core.logging import get_logger
+
+        from kaos_agents.core.envelope import AgentEnvelope
+
+        logger = get_logger("kaos.agents.config")
+
+        # Project provider — the AgentEnvelope schema stores it as a dict.
+        # ``ProviderConfig`` is a frozen dataclass (not Pydantic) so we use
+        # ``dataclasses.asdict``. ``model_dump`` is checked first to keep
+        # the door open for a future Pydantic provider type without
+        # changing this method.
+        provider_payload: dict[str, Any] | None
+        if self.provider is None:
+            provider_payload = None
+        else:
+            model_dump = getattr(self.provider, "model_dump", None)
+            if callable(model_dump):
+                # Pydantic-style providers (future extensibility).
+                provider_payload = model_dump()
+            else:
+                from dataclasses import asdict, is_dataclass
+
+                if is_dataclass(self.provider) and not isinstance(self.provider, type):
+                    provider_payload = asdict(self.provider)
+                else:
+                    # Last-resort fallback — best-effort dict projection.
+                    provider_payload = dict(getattr(self.provider, "__dict__", {}))
+
+        # Project delegated_agents → tuple[AgentEnvelope, ...].
+        delegated_envelopes: list[AgentEnvelope] = []
+        for entry in self.delegated_agents:
+            inner = getattr(entry, "agent", None)
+            if isinstance(inner, Agent):
+                delegated_envelopes.append(inner.to_envelope())
+            elif isinstance(entry, Agent):
+                # Defensive: support callers that pass plain Agents.
+                delegated_envelopes.append(entry.to_envelope())
+            else:
+                logger.debug(
+                    "to_envelope: skipping delegated entry without .agent: type=%s",
+                    type(entry).__name__,
+                )
+
+        # Project handoffs → tuple[AgentEnvelope, ...]. Skip non-Agent
+        # entries the same way (defensive — the field is typed as Agent
+        # but the dataclass doesn't enforce that at runtime).
+        handoff_envelopes: list[AgentEnvelope] = []
+        for entry in self.handoffs:
+            if isinstance(entry, Agent):
+                handoff_envelopes.append(entry.to_envelope())
+            else:
+                logger.debug(
+                    "to_envelope: skipping handoff entry that is not an Agent: type=%s",
+                    type(entry).__name__,
+                )
+
+        return AgentEnvelope(
+            pattern=self.pattern,
+            instructions=self.instructions,
+            model=self.model,
+            tools=self.tools,
+            provider=provider_payload,
+            settings_overrides={},  # Phase 0.D: settings not round-tripped.
+            max_tools=self.max_tools,
+            max_react_iterations=self.max_react_iterations,
+            max_plan_steps=self.max_plan_steps,
+            rag_top_k=self.rag_top_k,
+            rag_max_retries=self.rag_max_retries,
+            delegated_agents=tuple(delegated_envelopes),
+            handoffs=tuple(handoff_envelopes),
+            max_delegation_depth=self.max_delegation_depth,
+            name=self.name,
+            metadata=self.metadata,
+            recipe_id=None,
+        )
+
+    @classmethod
+    def from_envelope(cls, envelope: AgentEnvelope | dict[str, Any]) -> Agent:
+        """Reconstruct an Agent from a (possibly serialized) AgentEnvelope.
+
+        Inverse of :meth:`to_envelope`. Round-trips bit-identically modulo
+        the Phase 0.D limitations:
+
+        - ``settings`` (full ``KaosAgentSettings``) is dropped — the
+          rebuilt Agent uses ``None`` and resolves from the environment.
+        - ``refusal_policy`` is dropped — set None on the rebuilt Agent.
+        - ``delegated_agents`` is the lossy direction: the envelope only
+          stores nested ``AgentEnvelope`` payloads, not the
+          ``DelegatedAgent`` wrappers the Runner expects. We rebuild
+          them as plain ``Agent`` instances and stash them back into
+          ``delegated_agents``. Callers wanting Runner-ready wrappers
+          must re-wrap via ``kaos_agents.runtime.delegation.agent_as_tool``.
+          Phase 4 will tighten this contract when delegation is
+          rewritten.
+        """
+        # Local import — see TYPE_CHECKING note at the top of this module.
+        from kaos_agents.core.envelope import AgentEnvelope
+
+        # Accept dict input by validating through AgentEnvelope so
+        # defaults/types are applied.
+        if isinstance(envelope, dict):
+            envelope = AgentEnvelope.model_validate(envelope)
+
+        # Rebuild provider — ProviderConfig is a frozen dataclass.
+        provider: ProviderConfig | None
+        if envelope.provider is None:
+            provider = None
+        else:
+            from kaos_agents.types.providers import ModelRole
+
+            payload = dict(envelope.provider)
+            raw_role_models = payload.pop("role_models", {}) or {}
+            # Coerce the role keys back to ModelRole — JSON round-trip
+            # leaves them as strings.
+            role_models: dict[ModelRole, str] = {}
+            for key, value in raw_role_models.items():
+                role_models[ModelRole(key) if isinstance(key, str) else key] = value
+            provider = ProviderConfig(
+                default=payload.get("default", DEFAULT_MODEL),
+                role_models=role_models,
+            )
+
+        # Rebuild delegated_agents recursively. The envelope only knows
+        # nested AgentEnvelopes — return raw Agents (lossy direction
+        # documented in the docstring).
+        delegated_agents: tuple[Any, ...] = tuple(
+            cls.from_envelope(item) for item in envelope.delegated_agents
+        )
+        handoffs: tuple[Agent, ...] = tuple(cls.from_envelope(item) for item in envelope.handoffs)
+
+        return cls(
+            instructions=envelope.instructions,
+            model=envelope.model,
+            pattern=envelope.pattern,
+            tools=envelope.tools,
+            provider=provider,
+            settings=None,  # Phase 0.D: not round-tripped.
+            max_tools=envelope.max_tools,
+            max_react_iterations=envelope.max_react_iterations,
+            max_plan_steps=envelope.max_plan_steps,
+            rag_top_k=envelope.rag_top_k,
+            rag_max_retries=envelope.rag_max_retries,
+            delegated_agents=delegated_agents,
+            handoffs=handoffs,
+            max_delegation_depth=envelope.max_delegation_depth,
+            refusal_policy=None,  # Phase 0.D: not round-tripped.
+            name=envelope.name,
+            metadata=envelope.metadata,
+        )
