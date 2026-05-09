@@ -15,6 +15,13 @@ from kaos_agents.context import (
     render_tool_catalog,
     triage_corpus,
 )
+from kaos_agents.core import (
+    AgentEnvelope,
+    TurnInvocation,
+    TurnPlan,
+    agent_hash,
+    current_turn,
+)
 from kaos_agents.decorators import FunctionHook, hook
 from kaos_agents.errors import (
     EventDeserializationError,
@@ -150,6 +157,7 @@ __all__ = [
     "FAST",
     "STRONG",
     "Agent",
+    "AgentEnvelope",
     "AgentMetadata",
     "AgentPattern",
     "AgentResponse",
@@ -251,12 +259,16 @@ __all__ = [
     "ToolGroup",
     "ToolGroupRegistry",
     "TriageResult",
+    "TurnInvocation",
+    "TurnPlan",
     "TurnSummary",
     "__version__",
     "agent_as_tool",
+    "agent_hash",
     "agent_iri",
     "assemble_context",
     "current_delegation_depth",
+    "current_turn",
     "default_event_registry",
     "default_hook_registry",
     "default_pattern_registry",
