@@ -18,8 +18,8 @@ from typing import Any
 import pytest
 from kaos_llm_core.signatures.grounding import Answer, Claim, Span
 
+from kaos_agents.events.collector import collect_events
 from kaos_agents.events.research import CitationFound
-from kaos_agents.perception._collector import collect_events
 from kaos_agents.perception.rag import PerceptionRAG
 
 # --- Stub Invocation / RAG -------------------------------------------

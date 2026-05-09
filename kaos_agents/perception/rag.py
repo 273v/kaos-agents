@@ -9,7 +9,7 @@ Usage::
     rag = PerceptionRAG(model="anthropic:claude-haiku-4-5")
     output = await rag(question="...", documents={"doc:a": "..."})
 
-When called inside a :func:`kaos_agents.perception._collector.collect_events`
+When called inside a :func:`kaos_agents.events.collector.collect_events`
 block, every Span carried by the output produces one ``CitationFound``
 event in that collector. When no collector is active, the wrapper is
 silent — preserves backward-compat for direct Python callers.
@@ -32,8 +32,8 @@ from kaos_llm_core.programs.base import Program
 from kaos_llm_core.programs.rag import RAG
 from kaos_llm_core.signatures.grounding import Span
 
+from kaos_agents.events.collector import push_event
 from kaos_agents.events.research import CitationFound
-from kaos_agents.perception._collector import push_event
 
 
 class PerceptionRAG(Program):
