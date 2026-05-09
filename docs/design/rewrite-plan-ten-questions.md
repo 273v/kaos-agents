@@ -951,15 +951,16 @@ Plus latency parity within ±10% on the live tier.
 
 ## 13. Open decisions
 
-> **Resolved 2026-05-09:**
+> **All eight open decisions resolved 2026-05-09:**
+>
 > - **#1 `[llm]` extra removal** — confirmed dead. kaos-llm-core is a hard dep.
+> - **#2 A2A wire format** — dedicated MCP resource. Envelopes published at `kaos-agents://envelope/<agent_hash>`; cross-process delegation fetches by URI, hydrates via `Agent.from_envelope`. Composes with the existing MCP tool surface; `agent_hash` gives natural URIs. Phase 4+ work.
 > - **#3 Pattern selection** — classifier picks at runtime. `IntentExtractor` returns `intent.pattern`; `AgentLoop` uses it to dispatch to the right `Planner`. One AgentLoop instance can fan out to ReAct/PlanExecute/Hierarchical based on the classified intent. Unblocks Phase 3.
 > - **#4 Sub-agent event-merge default** — collapse stream-deltas (`TextDelta`/`ThinkingDelta`/`ToolCallArgsDelta` not forwarded), propagate value events (`UsageObserved`/`CitationFound`/`EvidenceInsufficient`/`Span(SUBAGENT/STEP/...)`/`TurnSummary` forwarded). Configurable per-Hierarchical via `stream_mode='full'|'value-only'|'summary-only'`.
 > - **#5 Memory promotion threshold** — confidence ≥ 0.85 + grounding-verified, no human review. Auto-promote when both gates pass. Trusts the LLM's confidence + the `Cited[T]` verifier; right answer for high-volume use. Phase 4 work.
+> - **#6 `Runner.run` shim lifetime** — deleted in the same release as Phase 6 cutover. No deprecation window. Cleanest history; downstream callers migrate as part of the cutover release notes.
 > - **#7 Loop detection sensitivity** — TLSH distance ≤ 30 over the last 5 calls. Validate against synthetic adversarial corpus before locking. Phase 4 work.
 > - **#8 Streaming hierarchy** — `AgentLoop.forward()` is blocking; `AgentLoop.stream()` is a thin wrapper that runs `forward()` in an `asyncio.Task` and yields from a Queue the collector pushes into. Symmetric API: every Program has `invoke()` (blocking, returns Invocation/TurnInvocation) and `stream()` (yields events live).
-
-The remaining decisions need a maintainer call before the relevant phase starts.
 
 1. **`[llm]` extra removal.** This plan deletes the optional-dep stance (kaos-llm-core becomes hard). Confirm: are there real consumers running kaos-agents without kaos-llm-core? If yes, the duplicate `InvocationUsage` and the import-guarding stay.
 
