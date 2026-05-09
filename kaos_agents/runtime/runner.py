@@ -28,6 +28,7 @@ Usage::
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
@@ -82,6 +83,7 @@ class Runner:
 
     __slots__ = (
         "_agent",
+        "_agent_loop_version",
         "_context",
         "_corpus",
         "_hooks",
@@ -101,6 +103,7 @@ class Runner:
         hooks: tuple[KaosHook, ...] = (),
         permission_policy: PermissionPolicy | None = None,
         corpus: Any | None = None,
+        agent_loop_version: str | None = None,
     ) -> None:
         self._agent = agent
         self._runtime = runtime
@@ -109,6 +112,15 @@ class Runner:
         self._hooks = hooks
         self._permission_policy = permission_policy
         self._corpus = corpus
+        # Phase 2 feature flag: KAOS_AGENT_LOOP=v2 routes Runner.run /
+        # Runner.run_trigger / Runner.invoke_trigger through the new
+        # AgentLoop. Default v1 keeps the existing BaseAgent path so
+        # zero existing tests change behavior.
+        self._agent_loop_version = (
+            agent_loop_version
+            if agent_loop_version is not None
+            else os.environ.get("KAOS_AGENT_LOOP", "v1")
+        )
 
         # Ensure a context exists when corpus is provided (tools need it)
         if context is None and corpus is not None:
@@ -123,6 +135,111 @@ class Runner:
     def agent(self) -> Agent:
         """The agent configuration this Runner executes."""
         return self._agent
+
+    @property
+    def agent_loop_version(self) -> str:
+        """The active loop dispatch version (``"v1"`` or ``"v2"``).
+
+        Resolved at construction time from the ``agent_loop_version``
+        kwarg or ``KAOS_AGENT_LOOP`` env var. Phase 2 default is
+        ``"v1"`` (legacy ``BaseAgent`` path); ``"v2"`` opts into the
+        new :class:`AgentLoop` (with the Phase-2 caveat that planners
+        / termination / escalation / governance subsystems are not yet
+        wired, so v2 produces a minimal skeleton output).
+        """
+        return self._agent_loop_version
+
+    async def run_trigger(self, trigger: Any) -> AsyncIterator[KaosEvent]:
+        """Trigger-source-agnostic streaming entry point (Phase 2+).
+
+        Dispatches to either the legacy v1 BaseAgent path or the new
+        v2 :class:`AgentLoop` based on :attr:`agent_loop_version`.
+
+        v1 fallback: extracts the message from ``trigger.payload`` and
+        replays through :meth:`run`.
+
+        v2: constructs an :class:`AgentLoop` and yields events from
+        its ``stream(trigger)`` method.
+
+        ``trigger`` is typed ``Any`` to avoid importing
+        :class:`kaos_agents.triggers.Trigger` at runtime in the v1 path
+        (keeps the legacy hot path light).
+        """
+        if self._agent_loop_version == "v2":
+            async for event in self._run_via_agent_loop(trigger):
+                yield event
+            return
+        # v1 fallback — shape-tolerant message extraction.
+        message = ""
+        try:
+            payload = trigger.payload or {}
+            for key in ("message", "goal", "reason"):
+                value = payload.get(key)
+                if value:
+                    message = str(value)
+                    break
+        except AttributeError:
+            pass
+        session_id = getattr(trigger, "source_id", None) or _mint_session_id()
+        async for event in self.run(message, session_id):
+            yield event
+
+    async def invoke_trigger(self, trigger: Any) -> Any:
+        """Blocking trigger entry returning a :class:`TurnInvocation`.
+
+        v2-only — v1 has no canonical TurnInvocation surface, so the
+        v1 path raises :class:`RuntimeError` with guidance to either
+        opt into v2 or use :meth:`turn`.
+        """
+        if self._agent_loop_version != "v2":
+            raise RuntimeError(
+                "Runner.invoke_trigger requires KAOS_AGENT_LOOP=v2 "
+                "(or agent_loop_version='v2' on Runner.__init__). The "
+                "v1 BaseAgent path has no TurnInvocation surface — use "
+                "Runner.turn(message, session_id) instead."
+            )
+        loop = self._build_agent_loop()
+        return await loop.invoke(trigger=trigger)
+
+    async def _run_via_agent_loop(self, trigger: Any) -> AsyncIterator[KaosEvent]:
+        """Phase-2 v2 dispatch path: build an AgentLoop and stream it.
+
+        Phase 2 ships the wiring with no planners / termination /
+        escalation / governance configured. The loop produces a
+        well-formed ``Span(TURN, START)`` / ``IntentClassified`` /
+        ``TurnSummary`` / ``Span(TURN, COMPLETE)`` quartet and an
+        empty-output :class:`TurnInvocation` (extras["phase"]="skeleton").
+        Phases 3-5 wire the missing subsystems.
+        """
+        loop = self._build_agent_loop()
+        async for event in loop.stream(trigger):
+            yield event
+
+    def _build_agent_loop(self) -> Any:
+        """Construct an :class:`AgentLoop` from this Runner's config.
+
+        Phase 2: only IntentExtractor + hooks + permission_policy +
+        envelope_hash. Phases 3-5 add planners, memory tier, judges,
+        escalation policy, governance.
+
+        Lazy import of :mod:`kaos_agents.loop` and
+        :mod:`kaos_agents.intent` to keep the v1 import graph light.
+        """
+        import contextlib
+
+        from kaos_agents.intent import IntentExtractor
+        from kaos_agents.loop import AgentLoop
+
+        model = getattr(self._agent, "model", None) or "anthropic:claude-haiku-4-5"
+        envelope_hash = ""
+        with contextlib.suppress(Exception):  # Phase 4 hardens this best-effort path
+            envelope_hash = self._agent.to_envelope().agent_hash()
+        return AgentLoop(
+            intent_extractor=IntentExtractor(model=model),
+            hooks=self._hooks,
+            permission_policy=self._permission_policy,
+            agent_envelope_hash=envelope_hash,
+        )
 
     async def run(self, message: str, session_id: str) -> AsyncIterator[KaosEvent]:
         """Execute a turn, yielding events progressively.
@@ -142,6 +259,18 @@ class Runner:
         Yields:
             KaosEvent subclass instances in execution order.
         """
+        # Phase 2 feature flag: when KAOS_AGENT_LOOP=v2, route through
+        # the new AgentLoop instead of the legacy BaseAgent path.
+        # Constructs an MCPToolTrigger and delegates to run_trigger so
+        # all entry points fan in to the same AgentLoop dispatch.
+        if self._agent_loop_version == "v2":
+            from kaos_agents.triggers import Trigger
+
+            trigger = Trigger.mcp(message, session_id=session_id)
+            async for event in self._run_via_agent_loop(trigger):
+                yield event
+            return
+
         internal = self._build_internal_agent(session_id=session_id)
         event_count = 0
         emitted: list[KaosEvent] = []  # tracked for pause persistence
@@ -867,6 +996,18 @@ class Runner:
 # Type alias for the internal agent (any BaseAgent subclass).
 # Used only for _build_internal_agent return type annotation.
 from kaos_agents.runtime.agent import BaseAgent as _InternalAgent  # noqa: E402
+
+
+def _mint_session_id() -> str:
+    """Mint a fresh session id for trigger dispatches that omit one.
+
+    Used by :meth:`Runner.run_trigger` v1 fallback when the trigger
+    has no ``source_id``. Phase 4+ may centralise session-id minting
+    in the SessionStore.
+    """
+    from uuid import uuid4
+
+    return f"session_{uuid4().hex[:12]}"
 
 
 def _resolve_vfs(runtime: KaosRuntime | None) -> VirtualFileSystem:
