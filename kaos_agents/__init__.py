@@ -93,6 +93,7 @@ from kaos_agents.intent import (
     IntentSignature,
 )
 from kaos_agents.intent import IntentResult as IntentResultV2  # type: ignore[attr-defined]
+from kaos_agents.loop import AgentLoop
 from kaos_agents.memory import (
     EvictionPolicy,
     MemoryItem,
@@ -206,6 +207,7 @@ __all__ = [
     "Actor",
     "Agent",
     "AgentEnvelope",
+    "AgentLoop",
     "AgentMetadata",
     "AgentPattern",
     "AgentResponse",
