@@ -37,7 +37,7 @@ async def test_mcp_list_tools() -> None:
 
     server_params = StdioServerParameters(
         command=sys.executable,
-        args=["-m", "kaos_agents.serve"],
+        args=["-m", "kaos_agents.api.serve"],
         env={**os.environ},
     )
 
@@ -66,7 +66,7 @@ async def test_mcp_agent_chat_single_turn() -> None:
 
     server_params = StdioServerParameters(
         command=sys.executable,
-        args=["-m", "kaos_agents.serve"],
+        args=["-m", "kaos_agents.api.serve"],
         env={**os.environ},
     )
 
@@ -105,7 +105,7 @@ async def test_mcp_agent_chat_multi_turn_memory() -> None:
 
     server_params = StdioServerParameters(
         command=sys.executable,
-        args=["-m", "kaos_agents.serve"],
+        args=["-m", "kaos_agents.api.serve"],
         env={**os.environ},
     )
 

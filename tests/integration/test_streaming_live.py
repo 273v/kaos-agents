@@ -497,8 +497,16 @@ async def test_live_api_sse_returns_event_stream() -> None:
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/event-stream")
     text = resp.text
-    assert "event: turn_start" in text
-    assert "event: turn_complete" in text
+    # Stream uses the unified Span(subject, phase) event model — the
+    # SSE event name is "span" with the body carrying subject/phase.
+    # (Old test asserted "event: turn_start" which dated from before
+    # the Span unification.)
+    assert "event: span" in text
+    assert '"subject":"turn"' in text and '"phase":"start"' in text
+    assert '"phase":"complete"' in text
+    # Must also surface the value-carrying events
+    assert "event: text_delta" in text
+    assert "event: turn_summary" in text
 
 
 @pytest.mark.live
