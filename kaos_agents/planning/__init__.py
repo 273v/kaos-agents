@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 from kaos_agents.planning.graph import PlanGraph
+from kaos_agents.planning.hierarchical_planner import (
+    HierarchicalPlan,
+    HierarchicalPlanner,
+    SubAgentSpec,
+)
 from kaos_agents.planning.plan_execute_planner import (
     PlanExecutePlan,
     PlanExecutePlanner,
@@ -28,6 +33,8 @@ __all__ = [
     "ComposeResult",
     "Decision",
     "EvalMode",
+    "HierarchicalPlan",
+    "HierarchicalPlanner",
     "Judgment",
     "Plan",
     "PlanBudget",
@@ -45,4 +52,5 @@ __all__ = [
     "StepStatus",
     "StepType",
     "StopReason",
+    "SubAgentSpec",
 ]
