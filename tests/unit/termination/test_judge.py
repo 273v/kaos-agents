@@ -269,6 +269,72 @@ class TestQualityAxis:
         assert decision.kind == DecisionKind.COMPLETE
 
     @pytest.mark.asyncio
+    async def test_judgedresult_shape_extracts_quality_score(self) -> None:
+        """DEFECT-1 regression: kaos-llm-core Judge returns
+        ``Invocation(output=JudgedResult(judgment=...))`` with the score
+        on ``judgment.quality_score``, not on a flat ``score`` field.
+        Live test caught this; this regression pins it.
+        """
+
+        class _RealShapeStub:
+            """Mimics kaos_llm_core.programs.judge.JudgedResult shape."""
+
+            def __init__(self, score: float) -> None:
+                self._score = score
+
+            async def invoke(self, **kwargs: object) -> object:
+                # Match the real shape:
+                # Invocation.output -> JudgedResult.judgment.quality_score
+                judgment = SimpleNamespace(
+                    quality_score=self._score, reasoning="ok", verdict="pass"
+                )
+                judged_result = SimpleNamespace(judgment=judgment)
+                return SimpleNamespace(output=judged_result)
+
+        # Score 0.9 (above threshold 0.7) → COMPLETE.
+        judge_high = TerminationJudge(judge=_RealShapeStub(0.9), min_quality=0.7)
+        criteria = SuccessCriteria(criteria=("must be accurate",))
+        decision = await _decide(
+            judge_high,
+            iteration=1,
+            partial_text=LONG_PARTIAL,
+            success_criteria=criteria,
+        )
+        assert decision.kind == DecisionKind.COMPLETE, (
+            f"DEFECT-1: real Judge shape should yield COMPLETE on score 0.9, "
+            f"got {decision.kind} (the quality axis silently defaulted to 0.0 "
+            f"because invocation.output.score doesn't exist on JudgedResult)."
+        )
+
+        # Score 0.3 (below threshold 0.7) → QUALITY_FAILED.
+        judge_low = TerminationJudge(
+            judge=_RealShapeStub(0.3),
+            min_quality=0.7,
+            degradation_policy=DegradationPolicy(min_partial_chars=10_000),
+        )
+        decision = await _decide(
+            judge_low,
+            iteration=1,
+            partial_text=LONG_PARTIAL,
+            success_criteria=criteria,
+        )
+        assert decision.kind == DecisionKind.QUALITY_FAILED
+
+    @pytest.mark.asyncio
+    async def test_flat_score_shape_still_works(self) -> None:
+        """Backwards-compat: stubs that return ``output.score`` directly
+        still work after DEFECT-1 fix (used by older test stubs)."""
+        judge = TerminationJudge(judge=_StubJudgeProgram(score=0.95), min_quality=0.7)
+        criteria = SuccessCriteria(criteria=("must be accurate",))
+        decision = await _decide(
+            judge,
+            iteration=1,
+            partial_text=LONG_PARTIAL,
+            success_criteria=criteria,
+        )
+        assert decision.kind == DecisionKind.COMPLETE
+
+    @pytest.mark.asyncio
     async def test_no_criteria_skips_judge_call(self) -> None:
         # Stub raises; if the Judge is invoked, the test fails.
         judge = TerminationJudge(

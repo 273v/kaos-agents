@@ -465,6 +465,14 @@ class AgentLoop(Program):
                 or getattr(exec_result, "output", "")
                 or str(exec_result)
             )
+            # DEFECT-2 fix: planners that wrap kaos-llm-core programs
+            # (ReAct/RAG/Refine) capture usage in the inner Invocation;
+            # the AgentLoop's collector never sees it because the inner
+            # call doesn't emit UsageObserved into the active scope.
+            # Bridge: when the planner's PlanResult carries a non-zero
+            # usage, emit a UsageObserved event so the Step-7 roll-up
+            # picks it up.
+            self._emit_planner_usage(emitter, exec_result)
         else:
             # Skeleton path: no planner, no auto-select (or unrecognised
             # intent.pattern). Used by tests; Phase 2.B legacy semantics.
@@ -621,6 +629,48 @@ class AgentLoop(Program):
     # ------------------------------------------------------------------
 
     @staticmethod
+    def _emit_planner_usage(emitter: EventEmitter, exec_result: Any) -> None:
+        """DEFECT-2 fix (May 2026): bridge planner usage into the loop's collector.
+
+        kaos-llm-core programs (ReAct/RAG/Refine) capture usage in the
+        :class:`Invocation` they return; that usage stays inside the
+        inner program and the agent loop's :class:`EventCollector`
+        never sees it. As a result, :meth:`_sum_usage_from_collector`
+        returned ``ZERO_USAGE`` after every real LLM call and
+        downstream consumers (TurnSummary, OTel spans, the
+        :class:`CostTrackingHook → TrialRunner` publish path) saw
+        ``cost_usd == 0.0``.
+
+        This helper reads ``exec_result.usage`` (every Phase 3 PlanResult
+        exposes one) and emits a :class:`UsageObserved` event so the
+        roll-up picks it up. When ``exec_result`` is a raw planner
+        return (no ``.usage``) the call is a no-op — preserves the
+        skeleton path's behaviour.
+        """
+        usage = getattr(exec_result, "usage", None)
+        if usage is None:
+            return
+        try:
+            input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
+            output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+            total_tokens = int(getattr(usage, "total_tokens", 0) or 0)
+            cost_usd = float(getattr(usage, "cost_usd", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            return
+        # Skip the emission entirely when usage is the zero-value tuple —
+        # avoids spurious UsageObserved noise on the skeleton path.
+        if input_tokens == 0 and output_tokens == 0 and total_tokens == 0 and cost_usd == 0.0:
+            return
+        emitter.emit(
+            UsageObserved,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+            cost_usd=cost_usd,
+            source="planner",
+        )
+
+    @staticmethod
     def _clarification_message(intent: IntentResult) -> str:
         """Pick the most-blocking clarifying question from intent.ambiguities."""
         if intent.ambiguities and intent.ambiguities[0].preferred_clarification:
@@ -680,7 +730,15 @@ class AgentLoop(Program):
             return  # caller checks this; defensive for ty narrowing
         usage = self._sum_usage_from_collector(collector)
         judge: Any = self._termination_judge
-        decision = await _maybe_await(
+        # DEFECT-3 fix (May 2026): kaos-llm-core ``Program.invoke``
+        # returns an :class:`Invocation` wrapper around the bare
+        # forward() output. ``Invocation`` does not have ``.kind`` /
+        # ``.partial_result`` / ``.should_escalate`` — those live on
+        # the wrapped ``Decision``. Read ``invocation.output`` to
+        # unwrap. Test stubs that bypass the Invocation wrapping
+        # (returning a Decision directly) are still supported via
+        # the duck-typed _unwrap_decision helper below.
+        raw = await _maybe_await(
             judge.invoke(
                 intent=plan.intent,
                 usage=usage,
@@ -690,7 +748,12 @@ class AgentLoop(Program):
                 step_signature=str(getattr(exec_result, "text", "") or ""),
             )
         )
-        invocation.extras["termination_decision_kind"] = str(getattr(decision, "kind", ""))
+        decision = _unwrap_decision(raw)
+        kind_value = getattr(decision, "kind", "")
+        # Decision.kind is a StrEnum; coerce to its .value for the
+        # extras stamp so consumers see the string discriminator.
+        kind_str = kind_value.value if hasattr(kind_value, "value") else str(kind_value)
+        invocation.extras["termination_decision_kind"] = kind_str
 
         # DEGRADED: swap in the partial_result (already a substring of
         # invocation.output by construction; keep the longer of the two
@@ -809,6 +872,41 @@ class AgentLoop(Program):
 # ---------------------------------------------------------------------------
 # Module-level helpers
 # ---------------------------------------------------------------------------
+
+
+def _unwrap_decision(value: Any) -> Any:
+    """Unwrap a kaos-llm-core ``Invocation`` to its Decision payload.
+
+    DEFECT-3 (May 2026): :class:`TerminationJudge.invoke` returns an
+    :class:`Invocation` whose ``.output`` is the actual
+    :class:`Decision`. Reading ``Invocation.kind`` returns ``None``;
+    ``invocation.output.kind`` is the real value.
+
+    The helper is defensive against test stubs that return a Decision
+    directly (no ``.output`` attribute on a Decision pydantic model
+    that *would* have one only because pydantic's free-form model
+    config might allow extras). The probe order is:
+
+      1. If ``value`` has a ``.kind`` attribute and is NOT an
+         :class:`Invocation`-shaped object (which would have ``.output``
+         and would expose ``.kind`` only via ``__getattr__`` if a
+         :class:`pydantic.BaseModel` allows extras), return ``value``.
+      2. Else if ``value.output`` is non-None and has ``.kind``, return
+         ``value.output``.
+      3. Else return ``value`` (best-effort; downstream getattrs
+         tolerate missing attributes).
+    """
+    if value is None:
+        return value
+    # Probe by precedence: Invocation has ``.output``; Decision does not.
+    output = getattr(value, "output", None)
+    if output is not None and hasattr(output, "kind"):
+        return output
+    if hasattr(value, "kind"):
+        return value
+    if output is not None:
+        return output
+    return value
 
 
 async def _maybe_await(value: Any) -> Any:

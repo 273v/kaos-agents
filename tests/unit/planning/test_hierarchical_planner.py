@@ -867,3 +867,37 @@ class TestPlannerProtocolCompliance:
     def test_implements_planner_protocol(self) -> None:
         planner = HierarchicalPlanner()
         assert isinstance(planner, Planner)
+
+
+class TestDefaultFactoryAntiRecursion:
+    """DEFECT-4 regression — default sub-AgentLoop pins ReActPlanner.
+
+    Without this fix, RESEARCH-classified sub-intents would trigger
+    classifier-driven auto-select that picks HierarchicalPlanner again,
+    recursing until ``max_depth=3`` raises RuntimeError. The default
+    factory now sets ``auto_select_planner=False`` and pins
+    ``planner=ReActPlanner(...)`` so the recursion can't form.
+    """
+
+    def test_default_factory_disables_auto_select(self) -> None:
+        from kaos_agents.config import AgentPattern
+        from kaos_agents.core.envelope import AgentEnvelope
+        from kaos_agents.planning.hierarchical_planner import (
+            _default_agent_loop_factory,
+        )
+        from kaos_agents.planning.react_planner import ReActPlanner
+
+        env = AgentEnvelope(
+            pattern=AgentPattern.RESEARCH,
+            instructions="sub-agent test",
+            model="anthropic:claude-haiku-4-5",
+        )
+        sub_loop = _default_agent_loop_factory(env)
+
+        assert sub_loop._auto_select_planner is False, (
+            "DEFECT-4: default sub-AgentLoop must disable auto-select "
+            "so RESEARCH sub-intents don't recurse into HierarchicalPlanner."
+        )
+        assert isinstance(sub_loop._planner, ReActPlanner), (
+            "DEFECT-4: default sub-AgentLoop must pin ReActPlanner as the leaf executor."
+        )

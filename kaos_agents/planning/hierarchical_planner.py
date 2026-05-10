@@ -564,15 +564,30 @@ def _default_agent_loop_factory(env: AgentEnvelope) -> Any:
     path. Returns ``Any`` (rather than ``AgentLoop``) to keep the
     factory signature tolerant — tests typically return a
     :class:`SimpleNamespace` stub.
+
+    DEFECT-4 fix (May 2026): the default sub-AgentLoop forces
+    :class:`ReActPlanner` rather than letting auto-select fire. With
+    ``auto_select_planner=True`` (the AgentLoop default), a sub-intent
+    classified as ``RESEARCH`` would auto-select another
+    :class:`HierarchicalPlanner` and recurse until ``max_depth`` is
+    exceeded with a :class:`RuntimeError`. Pinning the sub-planner to
+    ReActPlanner breaks the recursion: the leaf sub-agent dispatches
+    a real ReAct loop on the sub-goal and returns. Callers that want
+    deeper hierarchies should pass a custom ``agent_loop_factory``.
     """
     from kaos_agents.config import Agent
     from kaos_agents.intent import IntentExtractor
     from kaos_agents.loop import AgentLoop
+    from kaos_agents.planning.react_planner import ReActPlanner
 
     agent = Agent.from_envelope(env)
     return AgentLoop(
         intent_extractor=IntentExtractor(model=agent.model),
         agent_envelope_hash=env.agent_hash(),
+        # Anti-recursion: pin the sub-planner so RESEARCH-classified
+        # sub-intents don't pick HierarchicalPlanner again.
+        planner=ReActPlanner(model=agent.model),
+        auto_select_planner=False,
     )
 
 

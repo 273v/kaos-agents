@@ -226,9 +226,15 @@ class TerminationJudge(Program):
         so a flaky Judge doesn't trap the loop.
 
         The Judge interface is duck-typed: we call ``await
-        judge.invoke(output=text, criteria=...)`` and read
-        ``invocation.output.score``. Tests can stub the Judge with
-        a ``SimpleNamespace``.
+        judge.invoke(output=text, criteria=...)`` and read the score.
+        kaos-llm-core ``Judge.invoke()`` returns an ``Invocation`` whose
+        ``.output`` is a ``JudgedResult`` with ``.judgment.quality_score``.
+        Live test DEFECT-1 (May 2026) found we were reading
+        ``invocation.output.score`` which doesn't exist on JudgedResult —
+        the quality axis silently collapsed to 0.0. The fix probes the
+        documented kaos-llm-core path first, then falls back to legacy
+        shapes that test stubs may use (a flat ``.score`` on the output
+        object).
         """
         if criteria is None or not criteria.criteria:
             return 1.0
@@ -242,7 +248,7 @@ class TerminationJudge(Program):
                 output=text,
                 criteria=" / ".join(criteria.criteria),
             )
-            score = float(getattr(invocation.output, "score", 0.0) or 0.0)
+            score = _extract_quality_score(invocation)
         except Exception:
             return 0.5  # neutral on judge failure
         # Clamp to [0, 1] in case the Judge produced an out-of-range value.
@@ -251,6 +257,47 @@ class TerminationJudge(Program):
         if score > 1.0:
             return 1.0
         return score
+
+
+def _extract_quality_score(invocation: Any) -> float:
+    """Pull a quality score from a Judge ``Invocation`` defensively.
+
+    Probe order:
+
+      1. ``invocation.output.judgment.quality_score`` — kaos-llm-core
+         ``JudgedResult.judgment.quality_score`` (the documented shape).
+      2. ``invocation.output.score`` — flat ``.score`` on the output
+         object (used by stub Judges in unit tests).
+      3. ``invocation.score`` — legacy / extra-flat shape; treat as
+         a defensive fallback for callers that pre-flatten.
+
+    Returns ``0.0`` when no probe yields a numeric value. The caller
+    clamps the score to ``[0, 1]``.
+    """
+    if invocation is None:
+        return 0.0
+    output = getattr(invocation, "output", None)
+    if output is not None:
+        judgment = getattr(output, "judgment", None)
+        if judgment is not None:
+            value = getattr(judgment, "quality_score", None)
+            if value is not None:
+                return _coerce_score(value)
+        flat = getattr(output, "score", None)
+        if flat is not None:
+            return _coerce_score(flat)
+    extra_flat = getattr(invocation, "score", None)
+    if extra_flat is not None:
+        return _coerce_score(extra_flat)
+    return 0.0
+
+
+def _coerce_score(value: Any) -> float:
+    """Best-effort conversion of a probed score to a float."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 __all__ = ["TerminationJudge"]
