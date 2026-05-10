@@ -100,6 +100,8 @@ def collect_events(
         # collector.events now holds every KaosEvent emitted inside, in
         # emission order, with span parenting threaded.
     """
+    import contextlib
+
     coll = EventCollector()
     if parent_span_id is not None:
         coll._span_stack.append(parent_span_id)
@@ -107,7 +109,16 @@ def collect_events(
     try:
         yield coll
     finally:
-        _active_collector_var.reset(token)
+        # ContextVar.reset() raises ValueError when the token was set
+        # in a different Context (e.g. when collect_events wraps an
+        # async generator that yields control to a consumer in a
+        # different task — runner.run's early-return-on-permission-ask
+        # path is the canonical case). The contextvar already auto-
+        # resets when its owning context exits, so swallowing this
+        # error is safe and avoids a bogus failure in test code that
+        # intentionally aborts the run mid-stream.
+        with contextlib.suppress(ValueError):
+            _active_collector_var.reset(token)
 
 
 def push_event(event: KaosEvent) -> None:
