@@ -180,6 +180,18 @@ from kaos_agents.runtime.interrupts import PendingToolCall, RunState
 from kaos_agents.runtime.permissions import PermissionPolicy
 from kaos_agents.runtime.runner import Runner
 from kaos_agents.settings import KaosAgentSettings
+from kaos_agents.termination import (
+    Decision as TerminationDecision,
+)
+from kaos_agents.termination import (
+    DecisionKind,
+    DegradationOutcome,
+    DegradationPolicy,
+    LoopDetector,
+    LoopDetectorResult,
+    SuccessCriteria,
+    TerminationJudge,
+)
 from kaos_agents.tools import register_agent_tools
 from kaos_agents.triggers import (
     CLIPromptTrigger,
@@ -253,6 +265,9 @@ __all__ = [
     "CostTrackingHook",
     "DataType",
     "Decision",
+    "DecisionKind",
+    "DegradationOutcome",
+    "DegradationPolicy",
     "DelegatedAgent",
     "DelegationDepthExceeded",
     "DelegationTrigger",
@@ -296,6 +311,8 @@ __all__ = [
     "KnowledgeBase",
     "LifecycleEvent",
     "LoggingHook",
+    "LoopDetector",
+    "LoopDetectorResult",
     "MCPToolTrigger",
     "MatterClientGuard",
     "MatterIsolationError",
@@ -362,7 +379,10 @@ __all__ = [
     "StopReason",
     "StreamDelta",
     "SubAgentSpec",
+    "SuccessCriteria",
     "SummarizationPolicy",
+    "TerminationDecision",
+    "TerminationJudge",
     "TextDelta",
     "ThinkingDelta",
     "ToolCallApprovalRequired",
