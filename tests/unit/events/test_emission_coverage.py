@@ -30,19 +30,10 @@ from kaos_agents.base.event import KaosEvent
 # Classes that exist but are not (yet) emitted from production code.
 # Adding to this set is fine — but it must come with a tracking note.
 KNOWN_UNEMITTED: dict[str, str] = {
-    "GroundingRefusalTriggered": (
-        "Parallel to EvidenceInsufficient (which IS emitted). Should "
-        "fire when a grounding refusal short-circuits an answer."
-    ),
     "ThinkingDelta": (
         "Provider streaming of model reasoning blocks (Claude "
         "extended thinking, Gemini reasoning) is not bridged from "
         "kaos-llm-client through to kaos-agents events yet."
-    ),
-    "ToolCallApprovalRequired": (
-        "PermissionPolicy emits 'approval_required' decisions in "
-        "kaos_agents/action/actor.py but does not fire a typed event. "
-        "Required for HITL audit + UI."
     ),
     "ToolCallArgsDelta": (
         "Streaming token-by-token tool argument construction. Same "
@@ -91,16 +82,30 @@ def _all_concrete_event_classes() -> list[type[KaosEvent]]:
 def _emit_sites_for(class_name: str) -> list[Path]:
     """Locate production emit sites of a given class name.
 
-    Default pattern matches ``.emit(ClassName,`` with optional
-    whitespace / multi-line argument lists. ``Span`` is special-cased
-    because it's emitted via the ``span_start`` / ``span_complete`` /
-    ``span_error`` helpers on EventEmitter — those are the public API,
-    not raw ``emitter.emit(Span, ...)`` calls.
+    Recognises two flavors of "the production code emitted this event":
+
+    1. ``emitter.emit(ClassName, ...)`` — the standard channel.
+    2. Direct construction in a control-flow context that yields/returns
+       the event into the run loop's stream — ``return ClassName(...)``,
+       ``yield ClassName(...)``, ``Var(... = ClassName(...)``. Used by
+       Runner._pause_for_approval (constructs ToolCallApprovalRequired
+       outside any emitter scope and returns it for the caller to yield)
+       and a handful of other paths where direct construction is the
+       cleanest fit.
+
+    ``Span`` is special-cased — its emissions go through the
+    ``span_start`` / ``span_complete`` / ``span_error`` helpers, not a
+    raw ``.emit(Span, ...)``.
     """
     if class_name == "Span":
-        pattern = re.compile(r"\.span_(start|complete|error)\(")
+        pattern: re.Pattern[str] = re.compile(r"\.span_(start|complete|error)\(")
     else:
-        pattern = re.compile(rf"\.emit\(\s*{re.escape(class_name)}\b")
+        emit_pat = rf"\.emit\(\s*{re.escape(class_name)}\b"
+        # Direct construction in a yield/return/assignment context. The
+        # regex avoids matching class definitions or imports by anchoring
+        # on common control-flow keywords / assignment.
+        direct_pat = rf"(?:yield\s+|return\s+|=\s*){re.escape(class_name)}\("
+        pattern = re.compile(rf"(?:{emit_pat})|(?:{direct_pat})")
     pkg_root = Path(__file__).parents[3] / "kaos_agents"
     hits: list[Path] = []
     for path in pkg_root.rglob("*.py"):
