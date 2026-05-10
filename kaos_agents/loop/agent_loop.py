@@ -838,8 +838,18 @@ class AgentLoop(Program):
         from kaos_agents.planning.react_planner import ReActPlanner
 
         pattern = intent.pattern
+        # Phase 5.D: forward the AgentLoop's KaosHook tuple into the
+        # auto-selected planner so the inner kaos-llm-core program
+        # (ReAct/RAG/Refine) sees the same hook tree the agent layer
+        # does. A single OTelHook on the Runner now observes both
+        # CallHooks/ProgramHooks events from the inner Programs AND
+        # the agent's outer Span / IntentClassified / TurnSummary
+        # events without manual wiring.
         if pattern == AgentPattern.CHAT:
-            return ReActPlanner(model=self._default_planner_model)
+            return ReActPlanner(
+                model=self._default_planner_model,
+                hooks=self._hooks,
+            )
         if pattern == AgentPattern.PLAN:
             return PlanExecutePlanner()
         if pattern == AgentPattern.RESEARCH:

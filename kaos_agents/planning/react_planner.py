@@ -132,6 +132,7 @@ class ReActPlanner:
         signature: type[Signature] | None = None,
         tools: tuple[Any, ...] | None = None,
         react_program: ReAct | None = None,
+        hooks: tuple[Any, ...] = (),
     ) -> None:
         self._model = model
         self._max_iterations = max_iterations
@@ -139,6 +140,14 @@ class ReActPlanner:
         self._signature: type[Signature] = signature or _DefaultReActSignature
         self._tools = tools
         self._react = react_program
+        # Phase 5.D: tuple of :class:`KaosHook` instances to bridge into
+        # the inner :class:`ReAct` Program's lifecycle. Adapted via
+        # :func:`kaos_agents.hooks.adapter.adapt_hooks` at build time so
+        # a single OTelHook can observe both the agent's outer events
+        # (Span(TURN/STEP/...)) and the inner kaos-llm-core CallHooks /
+        # ProgramHooks events. Empty tuple (default) skips the bridge —
+        # back-compat for tests that don't exercise hook flow.
+        self._hooks = hooks
 
     async def plan(
         self,
@@ -245,13 +254,28 @@ class ReActPlanner:
         than raising), and forward ``model`` / ``max_iterations`` /
         ``instructions`` as kwargs.
         """
-        return ReAct(
-            self._signature,
-            tools=list(tools),
-            model=self._model,
-            max_iterations=self._max_iterations,
-            instructions=self._instructions,
-        )
+        # Phase 5.D: bridge KaosHook tree into the inner ReAct via the
+        # Phase 0.C adapter so a single OTelHook (or any other KaosHook)
+        # observes both the agent layer and the inner kaos-llm-core
+        # CallHooks/ProgramHooks events. Empty hooks skip the adapter
+        # and the inner ReAct gets the kaos-llm-core defaults.
+        call_hooks = None
+        program_hooks = None
+        if self._hooks:
+            from kaos_agents.hooks.adapter import adapt_hooks
+
+            call_hooks, program_hooks = adapt_hooks(self._hooks)
+        kwargs: dict[str, Any] = {
+            "tools": list(tools),
+            "model": self._model,
+            "max_iterations": self._max_iterations,
+            "instructions": self._instructions,
+        }
+        if call_hooks is not None:
+            kwargs["hooks"] = call_hooks
+        if program_hooks is not None:
+            kwargs["program_hooks"] = program_hooks
+        return ReAct(self._signature, **kwargs)
 
     @staticmethod
     def _extract_text(invocation: Any) -> str:
