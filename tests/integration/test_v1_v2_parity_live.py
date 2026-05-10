@@ -214,3 +214,114 @@ class TestV1V2ParityOpenAI:
         v2 = Runner(agent, agent_loop_version="v2")
         v2_events = await _collect_events(v2, PROMPT, session_id="parity-v2-oai-cost")
         assert _summary_total_cost(v2_events) > 0.0
+
+
+# ---------------------------------------------------------------------------
+# Phase 6.B — extended parity for PLAN pattern + multi-turn
+# ---------------------------------------------------------------------------
+
+
+PLAN_PROMPT = (
+    "Outline a 3-step research plan for finding Tesla's 2023 annual revenue. "
+    "List the steps, then summarise."
+)
+
+
+@pytest.mark.live
+@requires_anthropic
+class TestV1V2ParityPlanPattern:
+    """Multi-step prompt should auto-select PlanExecutePlanner under v2.
+
+    Phase 6.A only validated the CHAT pattern. This class extends the
+    parity smoke to PLAN-pattern requests where the AgentLoop's
+    classifier-driven selection routes to PlanExecutePlanner (Resolved
+    Decision #3).
+
+    Note: provider stochasticity means the IntentExtractor may classify
+    the same prompt as PLAN, RESEARCH, or even TOOL_USE depending on
+    sampling. This test asserts the v2 path produces a *reasonable*
+    answer regardless of which planner was selected, since all three
+    Phase 3 planners are wired and tested individually elsewhere
+    (test_phase3_live.py).
+    """
+
+    async def test_v2_handles_multi_step_plan_request(self) -> None:
+        agent = Agent(model=ANTHROPIC)
+        v2 = Runner(agent, agent_loop_version="v2")
+        events = await _collect_events(v2, PLAN_PROMPT, session_id="parity-v2-plan")
+        text = _summary_text(events).lower()
+
+        assert text, (
+            f"v2 produced no answer for plan-request. Events: {[type(e).__name__ for e in events]}"
+        )
+        # The answer should reference Tesla and at least one of:
+        # search/research/EDGAR/filing — broad keyword check, not
+        # phrasing-specific.
+        keywords = ("tesla", "search", "edgar", "filing", "10-k", "annual", "revenue")
+        matched = [k for k in keywords if k in text]
+        assert len(matched) >= 2, (
+            f"v2 plan-request answer doesn't reference expected keywords. "
+            f"Matched: {matched}. Answer: {text[:200]!r}"
+        )
+
+    async def test_v1_v2_both_charge_cost_on_plan_request(self) -> None:
+        agent = Agent(model=ANTHROPIC)
+
+        v1 = Runner(agent, agent_loop_version="v1")
+        v1_events = await _collect_events(v1, PLAN_PROMPT, session_id="parity-v1-plan-cost")
+        v1_cost = _summary_total_cost(v1_events)
+        assert v1_cost > 0.0, (
+            f"v1 cost is 0 on plan-request. Events: {[type(e).__name__ for e in v1_events]}"
+        )
+
+        v2 = Runner(agent, agent_loop_version="v2")
+        v2_events = await _collect_events(v2, PLAN_PROMPT, session_id="parity-v2-plan-cost")
+        v2_cost = _summary_total_cost(v2_events)
+        assert v2_cost > 0.0, (
+            f"v2 cost is 0 on plan-request. Events: {[type(e).__name__ for e in v2_events]}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Phase 6.B — multi-turn parity (memory persistence across turns)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.live
+@requires_anthropic
+class TestV1V2ParityMultiTurn:
+    """Two consecutive turns on the same session_id under v2.
+
+    Phase 6.A only ran a single turn. Multi-turn exercises the
+    AgentLoop's session-continuity contract: two turns share the
+    session_id, so the second turn sees the first turn's state through
+    the session/run id correlation.
+
+    Note: v2's SessionMemory hydration is currently a Phase-2 stub
+    (the loop accepts memory but doesn't persist between turns by
+    default). This test verifies that v2 at least produces an answer
+    on the second turn — full memory continuity is a Phase 6+ wiring
+    task. The test captures the current state so any regression in the
+    "v2 doesn't crash on a 2nd turn" contract surfaces immediately.
+    """
+
+    async def test_v2_two_consecutive_turns_both_succeed(self) -> None:
+        agent = Agent(model=ANTHROPIC)
+        runner = Runner(agent, agent_loop_version="v2")
+
+        # Turn 1
+        events1 = await _collect_events(
+            runner, "What is the capital of France?", session_id="parity-multi"
+        )
+        text1 = _summary_text(events1).lower()
+        assert "paris" in text1
+
+        # Turn 2 — same runner, same session_id.
+        events2 = await _collect_events(
+            runner, "And the capital of Germany?", session_id="parity-multi"
+        )
+        text2 = _summary_text(events2).lower()
+        # Berlin is the canonical answer; the model should produce it
+        # regardless of whether memory continuity is wired (the prompt
+        # is self-contained).
+        assert "berlin" in text2, f"v2 second-turn answer missing 'berlin': {text2[:200]!r}"

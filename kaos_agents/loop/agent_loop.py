@@ -273,6 +273,13 @@ class AgentLoop(Program):
         # 6. turn_number from memory if available, else 1.
         turn_number = (memory.turn_count + 1) if memory is not None else 1
 
+        # DEFECT-5 fix: capture the intent_invocation's usage on the
+        # TurnPlan so _run_8_step_turn can emit a UsageObserved inside
+        # the collector scope. Without this, the IntentExtractor's
+        # LLM call cost was lost on every turn (prepare_turn runs
+        # before the collect_events context opens).
+        intent_usage = getattr(intent_invocation, "usage", None)
+
         return TurnPlan(
             session_id=session_id,
             run_id=run_id,
@@ -288,6 +295,7 @@ class AgentLoop(Program):
             escalation_policy=self._escalation_policy,
             permission_policy=self._permission_policy,
             parent_span_id=None,
+            intent_usage=intent_usage,
         )
 
     # ------------------------------------------------------------------
@@ -398,6 +406,12 @@ class AgentLoop(Program):
             intent=plan.intent.pattern.value,
             confidence=plan.intent.confidence,
         )
+        # DEFECT-5 fix (May 2026): the IntentExtractor's LLM call
+        # happens inside prepare_turn — BEFORE the collect_events
+        # scope opens — so its usage is invisible to the active
+        # collector unless we re-emit here. Bridges the same way
+        # _emit_planner_usage handles ReActPlanner/PlanExecute usage.
+        self._emit_planner_usage(emitter, plan.intent_usage, source_label="intent")
 
         # Step 2 — early-escalate on requires_clarification.
         # Phase 4.D: when EscalationPolicy is configured, route through
@@ -629,27 +643,54 @@ class AgentLoop(Program):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _emit_planner_usage(emitter: EventEmitter, exec_result: Any) -> None:
-        """DEFECT-2 fix (May 2026): bridge planner usage into the loop's collector.
+    def _emit_planner_usage(
+        emitter: EventEmitter,
+        source: Any,
+        *,
+        source_label: str = "planner",
+    ) -> None:
+        """Bridge LLM-call usage into the loop's collector.
 
-        kaos-llm-core programs (ReAct/RAG/Refine) capture usage in the
+        DEFECT-2 (May 2026) found that planners wrapping kaos-llm-core
+        programs (ReAct/RAG/Refine) capture usage in the
         :class:`Invocation` they return; that usage stays inside the
         inner program and the agent loop's :class:`EventCollector`
-        never sees it. As a result, :meth:`_sum_usage_from_collector`
-        returned ``ZERO_USAGE`` after every real LLM call and
-        downstream consumers (TurnSummary, OTel spans, the
-        :class:`CostTrackingHook → TrialRunner` publish path) saw
-        ``cost_usd == 0.0``.
+        never sees it. The fix re-emits a :class:`UsageObserved` event
+        from the planner result so the loop's roll-up picks it up.
 
-        This helper reads ``exec_result.usage`` (every Phase 3 PlanResult
-        exposes one) and emits a :class:`UsageObserved` event so the
-        roll-up picks it up. When ``exec_result`` is a raw planner
-        return (no ``.usage``) the call is a no-op — preserves the
-        skeleton path's behaviour.
+        DEFECT-5 (May 2026) extended the same problem to the
+        :class:`IntentExtractor` LLM call: it runs inside
+        :meth:`prepare_turn` *before* the ``collect_events`` scope is
+        open, so its usage was invisible to the collector. The
+        :class:`TurnPlan.intent_usage` field carries the
+        IntentExtractor's usage forward so this helper can re-emit it
+        at Step 1 of the turn loop.
+
+        Args:
+            emitter: The active :class:`EventEmitter` for the turn.
+            source: Either a kaos-llm-core ``Invocation`` /
+                :class:`PlanResult` (anything with a ``.usage`` attribute)
+                OR a usage object directly (an
+                :class:`InvocationUsage` /
+                :class:`kaos_llm_core...TokenUsage`-shaped value with
+                ``input_tokens`` / ``output_tokens`` / ``total_tokens``
+                / ``cost_usd``). The helper probes ``.usage`` first;
+                if absent it treats ``source`` as the usage object
+                itself.
+            source_label: Stamped on the emitted ``UsageObserved`` so
+                downstream consumers can attribute cost back to the
+                originating layer (``"planner"``, ``"intent"``).
+
+        No-op when ``source`` is ``None`` or carries no observable
+        usage — preserves the skeleton path's behaviour.
         """
-        usage = getattr(exec_result, "usage", None)
-        if usage is None:
+        if source is None:
             return
+        # Probe .usage first (PlanResult / Invocation-like). Fall back
+        # to treating source as the usage object directly.
+        usage = getattr(source, "usage", None)
+        if usage is None:
+            usage = source
         try:
             input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
             output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
@@ -667,7 +708,7 @@ class AgentLoop(Program):
             output_tokens=output_tokens,
             total_tokens=total_tokens,
             cost_usd=cost_usd,
-            source="planner",
+            source=source_label,
         )
 
     @staticmethod

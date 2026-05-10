@@ -19,7 +19,7 @@ Verifies that:
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -332,13 +332,26 @@ class TestPlannerUsageRollup:
         )
 
         # And Step-7 roll-up populated invocation.usage / cost_usd.
-        assert invocation.usage.input_tokens == 120
-        assert invocation.usage.total_tokens == 200
+        # Note: DEFECT-5 fix means the IntentExtractor stub also
+        # contributes (input=1, output=1, total=2, cost=0.0). The
+        # planner-bridge UsageObserved (120/80/200/$0.025) sums with
+        # the intent-bridge UsageObserved (1/1/2/$0.0) for a total
+        # of 121/81/202/$0.025 in the roll-up.
+        assert invocation.usage.input_tokens == 121
+        assert invocation.usage.output_tokens == 81
+        assert invocation.usage.total_tokens == 202
         assert invocation.cost_usd == pytest.approx(0.025)
 
     async def test_planner_with_zero_usage_does_not_emit(self) -> None:
         """Skeleton planners (no LLM calls) should not produce a noisy
-        zero-usage UsageObserved event."""
+        zero-usage UsageObserved event from the planner bridge.
+
+        Note: DEFECT-5 fix surfaces the IntentExtractor's usage as a
+        separate UsageObserved with source="intent". This test filters
+        to source="planner" so it pins the planner-bridge contract
+        independent of the intent-bridge contract (covered separately
+        by TestIntentUsageEmission below).
+        """
         from kaos_agents.events import UsageObserved
         from kaos_agents.types.usage import ZERO_USAGE
 
@@ -354,14 +367,12 @@ class TestPlannerUsageRollup:
             planner=_ZeroUsagePlanner(),
         )
         invocation = await loop.forward(trigger=Trigger.mcp("hi", session_id="s1"))
-        # No spurious UsageObserved emitted from the planner bridge —
-        # the only one allowed is whatever the IntentExtractor stub
-        # may have surfaced (the _stub_extractor used in this file
-        # doesn't emit UsageObserved, so the count should be 0).
-        usage_events = [e for e in invocation.events if isinstance(e, UsageObserved)]
-        assert usage_events == [], (
-            f"Expected no UsageObserved emissions for ZERO_USAGE planner, "
-            f"got {len(usage_events)}: {usage_events}"
+        planner_usage = [
+            e for e in invocation.events if isinstance(e, UsageObserved) and e.source == "planner"
+        ]
+        assert planner_usage == [], (
+            f"Expected no planner UsageObserved emissions for ZERO_USAGE planner, "
+            f"got {len(planner_usage)}: {planner_usage}"
         )
 
     async def test_planner_without_usage_attribute_does_not_emit(self) -> None:
@@ -381,8 +392,101 @@ class TestPlannerUsageRollup:
             planner=_BareResultPlanner(),
         )
         invocation = await loop.forward(trigger=Trigger.mcp("hi", session_id="s1"))
-        usage_events = [e for e in invocation.events if isinstance(e, UsageObserved)]
-        assert usage_events == []
+        # Filter to source="planner" — see test_planner_with_zero_usage_does_not_emit
+        # for the rationale (DEFECT-5 surfaces an intent UsageObserved separately).
+        planner_usage = [
+            e for e in invocation.events if isinstance(e, UsageObserved) and e.source == "planner"
+        ]
+        assert planner_usage == []
+
+
+@pytest.mark.unit
+class TestIntentUsageEmission:
+    """DEFECT-5 regression — IntentExtractor cost surfaces in collector.
+
+    Pre-fix, the IntentExtractor's LLM call happened in prepare_turn
+    BEFORE the collect_events scope opened, so its usage was lost.
+    Post-fix, prepare_turn captures intent_invocation.usage onto
+    TurnPlan.intent_usage; _run_8_step_turn re-emits it as a
+    UsageObserved with source="intent" inside the collector scope so
+    the loop's roll-up captures the cost.
+    """
+
+    async def test_intent_usage_emitted_when_extractor_returns_usage(self) -> None:
+        """The stub _StubExtractor in this file returns
+        usage(input=1, output=1, total=2, cost=0.0) — DEFECT-5 means
+        a UsageObserved with source="intent" lands in the collector."""
+        from kaos_agents.events import UsageObserved
+
+        loop = AgentLoop(
+            intent_extractor=_stub_extractor(_intent()),
+            auto_select_planner=False,  # skeleton path; intent is the only LLM call
+        )
+        invocation = await loop.forward(trigger=Trigger.mcp("hi", session_id="s1"))
+        intent_usage = [
+            e for e in invocation.events if isinstance(e, UsageObserved) and e.source == "intent"
+        ]
+        assert len(intent_usage) == 1, (
+            f"Expected exactly one intent UsageObserved, got {len(intent_usage)}. "
+            f"DEFECT-5 may have regressed."
+        )
+        # Stub returns total_tokens=2; the bridge re-emits.
+        assert intent_usage[0].total_tokens == 2
+
+    async def test_intent_usage_skipped_when_extractor_returns_none(self) -> None:
+        """When the IntentExtractor's invocation has no usage attribute
+        (or zero usage), no spurious source="intent" UsageObserved fires."""
+        from kaos_agents.events import UsageObserved
+
+        class _ZeroIntentExtractor:
+            async def invoke(self, **kwargs: Any) -> Any:
+                return SimpleNamespace(
+                    output=_intent(),
+                    usage=SimpleNamespace(
+                        input_tokens=0,
+                        output_tokens=0,
+                        total_tokens=0,
+                        cost_usd=0.0,
+                    ),
+                )
+
+        loop = AgentLoop(
+            intent_extractor=cast(Any, _ZeroIntentExtractor()),
+            auto_select_planner=False,
+        )
+        invocation = await loop.forward(trigger=Trigger.mcp("hi", session_id="s1"))
+        intent_usage = [
+            e for e in invocation.events if isinstance(e, UsageObserved) and e.source == "intent"
+        ]
+        assert intent_usage == [], (
+            f"Expected zero intent UsageObserved with all-zero usage, "
+            f"got {len(intent_usage)}: {intent_usage}"
+        )
+
+    async def test_intent_usage_charges_invocation_cost(self) -> None:
+        """The intent UsageObserved feeds into invocation.cost_usd via
+        the Step-7 roll-up — proves the DEFECT-5 fix flows end-to-end."""
+
+        class _CostIntentExtractor:
+            async def invoke(self, **kwargs: Any) -> Any:
+                return SimpleNamespace(
+                    output=_intent(),
+                    usage=SimpleNamespace(
+                        input_tokens=100,
+                        output_tokens=50,
+                        total_tokens=150,
+                        cost_usd=0.0042,
+                    ),
+                )
+
+        loop = AgentLoop(
+            intent_extractor=cast(Any, _CostIntentExtractor()),
+            auto_select_planner=False,
+        )
+        invocation = await loop.forward(trigger=Trigger.mcp("hi", session_id="s1"))
+        # The intent's $0.0042 must roll up to the invocation level.
+        assert invocation.cost_usd == pytest.approx(0.0042)
+        assert invocation.usage.total_tokens == 150
 
 
 @pytest.mark.unit

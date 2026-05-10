@@ -59,5 +59,15 @@ class TurnPlan:
     # leave this empty.
     seed_events: tuple[KaosEvent, ...] = ()
 
+    # DEFECT-5 (May 2026): IntentExtractor usage from prepare_turn.
+    # The IntentExtractor's LLM call happens inside prepare_turn
+    # before the AgentLoop's collect_events scope is open, so its
+    # usage would otherwise be invisible to the loop's roll-up.
+    # AgentLoop._run_8_step_turn emits a synthetic UsageObserved
+    # from this field at Step 1 so the cost lands in the active
+    # collector. ``None`` when no usage info was captured (e.g.
+    # the intent_extractor stub didn't return an Invocation).
+    intent_usage: Any = None
+
 
 __all__ = ["TurnPlan"]
