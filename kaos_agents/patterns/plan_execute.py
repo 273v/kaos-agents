@@ -21,6 +21,7 @@ from kaos_agents._constants import (
     RESULT_SUMMARY_TRUNCATE,
 )
 from kaos_agents.events import (
+    BudgetExceeded,
     EventEmitter,
     KaosEvent,
     PlanProposed,
@@ -307,6 +308,41 @@ class PlanExecuteAgent(ChatAgent):
                     "result_summary": str(step_result)[:RESULT_SUMMARY_TRUNCATE],
                     "is_error": step_is_error,
                 },
+            )
+
+        # Emit BudgetExceeded for any budget-driven stop. The
+        # ``StopReason`` enum mirrors the kinds documented on
+        # ``BudgetExceeded.kind`` (cost / tokens / steps / replans /
+        # wall_clock). Without this emit, the JSONL audit log lost
+        # all signal on budget hits — operators only saw the failure
+        # text in TextDelta.
+        budget_kinds = {
+            StopReason.MAX_COST: ("cost", result.total_cost_usd, self._settings.plan_max_cost_usd),
+            StopReason.MAX_TOKENS: ("tokens", float(result.total_tokens), 0.0),
+            StopReason.MAX_STEPS: (
+                "steps",
+                float(result.steps_executed),
+                float(self._settings.plan_max_steps),
+            ),
+            StopReason.MAX_REPLANS: (
+                "replans",
+                float(getattr(budget, "replans", 0)),
+                float(self._settings.plan_max_replans),
+            ),
+            StopReason.MAX_WALL_CLOCK: (
+                "wall_clock",
+                0.0,
+                float(self._settings.plan_max_wall_clock_seconds),
+            ),
+        }
+        if result.stop_reason in budget_kinds:
+            kind, actual, limit = budget_kinds[result.stop_reason]
+            yield emitter.emit(
+                BudgetExceeded,
+                kind=kind,
+                limit=float(limit),
+                actual=float(actual),
+                reason=f"Plan budget {kind} exceeded after {result.steps_executed} step(s)",
             )
 
         # Emit final response text

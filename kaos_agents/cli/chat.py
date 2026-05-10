@@ -1500,14 +1500,37 @@ async def _run_repl(args: argparse.Namespace) -> _SessionState:
         # CI / course runnables / scripts can tell budget-exceeded apart
         # from real errors (exit 1).
         if state.budget_exceeded():
+            cap = state.max_cost_usd or 0.0
             print(
                 _c(
                     _ANSI_YELLOW,
                     f"\n[budget] session cost ${state.cost_usd:.4f} "
-                    f"meets or exceeds cap ${state.max_cost_usd:.4f} — "
-                    "refusing further turns.",
+                    f"meets or exceeds cap ${cap:.4f} — refusing further turns.",
                 )
             )
+            # Append a BudgetExceeded event to the JSONL audit log so
+            # offline analysis can tell budget-driven termination from
+            # other reasons. The event is emitted outside any turn's
+            # emitter scope (the turn already finished by the time we
+            # check the budget); we synthesize it directly with the
+            # session-level identity so downstream consumers can still
+            # group by ``session_id``.
+            if log_file is not None:
+                from kaos_agents.events import BudgetExceeded, serialize_event_json
+
+                evt = BudgetExceeded(
+                    timestamp=_t.monotonic(),
+                    sequence=0,
+                    session_id=session_id,
+                    run_id="",
+                    kind="cost",
+                    limit=float(cap),
+                    actual=float(state.cost_usd),
+                    reason=f"Session cost cap reached after {state.turns} turn(s)",
+                )
+                log_file.write(serialize_event_json(evt))
+                log_file.write("\n")
+                log_file.flush()
             break
 
     if log_file is not None:

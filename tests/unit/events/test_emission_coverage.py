@@ -30,11 +30,6 @@ from kaos_agents.base.event import KaosEvent
 # Classes that exist but are not (yet) emitted from production code.
 # Adding to this set is fine — but it must come with a tracking note.
 KNOWN_UNEMITTED: dict[str, str] = {
-    "BudgetExceeded": (
-        "Chat CLI prints `[budget] cost exceeded` text but does not "
-        "emit a typed event. Plan-execute also does not emit when "
-        "PlanBudget hits a cap. Wire from chat.py + plan_execute.py."
-    ),
     "GroundingRefusalTriggered": (
         "Parallel to EvidenceInsufficient (which IS emitted). Should "
         "fire when a grounding refusal short-circuits an answer."
