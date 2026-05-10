@@ -185,6 +185,7 @@ class AgentLoop(Program):
         run_id_factory: Any | None = None,
         auto_select_planner: bool = True,
         default_planner_model: str = "anthropic:claude-haiku-4-5",
+        tools: tuple[Any, ...] = (),
     ) -> None:
         super().__init__()
         # Use ``__dict__`` directly for non-Program children so
@@ -207,6 +208,15 @@ class AgentLoop(Program):
         self._hooks = hooks
         self._agent_envelope_hash = agent_envelope_hash
         self._run_id_factory = run_id_factory or _default_run_id
+        # Phase 3.D fix: bridged kaos-llm-core Tool instances threaded
+        # to auto-selected planners. Without this, an auto-selected
+        # ReActPlanner is constructed with no tools and kaos-llm-core
+        # warns "ReAct(tools=[]) is a degenerate construction" — the
+        # turn yields zero tool calls and an empty answer (bug #3 in
+        # the workflow telemetry audit). Runner._build_agent_loop is
+        # responsible for calling bridge_runtime_tools and passing the
+        # result through here.
+        self._tools = tools
         # Phase 3.D: classifier-driven planner selection (Resolved #3).
         # When ``auto_select_planner=True`` (default) and no explicit
         # ``planner=`` was passed, AgentLoop selects a Planner based on
@@ -487,6 +497,12 @@ class AgentLoop(Program):
             # usage, emit a UsageObserved event so the Step-7 roll-up
             # picks it up.
             self._emit_planner_usage(emitter, exec_result)
+            # Emit TOOL_CALL spans by walking the planner's trajectory.
+            # Without this v2 had no tool-call telemetry — the v1
+            # chat / research patterns walk `result.trajectory` for
+            # exactly this reason. The collector's span stack threads
+            # parent_span_id from the active TURN automatically.
+            self._emit_tool_call_spans_from_trajectory(emitter, exec_result)
         else:
             # Skeleton path: no planner, no auto-select (or unrecognised
             # intent.pattern). Used by tests; Phase 2.B legacy semantics.
@@ -859,6 +875,58 @@ class AgentLoop(Program):
         if promoted_count > 0:
             invocation.extras["promoted_findings"] = promoted_count
 
+    @staticmethod
+    def _emit_tool_call_spans_from_trajectory(
+        emitter: EventEmitter,
+        exec_result: Any,
+    ) -> None:
+        """Walk a planner's tool_executions and emit TOOL_CALL spans.
+
+        Source-of-truth is `PlanResult.tool_executions` — the typed
+        record planners populate from their inner ReAct trajectory
+        (see `ReActPlanner._extract_tool_executions`). v1 patterns
+        (chat / research) walk this themselves; v2's AgentLoop must
+        do it here so consumers see tool-call telemetry in the
+        JSONL log. Bug #3 in the workflow audit observed zero
+        tool_call spans even when ReAct made real tool calls.
+
+        Tolerant to missing fields: when `exec_result.tool_executions`
+        is empty, no spans are emitted (no false-positive events).
+        """
+        executions = getattr(exec_result, "tool_executions", None) or ()
+        if not executions:
+            return
+
+        for execution in executions:
+            tool_name = str(getattr(execution, "tool_name", "") or "")
+            if not tool_name:
+                continue
+            call_id = str(getattr(execution, "call_id", "") or tool_name)
+            arguments = getattr(execution, "arguments", ()) or ()
+            is_error = bool(getattr(execution, "is_error", False))
+            result_summary = str(getattr(execution, "result_summary", "") or "")
+
+            tc_span = emitter.span_start(
+                SpanSubject.TOOL_CALL,
+                name=f"tool.{tool_name}",
+                attributes={
+                    "tool_name": tool_name,
+                    "call_id": call_id,
+                    "arguments": tuple(arguments),
+                },
+            )
+            emitter.span_complete(
+                SpanSubject.TOOL_CALL,
+                span_id=tc_span.span_id,
+                name=f"tool.{tool_name}",
+                attributes={
+                    "tool_name": tool_name,
+                    "call_id": call_id,
+                    "result_summary": result_summary,
+                    "is_error": is_error,
+                },
+            )
+
     def _select_planner_for_intent(self, intent: IntentResult) -> Any | None:
         """Classifier-driven Planner selection (Phase 3.D, Resolved #3).
 
@@ -890,13 +958,17 @@ class AgentLoop(Program):
             return ReActPlanner(
                 model=self._default_planner_model,
                 hooks=self._hooks,
+                tools=self._tools or None,
             )
         if pattern == AgentPattern.PLAN:
             return PlanExecutePlanner()
         if pattern == AgentPattern.RESEARCH:
             # Default: one heuristic sub-agent. Phase 4+ wires a real
             # retrieval-sub-agent envelope (paper §4.2 / §6 RAG path).
-            return HierarchicalPlanner()
+            # Tools propagate via the sub-agent's own AgentLoop
+            # construction inside HierarchicalPlanner._default_agent_loop_factory,
+            # which receives the same tool tuple.
+            return HierarchicalPlanner(tools=self._tools or None)
         return None
 
     @staticmethod

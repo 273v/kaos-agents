@@ -241,12 +241,35 @@ class Runner:
         envelope_hash = ""
         with contextlib.suppress(Exception):  # Phase 4 hardens this best-effort path
             envelope_hash = self._agent.to_envelope().agent_hash()
+
+        # Bridge runtime tools into kaos-llm-core Tool instances so the
+        # auto-selected ReActPlanner / HierarchicalPlanner sub-agents
+        # can actually call them. Without this, v2 selects a planner
+        # with empty tools (kaos-llm-core warns "ReAct(tools=[]) is a
+        # degenerate construction") and produces empty answers — bug
+        # #3 in the v2 audit + Phase 6 cutover Gate A blocker.
+        bridged_tools: tuple[Any, ...] = ()
+        if self._runtime is not None:
+            from kaos_agents.actions.tool_bridge import bridge_runtime_tools
+
+            filter_names = list(self._agent.tools) if self._agent.tools else None
+            bridged_tools = tuple(
+                bridge_runtime_tools(
+                    self._runtime,
+                    self._context,
+                    filter_names=filter_names,
+                    max_tools=self._agent.max_tools or self._settings.max_tools,
+                    permission_policy=self._permission_policy,
+                )
+            )
+
         return AgentLoop(
             intent_extractor=IntentExtractor(model=model),
             hooks=self._hooks,
             permission_policy=self._permission_policy,
             agent_envelope_hash=envelope_hash,
             auto_select_planner=self._auto_select_planner,
+            tools=bridged_tools,
         )
 
     async def run(self, message: str, session_id: str) -> AsyncIterator[KaosEvent]:

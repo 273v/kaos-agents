@@ -191,6 +191,7 @@ class HierarchicalPlanner:
         agent_loop_factory: Any | None = None,
         max_delegation_depth: int = 3,
         aggregation_strategy: str = "concat",
+        tools: tuple[Any, ...] | None = None,
     ) -> None:
         if stream_mode not in ("value-only", "full", "summary-only"):
             raise ValueError(
@@ -206,9 +207,20 @@ class HierarchicalPlanner:
         self._stream_mode = stream_mode
         self._max_concurrent = max_concurrent_subagents
         self._decomposer_call = decomposer_call
-        self._agent_loop_factory = agent_loop_factory or _default_agent_loop_factory
         self._max_depth = max_delegation_depth
         self._aggregation = aggregation_strategy
+        # When tools are provided AND no custom factory, wrap the
+        # default factory in a closure that threads tools into each
+        # sub-AgentLoop's ReActPlanner. Without this, sub-agents
+        # spawned for RESEARCH delegation see no tools and produce
+        # empty answers (sibling of bug #3 in the v2 audit).
+        if agent_loop_factory is not None:
+            self._agent_loop_factory = agent_loop_factory
+        elif tools:
+            self._agent_loop_factory = _make_default_factory_with_tools(tools)
+        else:
+            self._agent_loop_factory = _default_agent_loop_factory
+        self._tools = tools or ()
 
     @property
     def stream_mode(self) -> str:
@@ -554,6 +566,34 @@ class HierarchicalPlanner:
 # ---------------------------------------------------------------------------
 # Module-level helpers
 # ---------------------------------------------------------------------------
+
+
+def _make_default_factory_with_tools(tools: tuple[Any, ...]) -> Any:
+    """Build a default sub-AgentLoop factory that threads tools through.
+
+    Identical to :func:`_default_agent_loop_factory` except the inner
+    :class:`ReActPlanner` receives ``tools=`` so sub-agents spawned by
+    a HierarchicalPlanner with tools can actually call them. Used
+    automatically by HierarchicalPlanner when constructed with
+    ``tools=`` and no explicit ``agent_loop_factory``.
+    """
+
+    def _factory(env: AgentEnvelope) -> Any:
+        from kaos_agents.config import Agent
+        from kaos_agents.intent import IntentExtractor
+        from kaos_agents.loop import AgentLoop
+        from kaos_agents.planning.react_planner import ReActPlanner
+
+        agent = Agent.from_envelope(env)
+        return AgentLoop(
+            intent_extractor=IntentExtractor(model=agent.model),
+            agent_envelope_hash=env.agent_hash(),
+            planner=ReActPlanner(model=agent.model, tools=tools),
+            auto_select_planner=False,
+            tools=tools,
+        )
+
+    return _factory
 
 
 def _default_agent_loop_factory(env: AgentEnvelope) -> Any:

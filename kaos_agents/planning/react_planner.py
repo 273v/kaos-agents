@@ -205,13 +205,56 @@ class ReActPlanner:
         text = self._extract_text(invocation)
         usage = self._extract_usage(invocation)
         iterations_used = self._extract_iterations(invocation)
+        tool_executions = self._extract_tool_executions(invocation)
         return PlanResult(
             text=text,
             output=text,  # alias — Phase 2.B AgentLoop reads either
-            tool_executions=(),  # Phase 4 wires tool-execution capture
+            tool_executions=tool_executions,
             usage=usage,
             metadata={"react_iterations": iterations_used},
         )
+
+    @staticmethod
+    def _extract_tool_executions(invocation: Any) -> tuple[Any, ...]:
+        """Walk the ReActResult trajectory into ToolExecution records.
+
+        Without this, AgentLoop's TOOL_CALL span emission sees an
+        empty list (PlanResult.tool_executions used to be hard-coded
+        to `()`) and the v2 audit log carries zero tool_call
+        telemetry — bug #3 in the workflow audit.
+
+        Source-of-truth: kaos-llm-core's ReActResult.trajectory is a
+        list of `Iteration`. Each Iteration has:
+          * `tool_calls: list[ToolCall]` — what the model requested
+          * `tool_results: list[ToolObservation]` — what the tool
+            executor returned (tool_name, arguments, result, is_error,
+            tool_call_id). This is the field carrying executed work.
+        Read from `tool_results` (NOT `observations` — that field
+        does not exist on Iteration).
+        """
+        from kaos_agents.types.tool_call import ToolExecution
+
+        result = getattr(invocation, "output", None) or invocation
+        trajectory = getattr(result, "trajectory", None) or ()
+        execs: list[ToolExecution] = []
+        for iteration in trajectory:
+            for obs in getattr(iteration, "tool_results", None) or ():
+                tool_name = str(getattr(obs, "tool_name", "") or "")
+                if not tool_name:
+                    continue
+                arguments = getattr(obs, "arguments", {}) or {}
+                args_tuple = tuple(sorted(arguments.items())) if isinstance(arguments, dict) else ()
+                obs_result = getattr(obs, "result", None)
+                execs.append(
+                    ToolExecution(
+                        tool_name=tool_name,
+                        call_id=str(getattr(obs, "tool_call_id", "") or tool_name),
+                        arguments=args_tuple,
+                        result_summary=(str(obs_result)[:200]) if obs_result else "",
+                        is_error=bool(getattr(obs, "is_error", False)),
+                    )
+                )
+        return tuple(execs)
 
     # ---- internals -------------------------------------------------
 
