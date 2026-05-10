@@ -1,36 +1,53 @@
-"""LoopDetector — Resolved Decision #7: fuzzy-hash similarity over the last N calls.
+"""LoopDetector — Resolved Decision #7: similarity over the last N calls.
 
 Detects when an agent is "spinning" — making the same tool call /
 producing the same step output repeatedly.
 
 The plan (rewrite-plan-ten-questions.md §13 Resolved #7) calls for
-"TLSH ≤ 30 over the last 5 calls". kaos-nlp-core's fuzzy-hashing
-module ships **CTPH** (Context-Triggered Piecewise Hashing) rather
-than TLSH — see ``kaos_nlp_core.hashing``: ``ctph_hash_str`` +
-``ctph_similarity`` (Jaccard over hash blocks). We adapt:
+"TLSH ≤ 30 over the last 5 calls". kaos-nlp-core does not ship TLSH;
+the Phase 4.B baseline adapted to CTPH (Context-Triggered Piecewise
+Hashing) by analogy. **Phase 4.E calibration disproved that
+choice**: CTPH on agent step signatures (50-300 chars typical) collapses
+to similarity 0.0 across all window sizes — the rolling-hash piece
+set is too small to produce graduated similarity. The 0.5 threshold
+could never fire.
 
-* "TLSH distance ≤ 30" (lower = more similar) becomes
-  "CTPH similarity ≥ ``min_similarity``" (higher = more similar).
-* Default ``min_similarity = 0.5`` — well above the noise floor for
-  CTPH on short agent step signatures, where exact-equal pairs
-  return 1.0 and unrelated pairs typically return 0.0.
+Phase 4.E switches the default algorithm to **n-gram Jaccard** (n=3)
+from ``kaos_nlp_core.algorithms.ngram_jaccard``. Empirical separation
+on hand-crafted corpora (see
+``tests/benchmarks/test_loop_detection_calibration.py``):
 
-Phase 4.B baseline: window of the last N calls, hash each, compare
-pairwise. Any pair above the threshold trips. Fallback when
-kaos-nlp-core isn't available (or its hashing surface changes
-shape): simple string equality over the last N — coarser, but
-still catches the "exact-same tool call N times in a row" base
-case.
+  LOOP corpus (micro-variations on the same tool call):
+    similarity in [0.83, 0.92] — a stable cluster
+  NON-LOOP corpus (legitimately different tools/args):
+    similarity in [0.18, 0.20] — well below the cluster
 
-The detector never raises — a missing or renamed kaos-nlp-core
-hashing API silently degrades to equality. The agent must keep
-running even when the loop-detection optimisation is unavailable.
+A threshold of 0.5 sits cleanly in the gap between the two
+distributions and gives a robust loop / not-loop classifier.
+
+Algorithm options (the constructor's ``algorithm`` kwarg):
+
+  * ``"ngram_jaccard"`` (default) — character 3-gram Jaccard. Best
+    for typical agent step signatures.
+  * ``"ctph"`` — CTPH from ``kaos_nlp_core.hashing``. Retained for
+    tests and forward-compat; **not recommended** for short
+    signatures (see calibration evidence above).
+  * ``"equality"`` — exact string match. Used as a final fallback
+    when kaos-nlp-core isn't importable. Coarser, but catches the
+    "exact-same tool call N times in a row" base case.
+
+The detector never raises — a missing kaos-nlp-core import silently
+degrades to equality. The agent must keep running even when the
+loop-detection optimisation is unavailable.
 """
 
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
+
+_AlgorithmName = str  # "ngram_jaccard" | "ctph" | "equality"
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,15 +56,15 @@ class LoopDetectorResult:
 
     ``detected`` is the headline. When ``True``, ``matching_pair``
     indexes the offending pair within the current window (0-based,
-    oldest-first), ``similarity`` is the CTPH Jaccard score on the
-    fuzzy path (or ``1.0`` on the equality fallback), and ``reason``
-    is a one-line human-readable explanation suitable for the
-    Decision's ``feedback`` field.
+    oldest-first), ``similarity`` is the algorithm-specific similarity
+    score (or ``1.0`` on the equality fallback), and ``reason`` is a
+    one-line human-readable explanation suitable for the Decision's
+    ``feedback`` field.
     """
 
     detected: bool
     reason: str = ""
-    matching_pair: tuple[int, int] | None = None  # indices in the window
+    matching_pair: tuple[int, int] | None = None
     similarity: float | None = None
 
 
@@ -57,52 +74,74 @@ class LoopDetector:
     Constructor kwargs:
 
       window_size: how many calls to consider (default 5; Resolved #7).
-      min_similarity: CTPH Jaccard threshold above which a pair is
-        considered "the same step". Default ``0.5`` — exact duplicates
-        score ``1.0``, unrelated pairs typically score ``0.0`` on
-        agent-step-sized inputs, so anything ``>= 0.5`` is a real
-        signal.
-      use_fuzzy: ``True`` (default) to attempt CTPH; ``False`` forces
-        the string-equality fallback. Useful for tests that need
-        deterministic behaviour without the kaos-nlp-core dependency.
-
-    Usage::
-
-        detector = LoopDetector()
-        detector.observe("tool_x{arg=1}")  # signature string
-        result = detector.observe("tool_x{arg=1}")
-        if result.detected:
-            ...
-
-    The window only grows by one per :meth:`observe`; older entries
-    age out via the deque's ``maxlen``.
+      min_similarity: similarity threshold above which a pair is a
+        "loop". Default ``0.5`` — empirically validated against the
+        Phase 4.E calibration corpora for ``ngram_jaccard``.
+      algorithm: one of ``"ngram_jaccard"`` (default), ``"ctph"``, or
+        ``"equality"``. ``"ngram_jaccard"`` is the only one that
+        produces graduated similarity on typical agent step
+        signatures; the others are retained for tests and degraded
+        environments.
+      use_fuzzy: legacy alias kept for back-compat. ``False`` forces
+        ``"equality"``; ``True`` (default) honours ``algorithm``.
     """
+
+    _ALGORITHMS = ("ngram_jaccard", "ctph", "equality")
 
     def __init__(
         self,
         *,
         window_size: int = 5,
         min_similarity: float = 0.5,
+        algorithm: _AlgorithmName = "ngram_jaccard",
         use_fuzzy: bool = True,
     ) -> None:
         if window_size < 2:
-            # A window of <2 can never have a pair; clamp upward so the
-            # contract "observe N identical calls => detected" holds.
             window_size = 2
         self._window_size = window_size
         self._min_similarity = float(min_similarity)
-        self._use_fuzzy = use_fuzzy
+        # Resolve effective algorithm honouring the legacy ``use_fuzzy``
+        # kwarg: ``use_fuzzy=False`` collapses to "equality" regardless
+        # of the chosen algorithm.
+        if not use_fuzzy:
+            chosen = "equality"
+        elif algorithm in self._ALGORITHMS:
+            chosen = algorithm
+        else:
+            chosen = "ngram_jaccard"
+        # Probe and degrade to equality if the chosen algorithm's
+        # backing kaos-nlp-core API is unavailable. Probe failures
+        # become a silent fallback so the agent never crashes on a
+        # missing optional dep — but log via the algorithm property
+        # so callers can introspect.
+        if chosen != "equality":
+            available = self._probe(chosen)
+            if not available:
+                chosen = "equality"
+        self._algorithm: _AlgorithmName = chosen
         self._signatures: deque[str] = deque(maxlen=window_size)
-        self._fuzzy_available = self._probe_fuzzy() if use_fuzzy else False
+
+    # ---- public introspection -------------------------------------
 
     @property
     def window_size(self) -> int:
         return self._window_size
 
     @property
+    def min_similarity(self) -> float:
+        return self._min_similarity
+
+    @property
+    def algorithm(self) -> _AlgorithmName:
+        """The active algorithm (post-fallback resolution)."""
+        return self._algorithm
+
+    @property
     def fuzzy_available(self) -> bool:
-        """``True`` when kaos-nlp-core CTPH is importable."""
-        return self._fuzzy_available
+        """Back-compat: ``True`` iff a fuzzy algorithm is active."""
+        return self._algorithm != "equality"
+
+    # ---- core API --------------------------------------------------
 
     def observe(self, signature: str) -> LoopDetectorResult:
         """Add a signature to the window and check for a loop."""
@@ -114,9 +153,10 @@ class LoopDetector:
         if len(self._signatures) < 2:
             return LoopDetectorResult(detected=False)
         sigs = list(self._signatures)
-        if self._fuzzy_available:
-            return self._check_fuzzy(sigs)
-        return self._check_equality(sigs)
+        scorer = self._scorer_for(self._algorithm)
+        if scorer is None:
+            return self._check_equality(sigs)
+        return self._check_with_scorer(sigs, scorer, self._algorithm)
 
     def reset(self) -> None:
         """Clear the window (e.g. after a successful replan)."""
@@ -124,47 +164,67 @@ class LoopDetector:
 
     # ---- internals -------------------------------------------------
 
-    def _probe_fuzzy(self) -> bool:
-        """Return True if kaos-nlp-core CTPH is importable.
-
-        kaos-nlp-core is the fuzzy-hashing source-of-truth in this
-        monorepo. The package ships CTPH (``ctph_hash_str`` +
-        ``ctph_similarity``) rather than TLSH. If the import fails for
-        any reason — module not installed, API renamed, build failure
-        — we silently fall back to string equality. The agent must
-        keep working without the optimisation.
-        """
+    @staticmethod
+    def _probe(algorithm: _AlgorithmName) -> bool:
+        """Return True if the kaos-nlp-core API for ``algorithm`` is importable."""
         try:
-            from kaos_nlp_core.hashing import ctph_hash_str, ctph_similarity  # noqa: F401
+            if algorithm == "ngram_jaccard":
+                from kaos_nlp_core.algorithms import ngram_jaccard  # noqa: F401
+            elif algorithm == "ctph":
+                from kaos_nlp_core.hashing import (  # noqa: F401
+                    ctph_hash_str,
+                    ctph_similarity,
+                )
+            else:
+                return True
         except (ImportError, AttributeError):
             return False
         return True
 
-    def _check_fuzzy(self, sigs: list[str]) -> LoopDetectorResult:
-        # Late import; we already know the names exist from _probe_fuzzy.
-        from kaos_nlp_core.hashing import ctph_hash_str, ctph_similarity
+    @staticmethod
+    def _scorer_for(algorithm: _AlgorithmName) -> Callable[[str, str], float] | None:
+        """Return a (str, str) -> similarity callable, or None for equality."""
+        if algorithm == "ngram_jaccard":
+            from kaos_nlp_core.algorithms import ngram_jaccard
 
-        try:
-            hashes = [ctph_hash_str(s) for s in sigs]
-        except Exception:
-            # Any hashing failure (binary input quirks, etc.) → fall
-            # back to equality for this check rather than crash.
-            return self._check_equality(sigs)
-
-        for i in range(len(hashes)):
-            for j in range(i + 1, len(hashes)):
-                if not hashes[i] or not hashes[j]:
-                    continue
+            def _score_ngram(a: str, b: str) -> float:
                 try:
-                    sim = float(ctph_similarity(hashes[i], hashes[j]))
+                    return float(ngram_jaccard(a, b, 3).similarity)
                 except Exception:
-                    continue
+                    return 0.0
+
+            return _score_ngram
+        if algorithm == "ctph":
+            from kaos_nlp_core.hashing import ctph_hash_str, ctph_similarity
+
+            def _score_ctph(a: str, b: str) -> float:
+                try:
+                    h1 = ctph_hash_str(a)
+                    h2 = ctph_hash_str(b)
+                    if not h1 or not h2:
+                        return 0.0
+                    return float(ctph_similarity(h1, h2))
+                except Exception:
+                    return 0.0
+
+            return _score_ctph
+        return None
+
+    def _check_with_scorer(
+        self,
+        sigs: list[str],
+        scorer: Callable[[str, str], float],
+        label: str,
+    ) -> LoopDetectorResult:
+        for i in range(len(sigs)):
+            for j in range(i + 1, len(sigs)):
+                sim = scorer(sigs[i], sigs[j])
                 if sim >= self._min_similarity:
                     return LoopDetectorResult(
                         detected=True,
                         reason=(
-                            f"CTPH similarity {sim:.2f} >= {self._min_similarity:.2f} "
-                            f"between calls {i} and {j}"
+                            f"{label} similarity {sim:.2f} >= "
+                            f"{self._min_similarity:.2f} between calls {i} and {j}"
                         ),
                         matching_pair=(i, j),
                         similarity=sim,
