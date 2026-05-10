@@ -1243,6 +1243,18 @@ async def _run_repl(args: argparse.Namespace) -> _SessionState:
                 user_message=stripped,
             )
             explain_t0 = _t.monotonic()
+            # Pin the explain record to the OUTER turn's run_id. Under
+            # v2 + delegation, a sub-agent (e.g. RetrievalAgent inside
+            # the research pattern, or any HierarchicalPlanner child)
+            # spawns its own AgentLoop with a fresh run_id, and its
+            # turn_summary fires alongside the outer one. Without this
+            # filter the chat CLI would append _ExplainTurn entries —
+            # and overwrite per-turn fields — once per inner agent,
+            # producing N copies of the same record (bug #8 in the
+            # workflow telemetry audit). The JSONL log still records
+            # every sub-agent event for debugging.
+            outer_run_id: str | None = None
+            explain_appended = False
 
             async for event in runner.run(stripped, session_id):
                 # Phase 4.2: Write every event to JSONL log
@@ -1252,6 +1264,23 @@ async def _run_repl(args: argparse.Namespace) -> _SessionState:
                     log_file.write(serialize_event_json(event))
                     log_file.write("\n")
                     log_file.flush()
+
+                # Capture the outer run_id from the very first event
+                # we see — used to filter explain-record updates so
+                # sub-agent turns don't overwrite the outer record.
+                if outer_run_id is None and getattr(event, "run_id", None):
+                    outer_run_id = event.run_id
+
+                # Sub-agent events: write to JSONL above, but skip the
+                # explain-record handlers below — they belong to the
+                # OUTER turn record. Spans that link to the outer via
+                # parent_span_id are part of the outer turn semantically
+                # and could be allowed through, but per-event sub-agent
+                # data isn't merged into a single explain record today;
+                # do the safe thing and gate everything past the log
+                # write on run_id parity.
+                if outer_run_id and getattr(event, "run_id", None) != outer_run_id:
+                    continue
 
                 if (
                     isinstance(event, Span)
@@ -1425,7 +1454,12 @@ async def _run_repl(args: argparse.Namespace) -> _SessionState:
                     explain.tokens_used = int(event.tokens_used)
                     explain.cost_usd = float(event.cost_usd)
                     explain.duration_s = _t.monotonic() - explain_t0
-                    state.explain_turns.append(explain)
+                    # Defense-in-depth: even with the outer-run_id
+                    # filter above, guard against double-appending the
+                    # same _ExplainTurn instance.
+                    if not explain_appended:
+                        state.explain_turns.append(explain)
+                        explain_appended = True
                     if verbose:
                         print(
                             _c(
