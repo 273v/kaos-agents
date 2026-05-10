@@ -175,6 +175,8 @@ class AgentLoop(Program):
         memory: SessionMemory | None = None,
         termination_judge: Any | None = None,
         escalation_policy: Any | None = None,
+        knowledge_base: Any | None = None,
+        promotion_policy: Any | None = None,
         delegation_router: Any | None = None,
         governance: Any | None = None,
         permission_policy: Any | None = None,
@@ -197,6 +199,8 @@ class AgentLoop(Program):
         self._memory = memory
         self._termination_judge = termination_judge
         self._escalation_policy = escalation_policy
+        self._knowledge_base = knowledge_base
+        self._promotion_policy = promotion_policy
         self._delegation_router = delegation_router
         self._governance = governance
         self._permission_policy = permission_policy
@@ -395,20 +399,24 @@ class AgentLoop(Program):
             confidence=plan.intent.confidence,
         )
 
-        # Step 2 — early-escalate on requires_clarification. No
-        # EscalationPolicy yet (Phase 4) — emit a Span(STEP, ERROR)
-        # placeholder and finalize with an empty output. The TURN span
-        # still completes so consumers see a well-formed span tree.
+        # Step 2 — early-escalate on requires_clarification.
+        # Phase 4.D: when EscalationPolicy is configured, route through
+        # it and emit a typed EscalationRequired event. When the policy
+        # is None, fall back to the Phase 2.B span-only sentinel so
+        # tests that don't wire an escalation policy still see a
+        # well-formed span tree.
         if plan.intent.requires_clarification:
-            clarification_msg = (
-                plan.intent.ambiguities[0].preferred_clarification
-                if plan.intent.ambiguities
-                else "ambiguous request"
-            )
+            clarification_msg = self._clarification_message(plan.intent)
             step_span = emitter.span_start(
                 SpanSubject.STEP,
                 name="step.clarification_required",
                 attributes={"reason": clarification_msg},
+            )
+            self._emit_escalation_for_clarification(
+                plan=plan,
+                invocation=invocation,
+                emitter=emitter,
+                clarification_msg=clarification_msg,
             )
             emitter.span_error(
                 SpanSubject.STEP,
@@ -465,19 +473,27 @@ class AgentLoop(Program):
 
         invocation.output = plan_result_text
 
-        # Step 4 — termination judge (Phase 4 stub). When present, call
-        # it; the no-op ``None`` path treats the planner's first result
-        # as terminal.
+        # Step 4 — TerminationJudge (Phase 4.D wiring).
+        # Calls the judge with the planner's partial output + the
+        # current event collector (so the judge sees RunError /
+        # EvidenceInsufficient if they fired). When the judge says
+        # should_escalate, emit an EscalationRequired event. When it
+        # says DEGRADED, swap in the partial_result.
         if self._termination_judge is not None and exec_result is not None:
-            await _maybe_await(
-                self._termination_judge.invoke(
-                    intent=plan.intent,
-                    current=exec_result,
-                )
+            await self._run_termination_judge(
+                plan=plan,
+                invocation=invocation,
+                emitter=emitter,
+                collector=collector,
+                exec_result=exec_result,
             )
 
-        # Step 5 — memory persist (skip in Phase 2 skeleton).
-        # Step 6 — knowledge-base promotion (skip).
+        # Step 5 — Memory persist + Step 6 KB promotion (Phase 4.D).
+        # Best-effort: if the planner produced findings on the
+        # invocation extras (under the "findings" key) AND a
+        # knowledge_base + promotion_policy + intent.matter_client
+        # are all configured, the policy decides whether to promote.
+        self._maybe_promote_findings(plan=plan, invocation=invocation)
 
         # Step 7 — finalize: usage roll-up + TurnSummary.
         usage = self._sum_usage_from_collector(collector)
@@ -599,6 +615,145 @@ class AgentLoop(Program):
         empty string keeps the extractor's signature happy.
         """
         return ""
+
+    # ------------------------------------------------------------------
+    # Phase 4.D wiring helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _clarification_message(intent: IntentResult) -> str:
+        """Pick the most-blocking clarifying question from intent.ambiguities."""
+        if intent.ambiguities and intent.ambiguities[0].preferred_clarification:
+            return intent.ambiguities[0].preferred_clarification
+        return "ambiguous request"
+
+    def _emit_escalation_for_clarification(
+        self,
+        *,
+        plan: TurnPlan,
+        invocation: TurnInvocation,
+        emitter: EventEmitter,
+        clarification_msg: str,
+    ) -> None:
+        """Phase 4.D: emit a typed EscalationRequired when the
+        EscalationPolicy says clarification is warranted.
+
+        Falls back to a no-op when no policy is configured (the
+        outer span-only sentinel still fires).
+        """
+        if self._escalation_policy is None:
+            return
+        decision = self._escalation_policy.evaluate_intent(plan.intent)
+        if not getattr(decision, "escalate", False):
+            return
+        from kaos_agents.events.escalation import EscalationRequired
+
+        kind_value = decision.kind.value if decision.kind is not None else "clarification_needed"
+        event = emitter.emit(
+            EscalationRequired,
+            kind=kind_value,
+            reason=decision.reason or clarification_msg,
+            details=dict(decision.details or {}),
+            resume_token=invocation.id,
+            escalation_id=f"esc_{invocation.id[:12]}",
+        )
+        # Track on the invocation per Phase 0.A canonical bundle.
+        invocation.escalations = (*invocation.escalations, event)
+
+    async def _run_termination_judge(
+        self,
+        *,
+        plan: TurnPlan,
+        invocation: TurnInvocation,
+        emitter: EventEmitter,
+        collector: EventCollector,
+        exec_result: Any,
+    ) -> None:
+        """Phase 4.D: call TerminationJudge with the live turn state.
+
+        The judge sees the partial_text (planner output), the running
+        usage, the iteration count (Phase 4.D = 1; replan loops are
+        Phase 4+), and the events collected so far so failure-axis
+        signals (RunError, EvidenceInsufficient) are observed.
+        """
+        if self._termination_judge is None:
+            return  # caller checks this; defensive for ty narrowing
+        usage = self._sum_usage_from_collector(collector)
+        judge: Any = self._termination_judge
+        decision = await _maybe_await(
+            judge.invoke(
+                intent=plan.intent,
+                usage=usage,
+                events=tuple(collector.events),
+                iteration=1,
+                partial_text=invocation.output,
+                step_signature=str(getattr(exec_result, "text", "") or ""),
+            )
+        )
+        invocation.extras["termination_decision_kind"] = str(getattr(decision, "kind", ""))
+
+        # DEGRADED: swap in the partial_result (already a substring of
+        # invocation.output by construction; keep the longer of the two
+        # for safety).
+        partial = getattr(decision, "partial_result", None)
+        if partial and (not invocation.output or len(str(partial)) >= len(invocation.output)):
+            invocation.output = str(partial)
+
+        # ESCALATE: when the judge says should_escalate AND a policy
+        # is configured, emit EscalationRequired.
+        if getattr(decision, "should_escalate", False) and self._escalation_policy is not None:
+            from kaos_agents.events.escalation import EscalationRequired
+
+            esc_decision = self._escalation_policy.evaluate_decision(decision)
+            if esc_decision.escalate:
+                kind_value = (
+                    esc_decision.kind.value if esc_decision.kind is not None else "domain_specific"
+                )
+                event = emitter.emit(
+                    EscalationRequired,
+                    kind=kind_value,
+                    reason=esc_decision.reason or str(getattr(decision, "feedback", "")),
+                    details=dict(esc_decision.details or {}),
+                    resume_token=invocation.id,
+                    escalation_id=f"esc_{invocation.id[:12]}",
+                )
+                invocation.escalations = (*invocation.escalations, event)
+
+    def _maybe_promote_findings(
+        self,
+        *,
+        plan: TurnPlan,
+        invocation: TurnInvocation,
+    ) -> None:
+        """Phase 4.D: route findings into the institutional KB.
+
+        Findings live on ``invocation.extras["findings"]`` (a tuple of
+        Cited[T]-shaped objects). When a KnowledgeBase + PromotionPolicy
+        + intent.matter_client are all configured, each finding is
+        evaluated by the policy and (if it qualifies) added to the KB.
+
+        Phase 4.D no-ops when any of (kb, policy, matter_client) is
+        missing. Phase 4+ may extend with summarisation / dedup.
+        """
+        if self._knowledge_base is None or self._promotion_policy is None or plan.intent is None:
+            return
+        matter_client = getattr(plan.intent.goal, "matter_client", None)
+        if matter_client is None:
+            return
+        findings = invocation.extras.get("findings") or ()
+        if not findings:
+            return
+        promoted_count = 0
+        for finding in findings:
+            outcome = self._promotion_policy.consider(
+                finding,
+                matter_client=matter_client,
+                knowledge_base=self._knowledge_base,
+            )
+            if outcome.promoted:
+                promoted_count += 1
+        if promoted_count > 0:
+            invocation.extras["promoted_findings"] = promoted_count
 
     def _select_planner_for_intent(self, intent: IntentResult) -> Any | None:
         """Classifier-driven Planner selection (Phase 3.D, Resolved #3).
