@@ -244,15 +244,20 @@ class PlanExecuteAgent(ChatAgent):
             source="plan-execute",
         )
 
-        # Recover step metadata from the plan graph
+        # Recover step metadata from the plan graph (the PROPOSED plan,
+        # not the executed step results — the plan can have steps that
+        # never ran when execution bails on needs_replan / budget /
+        # tool failure).
         step_tool_names: dict[str, str] = {}
         step_descriptions: dict[str, str] = {}
+        proposed_step_ids: list[str] = []
         if result.plan_json and result.plan_json != "{}":
             try:
                 from kaos_agents.planning.graph import PlanGraph
 
                 pg = PlanGraph.from_json(result.plan_json)
-                for sid in pg.step_ids():
+                proposed_step_ids = list(pg.step_ids())
+                for sid in proposed_step_ids:
                     props = pg.get_step(sid)
                     if props:
                         if props.get("tool_name"):
@@ -262,14 +267,21 @@ class PlanExecuteAgent(ChatAgent):
             except Exception as exc:
                 logger.warning("plan_execute: failed to parse plan graph: %s", exc)
 
-        # Emit PlanProposed
+        # Emit PlanProposed for the *proposed* plan — covers the case
+        # where the planner builds a plan but execution bails before
+        # producing step_results (bug seen in workflow C: plan stopped
+        # at "needs_replan after 1 step", and the JSONL log had zero
+        # plan events). Fall back to executed step_results when the
+        # plan graph couldn't be recovered, so we never silently drop
+        # the only structured record of what the planner did.
+        proposed_or_executed = proposed_step_ids or list(result.step_results)
         plan_steps = tuple(
             PlanStepSummary(
                 step_id=sid,
                 description=step_descriptions.get(sid, sid),
                 tool_name=step_tool_names.get(sid),
             )
-            for sid in result.step_results
+            for sid in proposed_or_executed
         )
         if plan_steps:
             yield emitter.emit(PlanProposed, steps=plan_steps, strategy="adaptive")
