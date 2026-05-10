@@ -20,6 +20,7 @@ Compose executes a plan that's already been built.
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -304,8 +305,26 @@ async def _execute_one(
 
     if step_type == StepType.TOOL and tool_name:
         tool = tools.get(tool_name)
-        # Build args from input_spec
-        tool_args = input_spec if isinstance(input_spec, dict) else {}
+        # Build args from input_spec. The planner stores input_spec as
+        # ``{"description": "..."}`` — a free-form description, not
+        # structured tool arguments. So when the spec only carries a
+        # description, synthesize structured args at runtime from the
+        # tool's parameter schema + the description + prior step
+        # outputs. Without this, plan-execute called every tool with
+        # an empty args dict → error → needs_replan, even when prior
+        # steps had already produced everything the tool needed
+        # (workflow C symptom: step 1 + 2 succeed, step 3
+        # `kaos-source-fr-get-document` errors with "document_number
+        # is required" despite step 2 having extracted it).
+        if isinstance(input_spec, dict) and _is_description_only(input_spec):
+            tool_args = await _synthesize_tool_args(
+                tool=tool,
+                description=str(input_spec.get("description") or props.get("description", "")),
+                prior_outputs=_collect_predecessor_results(graph, step_id),
+                model=model,
+            )
+        else:
+            tool_args = input_spec if isinstance(input_spec, dict) else {}
         return await act(
             step_type,
             tool=tool,
@@ -320,9 +339,169 @@ async def _execute_one(
             desc = input_spec.get("description", "")
             if desc:
                 prompt = f"{prompt}\n\nInput: {desc}"
+        # Thread predecessor step outputs into the prompt. Without this,
+        # an LLM step like "Extract document_number from the most recent
+        # search result" sees only the description ("the most recent
+        # search result") with no actual data — and judges "expected
+        # output value, not a request for input" as the route layer
+        # observed in the audit. Pulling each completed predecessor's
+        # result into the prompt closes the data-flow gap.
+        prior_outputs = _collect_predecessor_results(graph, step_id)
+        if prior_outputs:
+            prompt = f"{prompt}\n\n{prior_outputs}"
         return await act(step_type, llm_prompt=prompt, llm_model=model)
 
     return ActResult(output=f"ERROR: Unhandled step type: {step_type}", is_error=True)
+
+
+def _is_description_only(input_spec: dict[str, Any]) -> bool:
+    """True when the planner's input_spec carries only a free-form description.
+
+    The planner emits ``input_spec = {"description": "<text>"}`` for every
+    step — never structured per-arg fields. Detect this shape so we know
+    when to synthesize real args vs. when the caller passed structured
+    args (e.g., a test or future planner that does fill input_spec
+    properly).
+    """
+    if not input_spec:
+        return False
+    keys = set(input_spec.keys())
+    return keys <= {"description"}
+
+
+async def _synthesize_tool_args(
+    *,
+    tool: Any | None,
+    description: str,
+    prior_outputs: str,
+    model: str,
+) -> dict[str, Any]:
+    """Use an LLM to populate a tool's args from a description + prior outputs.
+
+    Returns ``{}`` if synthesis fails — the tool will then fail with a
+    clearer "missing argument" error than the silent empty-dict path.
+    Tool-side errors propagate via the standard route → REPLAN cycle.
+    """
+    if tool is None:
+        return {}
+
+    # Pull the tool's input schema from the kaos-llm-core Tool wrapper.
+    # Different Tool implementations expose the schema under different
+    # attributes — try the common ones in order, fall back to empty.
+    schema: dict[str, Any] = {}
+    for attr in ("input_schema", "parameters", "schema", "definition"):
+        candidate = getattr(tool, attr, None)
+        if candidate is None:
+            continue
+        # ``definition`` may be a wrapper that nests parameters/schema.
+        if hasattr(candidate, "input_schema"):
+            schema = candidate.input_schema or {}
+        elif hasattr(candidate, "parameters"):
+            schema = candidate.parameters or {}
+        elif isinstance(candidate, dict):
+            schema = candidate
+        if schema:
+            break
+
+    if not schema:
+        # No schema → can't safely synthesize. Return empty so the
+        # tool's own validation surfaces the missing-arg error.
+        return {}
+
+    from kaos_agents._llm_imports import require_llm_core
+
+    require_llm_core()
+    from kaos_llm_core import Call, InputField, OutputField, Signature
+
+    class _ToolArgSynthesisSignature(Signature):
+        tool_description: str = InputField(description="Description of what the tool does.")
+        tool_schema: str = InputField(description="JSON schema for the tool's arguments.")
+        step_description: str = InputField(description="What this step is trying to accomplish.")
+        prior_outputs: str = InputField(description="Outputs from previous plan steps.")
+        args_json: str = OutputField(
+            description=(
+                "A JSON object with the tool's arguments populated from prior "
+                "outputs and the step description. Output ONLY the JSON object, "
+                "no prose, no code fences, no commentary."
+            )
+        )
+
+    tool_desc = str(getattr(tool, "description", "") or getattr(tool, "name", "") or "tool")
+    schema_json = json.dumps(schema, default=str)[:4000]
+
+    call = Call(_ToolArgSynthesisSignature, model=model)
+    try:
+        invocation = await call.invoke(
+            tool_description=tool_desc,
+            tool_schema=schema_json,
+            step_description=description,
+            prior_outputs=prior_outputs,
+        )
+    except Exception as exc:
+        logger.warning("compose: arg synthesis failed for tool: %s", exc)
+        return {}
+
+    raw = str(invocation.output.args_json) if invocation.output else "{}"
+    raw = raw.strip()
+    # Strip code fences if the LLM produced them despite instructions.
+    if raw.startswith("```"):
+        raw = raw.strip("`")
+        if raw.startswith("json\n"):
+            raw = raw[len("json\n") :]
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        logger.warning("compose: tool-arg synthesis returned non-JSON: %s", exc)
+        return {}
+    if not isinstance(parsed, dict):
+        logger.warning("compose: tool-arg synthesis returned non-dict: %r", type(parsed).__name__)
+        return {}
+    return parsed
+
+
+def _collect_predecessor_results(graph: PlanGraph, step_id: str) -> str:
+    """Gather completed predecessor step outputs as prompt-ready context.
+
+    Returns an empty string when the step has no completed predecessors.
+    Otherwise returns a labeled block:
+
+        --- output of step <pred_id> ---
+        <result text>
+
+    Each predecessor is included once. Results are truncated to a
+    generous bound (16 KB per step) so a single huge tool output
+    doesn't blow the LLM's context — the agent's overall context
+    budget still applies further upstream.
+    """
+    try:
+        # PlanGraph wraps a kaos-graph Graph at ``self._graph``. Use
+        # predecessors() directly — the public PlanGraph API exposes
+        # readiness checks but not raw predecessor lookup.
+        preds = list(graph._graph.predecessors(step_id))
+    except Exception as exc:
+        logger.debug("compose: predecessor lookup failed for %s: %s", step_id, exc)
+        return ""
+    if not preds:
+        return ""
+    blocks: list[str] = []
+    for pred_id in preds:
+        pred_props = graph.get_step(pred_id)
+        if not pred_props:
+            continue
+        if pred_props.get("status") != StepStatus.COMPLETED.value:
+            continue
+        result_text = str(pred_props.get("result") or "").strip()
+        if not result_text:
+            continue
+        # 16 KB per predecessor (~4K tokens) — enough for a structured
+        # JSON dump, capped so a single rogue output can't flood the
+        # downstream prompt.
+        if len(result_text) > 16_000:
+            result_text = result_text[:16_000] + "\n... (truncated)"
+        blocks.append(f"--- output of step {pred_id} ---\n{result_text}")
+    if not blocks:
+        return ""
+    return "Outputs from prior steps:\n\n" + "\n\n".join(blocks)
 
 
 def _skip_remaining(graph: PlanGraph) -> None:

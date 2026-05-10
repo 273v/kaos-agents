@@ -147,9 +147,26 @@ def kaos_tool_to_llm_tool(
         )
         if result.isError:
             return json.dumps({"error": True, "message": result.text or "Tool execution failed"})
-        # Return text content or structured content as JSON
-        if result.text:
-            return result.text
+        # Return BOTH the human-readable summary AND the structured
+        # content when a tool produced both. Returning only `result.text`
+        # was the root cause of plan-execute's "needs_replan after 1
+        # step" symptom: tools like kaos-source-fr-search return a
+        # one-line summary as `text` ("Found 11 documents") and the
+        # actual fields (document_number, title, publication_date,
+        # citation, abstract) as `structuredContent`. The bridge was
+        # dropping `structuredContent`, so the semantic evaluator (and
+        # any LLM caller) saw only the summary and judged the step
+        # "missing required fields" — wrongly. Concatenating both
+        # surfaces the data without losing the summary's signal.
+        text_part = result.text or ""
+        structured = result.structuredContent
+        if structured:
+            structured_json = json.dumps(structured, default=str)
+            if text_part:
+                return f"{text_part}\n\n{structured_json}"
+            return structured_json
+        if text_part:
+            return text_part
         return json.dumps(result.to_mcp_dict(), default=str)
 
     return Tool(definition=definition, executor=executor)
