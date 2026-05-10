@@ -48,7 +48,7 @@ class EventEmitter:
                                     duration_ms=1234.5)
     """
 
-    __slots__ = ("_agent_id", "_run_id", "_sequence", "_session_id")
+    __slots__ = ("_agent_id", "_run_id", "_sequence", "_session_id", "_span_starts")
 
     def __init__(
         self,
@@ -60,6 +60,15 @@ class EventEmitter:
         self._run_id = run_id
         self._agent_id = agent_id
         self._sequence = 0
+        # Per-emitter map of span_id → monotonic start time. Populated
+        # on span_start, drained on span_complete / span_error so we
+        # can auto-compute duration_ms when callers don't provide one.
+        # Bounded implicitly: the agent loop opens/closes spans in
+        # roughly LIFO order and each turn empties the dict. We never
+        # reach pathological size in normal use; if a START never gets
+        # a matching COMPLETE the entry leaks until the emitter is
+        # garbage collected — acceptable since EventEmitter is per-run.
+        self._span_starts: dict[str, float] = {}
 
     def emit(self, cls: type[KaosEvent], **kwargs: Any) -> KaosEvent:
         """Create an event instance with auto-filled base fields.
@@ -123,11 +132,29 @@ class EventEmitter:
             coll = active_collector()
             if coll is not None:
                 parent_span_id = coll.current_parent_span_id()
+
+        resolved_span_id = span_id or _new_span_id()
+
+        # Auto-track span durations. On START we record the monotonic
+        # start time; on COMPLETE / ERROR we look it up and compute
+        # duration_ms when the caller didn't pass one (most call sites
+        # historically passed `duration_ms=0.0` since per-span timing
+        # was not measured anywhere — explain records showed 0.0 for
+        # every tool call). Caller-supplied durations win so existing
+        # measured paths (e.g. TURN's turn_duration_ms in BaseAgent)
+        # keep their values.
+        if phase is SpanPhase.START:
+            self._span_starts[resolved_span_id] = time.monotonic()
+        elif phase in (SpanPhase.COMPLETE, SpanPhase.ERROR, SpanPhase.CANCELLED):
+            t0 = self._span_starts.pop(resolved_span_id, None)
+            if t0 is not None and (duration_ms is None or duration_ms == 0.0):
+                duration_ms = (time.monotonic() - t0) * 1000.0
+
         event = self.emit(
             Span,
             subject=subject,
             phase=phase,
-            span_id=span_id or _new_span_id(),
+            span_id=resolved_span_id,
             parent_span_id=parent_span_id,
             name=name,
             duration_ms=duration_ms,
