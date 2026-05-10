@@ -279,13 +279,24 @@ async def mcp_call(
         await session.initialize()
         result = await session.call_tool(tool_name, arguments=arguments)
 
-    text = "".join(getattr(c, "text", "") or "" for c in result.content)
+    # The MCP tool result has BOTH:
+    #   - content[].text: human-readable summary (kaos-agent-chat
+    #     truncates this to 500 chars for terse MCP UIs)
+    #   - structuredContent: the FULL result_data dict including the
+    #     unredacted "text" field
+    # For surface-parity assertions we need the full text; prefer
+    # the structured field when present.
+    structured = getattr(result, "structuredContent", None)
+    full_text = ""
+    if isinstance(structured, dict) and isinstance(structured.get("text"), str):
+        full_text = structured["text"]
+    summary_text = "".join(getattr(c, "text", "") or "" for c in result.content)
     return SurfaceResult(
         surface="mcp",
         provider=arguments.get("_test_provider", "anthropic"),
-        text=text,
+        text=full_text or summary_text,
         events=[],
-        error=None if not getattr(result, "isError", False) else text,
+        error=None if not getattr(result, "isError", False) else summary_text,
         raw=result,
     )
 

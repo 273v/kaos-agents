@@ -1,5 +1,5 @@
 {
-  "_about": "Baseline metrics for the 12-tier use-case ladder. Updated manually when intentional changes shift the bar (loosening here is recorded as a deliberate decision, not silent relaxation). The drift-detection test asserts each tier's BUDGET_USD / floor in code matches these values.",
+  "_about": "Baseline metrics for the 12-tier use-case ladder PLUS the surface-parity S-suite (S1-S10, CLI × API × MCP × Anthropic × OpenAI). Updated manually when intentional changes shift the bar (loosening here is recorded as a deliberate decision, not silent relaxation). The drift-detection test asserts each tier/surface's BUDGET_USD / floor in code matches these values.",
   "_last_reviewed": "2026-05-10",
   "tiers": {
     "T01": {
@@ -73,6 +73,71 @@
     "total_budget_usd": 2.45,
     "expected_wall_clock_s": 128.0,
     "_note": "Sum of per-tier budgets; the 2x slack in assert_within_budget means real cost is ~50% of this in green runs"
+  },
+  "surface_parity": {
+    "_about": "Cross-surface (CLI × API × MCP) × cross-provider (Anthropic Claude>=4.6, OpenAI gpt>=5.4) coverage. Each S-test mirrors a ladder T-tier through the wire surfaces. Quality floors are recorded here so silent loosening is reviewable.",
+    "models": {
+      "anthropic": "anthropic:claude-sonnet-4-6",
+      "openai": "openai:gpt-5.4-mini"
+    },
+    "S01": {
+      "name": "smoke (no tools)",
+      "surfaces": ["cli", "api", "mcp"],
+      "mirrors_tier": "T01"
+    },
+    "S02": {
+      "name": "single tool call (FR search)",
+      "surfaces": ["cli", "api", "mcp"],
+      "mirrors_tier": "T02"
+    },
+    "S03": {
+      "name": "memory continuity (2 turns)",
+      "surfaces": ["cli", "api", "mcp"],
+      "mirrors_tier": "T05"
+    },
+    "S04": {
+      "name": "permission gating (per-request ASK rules)",
+      "surfaces": ["api", "mcp"],
+      "mirrors_tier": "T09",
+      "_note": "Required adding require_approval_for_tools to MessageRequest + AgentChatTool"
+    },
+    "S05": {
+      "name": "budget cap (per-request plan_max_cost_usd)",
+      "surfaces": ["api", "mcp"],
+      "mirrors_tier": "T10",
+      "_note": "Required adding max_cost_usd to MessageRequest + AgentPlanTool"
+    },
+    "S06": {
+      "name": "citation extraction (Miranda warning)",
+      "surfaces": ["api", "mcp"],
+      "mirrors_tier": "T06"
+    },
+    "S07": {
+      "name": "PDF tool-bridge",
+      "surfaces": ["api", "mcp"],
+      "mirrors_tier": "T07"
+    },
+    "S08": {
+      "name": "research with inline 3-doc corpus",
+      "surfaces": ["api", "mcp"],
+      "mirrors_tier": "T08",
+      "_note": "API/MCP don't accept ContentDocumentCorpus injection; uses inline-context prompt"
+    },
+    "S09": {
+      "name": "NDA tabular extraction (10 fields × 5 NDAs)",
+      "surfaces": ["api", "mcp"],
+      "mirrors_tier": "T11",
+      "accuracy_floor": 0.80
+    },
+    "S10": {
+      "name": "NDA risk memo + cross-family LLM judge",
+      "surfaces": ["api", "mcp"],
+      "mirrors_tier": "T12",
+      "judge_score_floor": 5,
+      "covered_findings_floor": 2,
+      "incorrect_claims_ceiling": 3,
+      "_judge_note": "Cross-family: each surface×provider memo is judged by the OPPOSITE family. Thresholds are looser than T12's same-family rubric (6/3/1) to absorb cross-family judge noise + JSON-codec truncation tail on Sonnet 4.6 with 5-NDA inline prompts"
+    }
   },
   "pathological_suite": {
     "P1": {"name": "empty prompt", "budget_usd": 0.10},

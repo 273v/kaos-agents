@@ -55,6 +55,25 @@ class MessageRequest(BaseModel):
         default_factory=list,
         description="Tool name patterns (globs) to make available.",
     )
+    max_cost_usd: float | None = Field(
+        default=None,
+        description=(
+            "Per-plan cost ceiling in USD. Threads to KaosAgentSettings."
+            "plan_max_cost_usd. When the plan exceeds this cap, the Runner "
+            "emits a BudgetExceeded event and stops."
+        ),
+    )
+    require_approval_for_tools: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Glob patterns of tool names that require explicit approval "
+            "(ASK rule). When the agent tries to call a matching tool, "
+            "the Runner pauses with ToolCallApprovalRequired. The "
+            "non-streaming JSON path will return an empty text response "
+            "(approval not yet implemented over JSON). Use the SSE path "
+            "or /v1/runs/{run_id}/approve to resume."
+        ),
+    )
 
 
 class SessionCreateRequest(BaseModel):
@@ -185,36 +204,74 @@ def _register_routes(app: FastAPI) -> None:
         - ``data:`` — JSON-encoded event
         - ``id:`` — sequence number for reconnection
         """
+        # Optional per-request settings override — currently scoped to
+        # the plan-cost cap (the only field consumed by Runner today).
+        agent_settings = None
+        if body.max_cost_usd is not None:
+            from kaos_agents.settings import KaosAgentSettings
+
+            agent_settings = KaosAgentSettings(plan_max_cost_usd=body.max_cost_usd)
+
         agent_config = Agent(
             pattern=AgentPattern(body.pattern),
             model=body.model or DEFAULT_MODEL,
             tools=tuple(body.tools),
+            settings=agent_settings,
         )
+
+        # Optional per-request permission policy — ASK rules for the
+        # listed glob patterns. Combined with the auto-rules built into
+        # PermissionPolicy.evaluate (destructiveHint=True → ASK).
+        permission_policy = None
+        if body.require_approval_for_tools:
+            from kaos_agents.runtime.permissions import PermissionPolicy
+            from kaos_agents.types.permissions import PermissionDecision, PermissionRule
+
+            permission_policy = PermissionPolicy(
+                rules=tuple(
+                    PermissionRule(
+                        pattern=pat,
+                        action=PermissionDecision.ASK,
+                        reason="per-request require_approval_for_tools",
+                    )
+                    for pat in body.require_approval_for_tools
+                )
+            )
+
         runner = Runner(
             agent_config,
             runtime=app.state.runtime,
             vfs=app.state.vfs,
+            permission_policy=permission_policy,
         )
 
         # Content negotiation: JSON-only clients take the blocking path.
         if "application/json" in accept and "text/event-stream" not in accept:
-            response = await runner.turn(body.message, session_id)
-            return JSONResponse(
-                {
-                    "text": response.text,
-                    "intent": response.intent.intent.value if response.intent else "unknown",
-                    "turn_number": response.turn_number,
-                    "tokens_used": response.tokens_used,
-                    "tool_calls": [
-                        {
-                            "tool_name": tc.tool_name,
-                            "result_summary": tc.result_summary,
-                            "is_error": tc.is_error,
-                        }
-                        for tc in response.tool_calls
-                    ],
-                }
-            )
+            from kaos_agents.tools.registry import _run_turn_with_status
+
+            response, status = await _run_turn_with_status(runner, body.message, session_id)
+            payload = {
+                "text": response.text,
+                "intent": response.intent.intent.value if response.intent else "unknown",
+                "turn_number": response.turn_number,
+                "tokens_used": response.tokens_used,
+                "tool_calls": [
+                    {
+                        "tool_name": tc.tool_name,
+                        "result_summary": tc.result_summary,
+                        "is_error": tc.is_error,
+                    }
+                    for tc in response.tool_calls
+                ],
+                "budget_exceeded": status["budget_exceeded"],
+                "paused_for_approval": status["paused_for_approval"],
+            }
+            if status["paused_for_approval"]:
+                payload["pending_tool_name"] = status["pending_tool_name"]
+                payload["run_state_ref"] = status["run_state_ref"]
+            if status["budget_exceeded"]:
+                payload["budget_kind"] = status["budget_kind"]
+            return JSONResponse(payload)
 
         # Default: SSE streaming
         event_stream = runner.run(body.message, session_id)

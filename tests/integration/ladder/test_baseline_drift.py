@@ -135,3 +135,96 @@ def test_pathological_baseline_lists_all_8() -> None:
     assert not missing and not extra, (
         f"pathological coverage drift: missing={missing}, extra={extra}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Surface-parity drift: enforce that the S-suite thresholds in code
+# match the baseline. Same discipline as the tier checks — silent
+# loosening of a quality floor must be paired with an explicit
+# baseline JSON edit so the change is reviewable.
+# ---------------------------------------------------------------------------
+
+
+_SURFACE_DIR = Path(__file__).parent.parent / "surface_parity"
+
+
+def test_s09_accuracy_floor_matches_baseline() -> None:
+    """S9 reuses T11's scoring rubric — accuracy floor must match baseline."""
+    baseline = _load_baseline()
+    floor = baseline["surface_parity"]["S09"]["accuracy_floor"]
+    # S9 calls _score_extraction which lives in test_t11_nda_tabular.
+    # The floor lives in T11's source; we just assert the baseline
+    # entry hasn't drifted from T11's value.
+    t11_floor = baseline["tiers"]["T11"]["accuracy_floor"]
+    assert floor == t11_floor, (
+        f"S9 accuracy floor ({floor}) drifted from T11's ({t11_floor}). "
+        "S9 reuses _score_extraction so the floors must agree."
+    )
+
+
+def test_s10_thresholds_match_baseline() -> None:
+    """S10's judge / coverage / incorrect thresholds must match baseline."""
+    baseline = _load_baseline()
+    s10 = baseline["surface_parity"]["S10"]
+    score_floor = s10["judge_score_floor"]
+    cov_floor = s10["covered_findings_floor"]
+    incorrect_ceiling = s10["incorrect_claims_ceiling"]
+
+    s10_path = _SURFACE_DIR / "test_s10_nda_memo.py"
+    src = s10_path.read_text()
+    expectations = {
+        f"score >= {score_floor}": "judge score floor",
+        f"len(covered) >= {cov_floor}": "covered findings floor",
+        f"len(incorrect) <= {incorrect_ceiling}": "incorrect claims ceiling",
+    }
+    for needle, label in expectations.items():
+        assert needle in src, (
+            f"S10 {label} in code does not match baseline. Looked for "
+            f"line: {needle!r}. Update ladder_baseline.json if the change "
+            f"is intentional."
+        )
+
+
+def test_surface_parity_baseline_lists_all_s_tests() -> None:
+    """The baseline must enumerate every S-test file in the surface_parity dir."""
+    baseline = _load_baseline()
+    actual = set(baseline["surface_parity"].keys()) - {"_about", "models"}
+
+    # Discover the S-tests from the filesystem.
+    discovered: set[str] = set()
+    for path in _SURFACE_DIR.glob("test_s*.py"):
+        # Filename: test_s9_nda_tabular.py → S09
+        stem = path.stem  # test_s9_nda_tabular
+        prefix = stem.removeprefix("test_s")
+        digits = ""
+        for ch in prefix:
+            if ch.isdigit():
+                digits += ch
+            else:
+                break
+        if digits:
+            discovered.add(f"S{int(digits):02d}")
+
+    missing = discovered - actual
+    extra = actual - discovered
+    assert not missing and not extra, (
+        f"surface-parity baseline drift: missing={missing}, extra={extra}. "
+        "Add or remove the corresponding entry from "
+        "fixtures/ladder_baseline.json under 'surface_parity'."
+    )
+
+
+def test_surface_parity_models_match_pinned() -> None:
+    """The S-suite must run against the pinned model strings."""
+    baseline = _load_baseline()
+    sp_models = baseline["surface_parity"]["models"]
+    # Source of truth: tests/integration/surface_parity/conftest.py
+    conftest_path = _SURFACE_DIR / "conftest.py"
+    src = conftest_path.read_text()
+    assert f'ANTHROPIC_MODEL = "{sp_models["anthropic"]}"' in src, (
+        f"surface_parity/conftest.py: ANTHROPIC_MODEL drifted from baseline "
+        f"({sp_models['anthropic']})."
+    )
+    assert f'OPENAI_MODEL = "{sp_models["openai"]}"' in src, (
+        f"surface_parity/conftest.py: OPENAI_MODEL drifted from baseline ({sp_models['openai']})."
+    )

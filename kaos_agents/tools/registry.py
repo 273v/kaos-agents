@@ -59,6 +59,115 @@ def _get_vfs(runtime: KaosRuntime | None) -> VirtualFileSystem:
     return VirtualFileSystem(config=config)
 
 
+async def _run_turn_with_status(runner: Any, message: str, session_id: str) -> tuple[Any, dict]:
+    """Drain ``runner.run()`` once, building both an AgentResponse and a
+    status dict that surfaces budget / pause events at the tool boundary.
+
+    Runner.turn() folds events into AgentResponse but does NOT expose
+    BudgetExceeded or ToolCallApprovalRequired in its return value, so
+    the MCP tool surface previously had no way to tell callers "the run
+    paused" or "the run blew its budget." We do the same fold here plus
+    a side-channel status dict so the tool result can report it.
+    """
+    from kaos_agents.events import (
+        BudgetExceeded,
+        IntentClassified,
+        RunError,
+        Span,
+        SpanPhase,
+        SpanSubject,
+        TextDelta,
+        ToolCallApprovalRequired,
+        TurnSummary,
+    )
+    from kaos_agents.types import (
+        AgentResponse,
+        IntentResult,
+        IntentType,
+        ToolExecution,
+    )
+
+    text_parts: list[str] = []
+    tool_calls: list[ToolExecution] = []
+    intent_result: IntentResult | None = None
+    turn_summary: TurnSummary | None = None
+    turn_start_number = 0
+    run_error: RunError | None = None
+    status = {
+        "budget_exceeded": False,
+        "budget_kind": None,
+        "paused_for_approval": False,
+        "pending_tool_name": None,
+        "run_state_ref": None,
+    }
+
+    async for event in runner.run(message, session_id):
+        if isinstance(event, TextDelta):
+            text_parts.append(event.content)
+        elif (
+            isinstance(event, Span)
+            and event.subject == SpanSubject.TOOL_CALL
+            and event.phase == SpanPhase.COMPLETE
+        ):
+            attrs = event.attributes
+            tool_calls.append(
+                ToolExecution.from_dict_args(
+                    tool_name=str(attrs.get("tool_name", "")),
+                    arguments={},
+                    result_summary=str(attrs.get("result_summary", "")),
+                    is_error=bool(attrs.get("is_error", False)),
+                )
+            )
+        elif isinstance(event, IntentClassified):
+            intent_result = IntentResult(
+                intent=IntentType(event.intent),
+                confidence=event.confidence,
+                reasoning=event.reasoning,
+            )
+        elif (
+            isinstance(event, Span)
+            and event.subject == SpanSubject.TURN
+            and event.phase == SpanPhase.START
+        ):
+            turn_start_number = int(event.attributes.get("turn_number", 0) or 0)
+        elif isinstance(event, TurnSummary):
+            turn_summary = event
+        elif isinstance(event, RunError):
+            run_error = event
+        elif isinstance(event, BudgetExceeded):
+            status["budget_exceeded"] = True
+            status["budget_kind"] = event.kind
+        elif isinstance(event, ToolCallApprovalRequired):
+            status["paused_for_approval"] = True
+            status["pending_tool_name"] = event.tool_name
+            status["run_state_ref"] = event.run_state_ref
+
+    if turn_summary is not None and turn_summary.text:
+        text = turn_summary.text
+    else:
+        text = "".join(text_parts)
+    if intent_result is None:
+        intent_result = IntentResult(
+            intent=IntentType.RESPOND,
+            confidence=0.0,
+            reasoning="no IntentClassified event (run paused, aborted, or errored)",
+        )
+    metadata: dict = {"session_id": session_id}
+    if run_error is not None:
+        metadata["error_type"] = run_error.error_type
+        metadata["error_message"] = run_error.message
+    tokens_used = turn_summary.tokens_used if turn_summary is not None else 0
+    response = AgentResponse.create(
+        text=text,
+        intent=intent_result,
+        tool_calls=tuple(tool_calls),
+        turn_number=turn_start_number,
+        tokens_used=tokens_used,
+        metadata=metadata,
+    )
+    return response, status
+
+
 class AgentChatTool(KaosTool):
     """Run a single conversational turn with optional tool calling.
 
@@ -116,6 +225,31 @@ class AgentChatTool(KaosTool):
                     ),
                     required=False,
                 ),
+                ParameterSchema(
+                    name="max_cost_usd",
+                    type="number",
+                    description=(
+                        "Per-turn cost ceiling in USD. Threads to "
+                        "KaosAgentSettings.plan_max_cost_usd. When the run "
+                        "exceeds this cap, the Runner emits BudgetExceeded "
+                        "and stops. Use values like 0.001 to force a budget "
+                        "exceedance for testing."
+                    ),
+                    required=False,
+                ),
+                ParameterSchema(
+                    name="require_approval_for_tools",
+                    type="string",
+                    description=(
+                        "Comma-separated glob patterns of tool names that "
+                        "require explicit approval (ASK rule). When the agent "
+                        "tries to call a matching tool, the Runner pauses "
+                        "and the response text will be empty (no streaming "
+                        "approve/resume from this tool surface). Example: "
+                        "kaos-source-fr-*,kaos-web-*"
+                    ),
+                    required=False,
+                ),
             ],
         )
 
@@ -126,6 +260,8 @@ class AgentChatTool(KaosTool):
         session_id = inputs.get("session_id", "")
         model = inputs.get("model")
         tool_filter_str = inputs.get("tool_filter")
+        max_cost_usd = inputs.get("max_cost_usd")
+        approval_patterns_str = inputs.get("require_approval_for_tools")
 
         if not message:
             return ToolResult.create_error(
@@ -143,7 +279,7 @@ class AgentChatTool(KaosTool):
         try:
             from kaos_agents.config import Agent, AgentPattern
             from kaos_agents.runtime.runner import Runner
-            from kaos_agents.settings import DEFAULT_MODEL
+            from kaos_agents.settings import DEFAULT_MODEL, KaosAgentSettings
 
             runtime = context.runtime if context else None
 
@@ -153,13 +289,40 @@ class AgentChatTool(KaosTool):
                 else ()
             )
 
+            agent_settings = None
+            if max_cost_usd is not None:
+                agent_settings = KaosAgentSettings(plan_max_cost_usd=float(max_cost_usd))
+
+            permission_policy = None
+            if approval_patterns_str:
+                from kaos_agents.runtime.permissions import PermissionPolicy
+                from kaos_agents.types.permissions import PermissionDecision, PermissionRule
+
+                patterns = tuple(p.strip() for p in approval_patterns_str.split(",") if p.strip())
+                permission_policy = PermissionPolicy(
+                    rules=tuple(
+                        PermissionRule(
+                            pattern=pat,
+                            action=PermissionDecision.ASK,
+                            reason="per-request require_approval_for_tools",
+                        )
+                        for pat in patterns
+                    )
+                )
+
             agent_config = Agent(
                 pattern=AgentPattern.CHAT,
                 model=model or DEFAULT_MODEL,
                 tools=tool_filter,
+                settings=agent_settings,
             )
-            runner = Runner(agent_config, runtime=runtime, context=context)
-            response = await runner.turn(message, session_id=session_id)
+            runner = Runner(
+                agent_config,
+                runtime=runtime,
+                context=context,
+                permission_policy=permission_policy,
+            )
+            response, status = await _run_turn_with_status(runner, message, session_id)
 
             result_data = {
                 "text": response.text,
@@ -173,10 +336,21 @@ class AgentChatTool(KaosTool):
                     }
                     for tc in response.tool_calls
                 ],
+                "budget_exceeded": status["budget_exceeded"],
+                "paused_for_approval": status["paused_for_approval"],
             }
+            if status["paused_for_approval"]:
+                result_data["pending_tool_name"] = status["pending_tool_name"]
+                result_data["run_state_ref"] = status["run_state_ref"]
+            if status["budget_exceeded"]:
+                result_data["budget_kind"] = status["budget_kind"]
 
             summary = response.text[:500] if response.text else "(empty response)"
-            if response.tool_calls:
+            if status["budget_exceeded"]:
+                summary = f"[BudgetExceeded: {status['budget_kind']}] {summary}"
+            elif status["paused_for_approval"]:
+                summary = f"[ApprovalRequired: {status['pending_tool_name']}] {summary}"
+            elif response.tool_calls:
                 tools_used = ", ".join(tc.tool_name for tc in response.tool_calls)
                 summary = f"[Tools: {tools_used}] {summary}"
 
@@ -257,6 +431,27 @@ class AgentPlanTool(KaosTool):
                     required=False,
                     constraints={"min": 1, "max": 50},
                 ),
+                ParameterSchema(
+                    name="max_cost_usd",
+                    type="number",
+                    description=(
+                        "Per-plan cost ceiling in USD. Threads to "
+                        "KaosAgentSettings.plan_max_cost_usd. When the plan "
+                        "exceeds this cap, the Runner emits BudgetExceeded "
+                        "and stops. Use 0.001 to force a budget exceedance."
+                    ),
+                    required=False,
+                ),
+                ParameterSchema(
+                    name="require_approval_for_tools",
+                    type="string",
+                    description=(
+                        "Comma-separated glob patterns for tools that "
+                        "require approval (ASK rule). When matched, the "
+                        "Runner pauses; response text will be empty."
+                    ),
+                    required=False,
+                ),
             ],
         )
 
@@ -268,6 +463,8 @@ class AgentPlanTool(KaosTool):
         model = inputs.get("model")
         tool_filter_str = inputs.get("tool_filter")
         max_steps = inputs.get("max_steps")
+        max_cost_usd = inputs.get("max_cost_usd")
+        approval_patterns_str = inputs.get("require_approval_for_tools")
 
         if not message:
             return ToolResult.create_error(
@@ -286,7 +483,7 @@ class AgentPlanTool(KaosTool):
         try:
             from kaos_agents.config import Agent, AgentPattern
             from kaos_agents.runtime.runner import Runner
-            from kaos_agents.settings import DEFAULT_MODEL
+            from kaos_agents.settings import DEFAULT_MODEL, KaosAgentSettings
 
             runtime = context.runtime if context else None
 
@@ -296,14 +493,41 @@ class AgentPlanTool(KaosTool):
                 else ()
             )
 
+            agent_settings = None
+            if max_cost_usd is not None:
+                agent_settings = KaosAgentSettings(plan_max_cost_usd=float(max_cost_usd))
+
+            permission_policy = None
+            if approval_patterns_str:
+                from kaos_agents.runtime.permissions import PermissionPolicy
+                from kaos_agents.types.permissions import PermissionDecision, PermissionRule
+
+                patterns = tuple(p.strip() for p in approval_patterns_str.split(",") if p.strip())
+                permission_policy = PermissionPolicy(
+                    rules=tuple(
+                        PermissionRule(
+                            pattern=pat,
+                            action=PermissionDecision.ASK,
+                            reason="per-request require_approval_for_tools",
+                        )
+                        for pat in patterns
+                    )
+                )
+
             agent_config = Agent(
                 pattern=AgentPattern.PLAN,
                 model=model or DEFAULT_MODEL,
                 tools=tool_filter,
                 max_plan_steps=int(max_steps) if max_steps is not None else None,
+                settings=agent_settings,
             )
-            runner = Runner(agent_config, runtime=runtime, context=context)
-            response = await runner.turn(message, session_id=session_id)
+            runner = Runner(
+                agent_config,
+                runtime=runtime,
+                context=context,
+                permission_policy=permission_policy,
+            )
+            response, status = await _run_turn_with_status(runner, message, session_id)
 
             result_data = {
                 "text": response.text,
@@ -318,10 +542,21 @@ class AgentPlanTool(KaosTool):
                     }
                     for tc in response.tool_calls
                 ],
+                "budget_exceeded": status["budget_exceeded"],
+                "paused_for_approval": status["paused_for_approval"],
             }
+            if status["paused_for_approval"]:
+                result_data["pending_tool_name"] = status["pending_tool_name"]
+                result_data["run_state_ref"] = status["run_state_ref"]
+            if status["budget_exceeded"]:
+                result_data["budget_kind"] = status["budget_kind"]
 
             summary = response.text[:500] if response.text else "(empty response)"
-            if response.tool_calls:
+            if status["budget_exceeded"]:
+                summary = f"[BudgetExceeded: {status['budget_kind']}] {summary}"
+            elif status["paused_for_approval"]:
+                summary = f"[ApprovalRequired: {status['pending_tool_name']}] {summary}"
+            elif response.tool_calls:
                 tools_used = ", ".join(
                     tc.tool_name for tc in response.tool_calls if not tc.is_error
                 )
