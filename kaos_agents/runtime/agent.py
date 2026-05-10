@@ -367,6 +367,21 @@ class BaseAgent(KaosAgent):
             # For BaseAgent's simple respond, we use the non-streaming path.
             pass
 
+        # Auto-extract citations from the assistant's response text and
+        # emit CitationFound events. Bug #5 of the workflow audit:
+        # explain records reported citations=0 even when answers had
+        # URLs / FR / statute cites. The streaming dispatch path
+        # populates `response_text` via the `+=` accumulator above; the
+        # non-streaming dispatch path further down does the same. Wire
+        # citation extraction here so both paths fire it before the
+        # TurnSummary is built. Helper is silent when kaos-citations is
+        # not installed.
+        if response_text:
+            from kaos_agents.grounding import emit_citations_for_text
+
+            for citation_event in emit_citations_for_text(emitter, response_text):
+                yield citation_event
+
         logger.debug(
             "agent.step6_complete: session=%s response_len=%d tool_calls=%d",
             session_id,
@@ -521,6 +536,9 @@ class BaseAgent(KaosAgent):
         # Yield the response text
         if response_text:
             yield emitter.emit(TextDelta, content=response_text)
+        # Citation extraction lives in the outer `run()` loop above
+        # (single emit point) — the outer loop's async-for accumulates
+        # the TextDelta this method just yielded.
 
         # Surface real usage from the handler's LLM invocations so the
         # turn loop can roll it into TurnComplete. Zero usage (no LLM

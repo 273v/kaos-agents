@@ -503,6 +503,16 @@ class AgentLoop(Program):
             # exactly this reason. The collector's span stack threads
             # parent_span_id from the active TURN automatically.
             self._emit_tool_call_spans_from_trajectory(emitter, exec_result)
+            # Emit CitationFound events for every detected citation in
+            # the planner's text output. Bug #5 of the workflow audit:
+            # explain records reported `citations: 0` even when answers
+            # contained URLs / FR document numbers / statute cites,
+            # because kaos-citations was never auto-applied to the
+            # assistant's output. The helper is silent when
+            # kaos-citations isn't installed (it's an optional dep).
+            from kaos_agents.grounding import emit_citations_for_text
+
+            emit_citations_for_text(emitter, plan_result_text)
         else:
             # Skeleton path: no planner, no auto-select (or unrecognised
             # intent.pattern). Used by tests; Phase 2.B legacy semantics.
