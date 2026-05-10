@@ -247,8 +247,13 @@ class TestPrepareTurn:
 
 class TestForwardSkeletonPath:
     async def test_no_planner_yields_skeleton_invocation(self) -> None:
+        # Phase 3.D introduces auto-select. Opt out via auto_select_planner=False
+        # to exercise the legacy Phase 2.B skeleton path.
         intent = _intent()
-        loop = AgentLoop(intent_extractor=_stub_extractor(intent))
+        loop = AgentLoop(
+            intent_extractor=_stub_extractor(intent),
+            auto_select_planner=False,
+        )
         trigger = MCPToolTrigger("hello", session_id="s-skeleton")
         inv = await loop.forward(trigger=trigger)
         assert inv.is_complete

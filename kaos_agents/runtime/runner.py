@@ -84,6 +84,7 @@ class Runner:
     __slots__ = (
         "_agent",
         "_agent_loop_version",
+        "_auto_select_planner",
         "_context",
         "_corpus",
         "_hooks",
@@ -104,6 +105,7 @@ class Runner:
         permission_policy: PermissionPolicy | None = None,
         corpus: Any | None = None,
         agent_loop_version: str | None = None,
+        auto_select_planner: bool = True,
     ) -> None:
         self._agent = agent
         self._runtime = runtime
@@ -121,6 +123,11 @@ class Runner:
             if agent_loop_version is not None
             else os.environ.get("KAOS_AGENT_LOOP", "v1")
         )
+        # Phase 3.D: when v2 is active, auto_select_planner controls
+        # whether the AgentLoop picks a Planner from intent.pattern.
+        # Default True (Resolved Decision #3 enables classifier-driven
+        # selection). Tests that want the skeleton path pass False.
+        self._auto_select_planner = auto_select_planner
 
         # Ensure a context exists when corpus is provided (tools need it)
         if context is None and corpus is not None:
@@ -239,6 +246,7 @@ class Runner:
             hooks=self._hooks,
             permission_policy=self._permission_policy,
             agent_envelope_hash=envelope_hash,
+            auto_select_planner=self._auto_select_planner,
         )
 
     async def run(self, message: str, session_id: str) -> AsyncIterator[KaosEvent]:

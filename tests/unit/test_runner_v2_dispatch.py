@@ -103,7 +103,7 @@ class TestAgentLoopVersionResolution:
 
     def test_explicit_v2_kwarg(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("KAOS_AGENT_LOOP", raising=False)
-        runner = Runner(Agent(), agent_loop_version="v2")
+        runner = Runner(Agent(), agent_loop_version="v2", auto_select_planner=False)
         assert runner.agent_loop_version == "v2"
 
 
@@ -128,7 +128,7 @@ class TestInvokeTriggerV2:
         monkeypatch: pytest.MonkeyPatch,
         stub_intent: IntentResult,
     ) -> None:
-        runner = Runner(Agent(), agent_loop_version="v2")
+        runner = Runner(Agent(), agent_loop_version="v2", auto_select_planner=False)
         trigger = Trigger.mcp("hello", session_id="s1")
         invocation = await runner.invoke_trigger(trigger)
         assert isinstance(invocation, TurnInvocation)
@@ -150,7 +150,7 @@ class TestRunTriggerV2Dispatch:
         monkeypatch: pytest.MonkeyPatch,
         stub_intent: IntentResult,
     ) -> None:
-        runner = Runner(Agent(), agent_loop_version="v2")
+        runner = Runner(Agent(), agent_loop_version="v2", auto_select_planner=False)
         trigger = Trigger.mcp("hello", session_id="s1")
         events: list[KaosEvent] = []
         async for event in runner.run_trigger(trigger):
@@ -175,7 +175,7 @@ class TestRunTriggerV2Dispatch:
         monkeypatch: pytest.MonkeyPatch,
         stub_intent: IntentResult,
     ) -> None:
-        runner = Runner(Agent(), agent_loop_version="v2")
+        runner = Runner(Agent(), agent_loop_version="v2", auto_select_planner=False)
         trigger = Trigger.mcp("hello", session_id="s1")
         events = [e async for e in runner.run_trigger(trigger)]
         ic_events = [e for e in events if isinstance(e, IntentClassified)]
@@ -229,7 +229,7 @@ class TestRunV2Routing:
         monkeypatch: pytest.MonkeyPatch,
         stub_intent: IntentResult,
     ) -> None:
-        runner = Runner(Agent(), agent_loop_version="v2")
+        runner = Runner(Agent(), agent_loop_version="v2", auto_select_planner=False)
         events = [e async for e in runner.run("hello v2", "s2")]
         # AgentLoop quartet should be present.
         assert any(
@@ -273,7 +273,7 @@ class TestPlanIntentTriggers:
         stub_intent: IntentResult,
         trigger: Trigger,
     ) -> None:
-        runner = Runner(Agent(), agent_loop_version="v2")
+        runner = Runner(Agent(), agent_loop_version="v2", auto_select_planner=False)
         events = [e async for e in runner.run_trigger(trigger)]
         # All three sources produce the lifecycle quartet.
         assert any(

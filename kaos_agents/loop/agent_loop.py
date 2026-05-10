@@ -181,6 +181,8 @@ class AgentLoop(Program):
         hooks: tuple[KaosHook, ...] = (),
         agent_envelope_hash: str = "",
         run_id_factory: Any | None = None,
+        auto_select_planner: bool = True,
+        default_planner_model: str = "anthropic:claude-haiku-4-5",
     ) -> None:
         super().__init__()
         # Use ``__dict__`` directly for non-Program children so
@@ -201,6 +203,18 @@ class AgentLoop(Program):
         self._hooks = hooks
         self._agent_envelope_hash = agent_envelope_hash
         self._run_id_factory = run_id_factory or _default_run_id
+        # Phase 3.D: classifier-driven planner selection (Resolved #3).
+        # When ``auto_select_planner=True`` (default) and no explicit
+        # ``planner=`` was passed, AgentLoop selects a Planner based on
+        # ``intent.pattern`` at dispatch time:
+        #   AgentPattern.CHAT     → ReActPlanner
+        #   AgentPattern.PLAN     → PlanExecutePlanner
+        #   AgentPattern.RESEARCH → HierarchicalPlanner
+        # Set ``auto_select_planner=False`` to preserve the Phase 2.B
+        # skeleton path (used by tests that exercise the no-planner
+        # invariants). Explicit ``planner=`` always wins.
+        self._auto_select_planner = auto_select_planner
+        self._default_planner_model = default_planner_model
 
     # ------------------------------------------------------------------
     # Public composition surface
@@ -412,17 +426,27 @@ class AgentLoop(Program):
             return
 
         # Step 3 — Plan + execute via Planner.
+        # Phase 3.D: When no explicit planner is configured AND
+        # auto_select_planner is True, classify a Planner from
+        # intent.pattern (Resolved Decision #3). When
+        # auto_select_planner is False, fall back to the Phase 2.B
+        # skeleton path.
+        active_planner = self._planner
+        if active_planner is None and self._auto_select_planner:
+            active_planner = self._select_planner_for_intent(plan.intent)
+            if active_planner is not None:
+                invocation.extras["selected_planner"] = type(active_planner).__name__
+
         plan_result_text = ""
         exec_result: Any = None
-        if self._planner is not None:
-            # Stubbed planner protocol:
-            #   planner.plan(intent, memory) → any plan object
-            #   planner.execute(plan_obj, perceiver=..., actor=...)
-            #     → object with ``.text`` or ``.output``
-            plan_obj = await _maybe_await(self._planner.plan(plan.intent, plan.memory))
+        if active_planner is not None:
+            # Planner protocol (kaos_agents.planning.planner.Planner):
+            #   planner.plan(intent, memory) → Plan
+            #   planner.execute(plan_obj, perceiver=..., actor=...) → PlanResult
+            plan_obj = await _maybe_await(active_planner.plan(plan.intent, plan.memory))
             invocation.plan = plan_obj
             exec_result = await _maybe_await(
-                self._planner.execute(
+                active_planner.execute(
                     plan_obj,
                     perceiver=plan.perceiver,
                     actor=plan.actor,
@@ -434,7 +458,8 @@ class AgentLoop(Program):
                 or str(exec_result)
             )
         else:
-            # Phase-2 skeleton path: no planner, no LLM call, no work.
+            # Skeleton path: no planner, no auto-select (or unrecognised
+            # intent.pattern). Used by tests; Phase 2.B legacy semantics.
             invocation.extras["phase"] = "skeleton"
             plan_result_text = ""
 
@@ -574,6 +599,36 @@ class AgentLoop(Program):
         empty string keeps the extractor's signature happy.
         """
         return ""
+
+    def _select_planner_for_intent(self, intent: IntentResult) -> Any | None:
+        """Classifier-driven Planner selection (Phase 3.D, Resolved #3).
+
+        Maps :class:`AgentPattern` → concrete Planner instance using
+        the three Phase-3 planners. Lazy-imports the planner classes
+        so AgentLoop's import graph stays light when callers pass an
+        explicit ``planner=`` and never hit this branch.
+
+        Returns ``None`` when the pattern is unrecognised, leaving the
+        skeleton path active.
+
+        Subclasses may override to inject custom planners or honor an
+        envelope's ``planner_overrides`` (Phase 4+ wiring).
+        """
+        from kaos_agents.config import AgentPattern
+        from kaos_agents.planning.hierarchical_planner import HierarchicalPlanner
+        from kaos_agents.planning.plan_execute_planner import PlanExecutePlanner
+        from kaos_agents.planning.react_planner import ReActPlanner
+
+        pattern = intent.pattern
+        if pattern == AgentPattern.CHAT:
+            return ReActPlanner(model=self._default_planner_model)
+        if pattern == AgentPattern.PLAN:
+            return PlanExecutePlanner()
+        if pattern == AgentPattern.RESEARCH:
+            # Default: one heuristic sub-agent. Phase 4+ wires a real
+            # retrieval-sub-agent envelope (paper §4.2 / §6 RAG path).
+            return HierarchicalPlanner()
+        return None
 
     @staticmethod
     def _sum_usage_from_collector(collector: EventCollector) -> InvocationUsage:
