@@ -1,0 +1,87 @@
+{
+  "_about": "Baseline metrics for the 12-tier use-case ladder. Updated manually when intentional changes shift the bar (loosening here is recorded as a deliberate decision, not silent relaxation). The drift-detection test asserts each tier's BUDGET_USD / floor in code matches these values.",
+  "_last_reviewed": "2026-05-10",
+  "tiers": {
+    "T01": {
+      "name": "smoke (no tools)",
+      "budget_usd": 0.01,
+      "expected_wall_clock_s": 4.0
+    },
+    "T02": {
+      "name": "single tool call",
+      "budget_usd": 0.10,
+      "expected_wall_clock_s": 6.0
+    },
+    "T03": {
+      "name": "multi-tool plan (2-step)",
+      "budget_usd": 0.25,
+      "expected_wall_clock_s": 15.0
+    },
+    "T04": {
+      "name": "plan-execute (3+ step with LLM extract)",
+      "budget_usd": 0.30,
+      "expected_wall_clock_s": 20.0
+    },
+    "T05": {
+      "name": "memory continuity (2 turns)",
+      "budget_usd": 0.10,
+      "expected_wall_clock_s": 8.0
+    },
+    "T06": {
+      "name": "citation extraction (model-produced cite)",
+      "budget_usd": 0.10,
+      "expected_wall_clock_s": 6.0
+    },
+    "T07": {
+      "name": "PDF extraction via tool bridge",
+      "budget_usd": 0.20,
+      "expected_wall_clock_s": 12.0
+    },
+    "T08": {
+      "name": "research delegation with corpus",
+      "budget_usd": 0.20,
+      "expected_wall_clock_s": 8.0
+    },
+    "T09": {
+      "name": "permission gating",
+      "budget_usd": 0.10,
+      "expected_wall_clock_s": 6.0
+    },
+    "T10": {
+      "name": "budget cap",
+      "budget_usd": 0.10,
+      "expected_wall_clock_s": 6.0
+    },
+    "T11": {
+      "name": "NDA tabular extraction vs ground truth",
+      "budget_usd": 0.30,
+      "expected_wall_clock_s": 15.0,
+      "accuracy_floor": 0.80,
+      "_accuracy_note": "10 fields x 5 NDAs = 50 cells; floor=80% means >=40 correct"
+    },
+    "T12": {
+      "name": "NDA risk-deviation memo (LLM-as-judge)",
+      "budget_usd": 0.40,
+      "expected_wall_clock_s": 12.0,
+      "judge_score_floor": 6,
+      "covered_findings_floor": 3,
+      "incorrect_claims_ceiling": 1,
+      "_judge_note": "Cross-family: memo author=gpt-5.4-mini, judge=claude-sonnet-4-6"
+    }
+  },
+  "ladder_totals": {
+    "total_budget_usd": 2.45,
+    "expected_wall_clock_s": 128.0,
+    "_note": "Sum of per-tier budgets; the 2x slack in assert_within_budget means real cost is ~50% of this in green runs"
+  },
+  "pathological_suite": {
+    "P1": {"name": "empty prompt", "budget_usd": 0.10},
+    "P2": {"name": "whitespace prompt", "budget_usd": 0.10},
+    "P3": {"name": "50KB prompt with punchline", "budget_usd": 0.20},
+    "P4": {"name": "prompt injection resistance", "budget_usd": 0.10},
+    "P5": {"name": "tool error handled", "budget_usd": 0.10},
+    "P6": {"name": "hallucinated tool", "budget_usd": 0.10},
+    "P7": {"name": "refusal when corpus lacks answer", "budget_usd": 0.10},
+    "P8": {"name": "unicode round-trip", "budget_usd": 0.10}
+  }
+}
