@@ -349,6 +349,19 @@ async def _execute_one(
         prior_outputs = _collect_predecessor_results(graph, step_id)
         if prior_outputs:
             prompt = f"{prompt}\n\n{prior_outputs}"
+        # Surface the step's expected_output to the LLM. The evaluate
+        # phase uses ``expected_output`` as the success criterion (a
+        # semantic LLM judge compares the actual output against it).
+        # Previously the LLM step never SAW its own success criterion,
+        # so it produced "what felt right" while the judge graded
+        # against a hidden target — the dominant cause of legitimate
+        # plan-execute REPLAN cycles. Showing the expectation up front
+        # raises step-completion rate without sacrificing the judge's
+        # quality bar (the judge still runs, just with a more aligned
+        # target).
+        expected = props.get("expected_output", "") or ""
+        if expected:
+            prompt = f"{prompt}\n\nExpected output: {expected}"
         return await act(step_type, llm_prompt=prompt, llm_model=model)
 
     return ActResult(output=f"ERROR: Unhandled step type: {step_type}", is_error=True)
