@@ -1498,7 +1498,7 @@ def _register_tool_modules(runtime: Any, args: argparse.Namespace) -> None:
     """Import and register optional tool modules based on CLI flags."""
     modules = []
     if getattr(args, "with_source", False) or getattr(args, "with_all", False):
-        modules.append(("kaos_source.tools", "register_source_tools"))
+        modules.append(("kaos_source.runtime.tools", "register_source_tools"))
     if getattr(args, "with_pdf", False) or getattr(args, "with_all", False):
         modules.append(("kaos_pdf.tools", "register_pdf_tools"))
     if getattr(args, "with_office", False) or getattr(args, "with_all", False):
