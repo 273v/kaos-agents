@@ -287,10 +287,17 @@ class PlanExecuteAgent(ChatAgent):
         if plan_steps:
             yield emitter.emit(PlanProposed, steps=plan_steps, strategy="adaptive")
 
-        # Emit per-step events
+        # Emit per-step events. For TOOL-typed steps, also emit a
+        # nested TOOL_CALL span so plan-pattern audit logs surface the
+        # same tool-call telemetry as chat-pattern ReAct runs. Without
+        # this, observers that filtered for Span(TOOL_CALL, ...) saw
+        # zero tool activity in plan-execute even when every step
+        # invoked a tool — a real gap caught by the use-case ladder
+        # tier 3 (multi-tool plan).
         for step_id, step_result in result.step_results.items():
             desc = step_descriptions.get(step_id, step_id)
             step_is_error = is_error_result(str(step_result))
+            step_tool = step_tool_names.get(step_id) or ""
 
             step_span = emitter.span_start(
                 SpanSubject.STEP,
@@ -298,11 +305,39 @@ class PlanExecuteAgent(ChatAgent):
                 attributes={"step_id": step_id, "description": desc},
             )
             yield step_span
+
+            # When this step invoked a tool, emit a nested TOOL_CALL
+            # span pair under the step. The collector's span_stack
+            # auto-parents it to the step span via the EventCollector
+            # auto-stitching path.
+            if step_tool:
+                tc_span = emitter.span_start(
+                    SpanSubject.TOOL_CALL,
+                    name=f"tool.{step_tool}",
+                    attributes={
+                        "tool_name": step_tool,
+                        "call_id": step_id,
+                        "step_id": step_id,
+                    },
+                )
+                yield tc_span
+                yield emitter.span_complete(
+                    SpanSubject.TOOL_CALL,
+                    span_id=tc_span.span_id,
+                    name=f"tool.{step_tool}",
+                    attributes={
+                        "tool_name": step_tool,
+                        "call_id": step_id,
+                        "step_id": step_id,
+                        "result_summary": str(step_result)[:RESULT_SUMMARY_TRUNCATE],
+                        "is_error": step_is_error,
+                    },
+                )
+
             yield emitter.span_complete(
                 SpanSubject.STEP,
                 span_id=step_span.span_id,
                 name=f"step.{step_id}",
-                duration_ms=0.0,
                 attributes={
                     "step_id": step_id,
                     "result_summary": str(step_result)[:RESULT_SUMMARY_TRUNCATE],
