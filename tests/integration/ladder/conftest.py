@@ -148,6 +148,7 @@ def ladder_runner_factory() -> Callable[..., Any]:
         register_source: bool = False,
         register_pdf: bool = False,
         permission_policy: Any | None = None,
+        corpus: Any | None = None,
     ) -> tuple[Runner, KaosRuntime]:
         runtime = KaosRuntime.default()
         if register_source:
@@ -159,7 +160,12 @@ def ladder_runner_factory() -> Callable[..., Any]:
 
             register_pdf_tools(runtime)
         agent = Agent.create(**(agent_kwargs or {}))
-        runner = Runner(agent, runtime=runtime, permission_policy=permission_policy)
+        runner = Runner(
+            agent,
+            runtime=runtime,
+            permission_policy=permission_policy,
+            corpus=corpus,
+        )
         return runner, runtime
 
     return _factory

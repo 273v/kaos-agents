@@ -36,9 +36,13 @@ BUDGET_USD = 0.40
 NDA_DIR = Path(__file__).parent / "fixtures" / "nda"
 
 
-# Judge runs on a different model than the memo author. Same provider
-# generation (claude-sonnet-4-6) — the judge needs a strong model to
-# compare two pieces of legal prose accurately. Cost ~$0.05 per call.
+# Judge runs on a DIFFERENT provider family than the memo author.
+# T12 uses an OpenAI model (T12 is an even tier → memo author is
+# gpt-5.4-mini), so the judge uses Anthropic Sonnet — cross-family
+# avoids the "same-family blind spot" where a memo with a model-
+# specific weakness gets judged kindly by the same model. The judge
+# needs a strong model to compare two pieces of legal prose
+# accurately. Cost ~$0.05 per call.
 JUDGE_MODEL = "anthropic:claude-sonnet-4-6"
 
 

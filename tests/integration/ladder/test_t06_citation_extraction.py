@@ -33,36 +33,60 @@ async def test_citation_auto_extraction(ladder_runner_factory, turn_session_id):
     runner, _ = ladder_runner_factory(
         agent_kwargs={
             "instructions": (
-                "You are a legal-research assistant. When discussing federal "
-                "law, cite the relevant U.S. Code section in standard form "
-                "(e.g. '42 U.S.C. § 1983')."
+                "You are a legal-research assistant. When you mention a "
+                "Supreme Court case or a federal statute, ALWAYS include "
+                "a standard legal citation (e.g. 'Miranda v. Arizona, 384 "
+                "U.S. 436 (1966)' or '42 U.S.C. § 1983')."
             ),
             "model": model_for_tier(TIER),
         },
     )
+    # IMPORTANT: the prompt does NOT contain a citation. The model must
+    # produce one from training knowledge — the verifier then runs on
+    # the MODEL'S output, not on echoed-from-prompt text. Earlier T06
+    # was theater because '42 U.S.C. § 1983' was in the prompt.
     msg = (
-        "What is 42 U.S.C. § 1983 (the federal civil rights statute) and what "
-        "does it allow plaintiffs to do? Cite the section in your answer."
+        "Briefly explain the Miranda warning requirement in 2-3 sentences. "
+        "Include the standard case citation (case name + reporter + year)."
     )
     events = await collect_events(runner.run(msg, turn_session_id))
 
     assert_within_budget(events, budget_usd=BUDGET_USD, label="tier-6")
 
-    # CitationFound events fire from the kaos-citations integration.
+    text = text_from_summary(events)
+    # First, sanity-check that the model actually produced a citation.
+    # If it didn't, the test is testing the model not the verifier —
+    # surface that as a separate failure with a clear message.
+    import re
+
+    has_case_cite = bool(
+        re.search(r"\b\d+\s+U\.?\s?S\.?\s+\d+", text)
+        or re.search(r"\bMiranda\s+v\.\s+Arizona", text, re.IGNORECASE)
+    )
+    assert has_case_cite, (
+        f"the model did not produce a recognizable case citation in its "
+        f"response. The verifier has nothing to recognize. Answer was: "
+        f"{text[:400]!r}"
+    )
+
+    # CitationFound events from the kaos-citations integration on the
+    # MODEL'S own output (not the prompt). This is the real verifier
+    # regression check.
     cites = citation_events(events)
     assert cites, (
-        "expected >=1 CitationFound event. The answer references "
-        "42 U.S.C. § 1983 explicitly; if no events fire, the citation "
-        "verifier (kaos_agents.grounding.emit_citations_for_text) "
-        "regressed or kaos-citations is not installed."
+        f"the model produced a citation but the verifier emitted zero "
+        f"CitationFound events. The citation_verifier integration "
+        f"(kaos_agents.grounding.emit_citations_for_text) regressed "
+        f"or kaos-citations stopped recognizing case citations. "
+        f"Answer text: {text[:400]!r}"
     )
 
-    # The detected claim should mention the U.S.C. cite.
-    claims = " ".join(str(getattr(c, "claim", "") or "") for c in cites)
-    assert "1983" in claims or "U.S.C." in claims, (
-        f"expected the U.S.C. citation in CitationFound.claim text; got: {claims!r}"
+    # At least one detected citation should be a Case citation type
+    # (Miranda v. Arizona). The CitationFound.claim is prefixed with
+    # the kind: e.g. "[CaseCitation] 384 U.S. 436".
+    has_case = any("Case" in str(getattr(c, "claim", "") or "") for c in cites)
+    assert has_case, (
+        f"expected at least one CitationFound with kind=CaseCitation "
+        f"(Miranda v. Arizona). Detected claims: "
+        f"{[getattr(c, 'claim', None) for c in cites]!r}"
     )
-
-    # Answer text actually references the statute.
-    text = text_from_summary(events)
-    assert "1983" in text, f"answer must mention 42 U.S.C. § 1983 verbatim; got: {text[:300]!r}"

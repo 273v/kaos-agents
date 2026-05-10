@@ -124,8 +124,44 @@ def _value_matches(predicted: object, expected: object, *, key: str) -> bool:
     if key == "effective_date":
         return _normalize_str(predicted) == _normalize_str(expected)
 
-    # String fields — substring match either direction (tolerates
-    # "Delaware" vs "State of Delaware" vs "Delaware law").
+    # Canonical-form string fields (governing_law, venue) — the
+    # expected value must appear in the predicted, but NOT vice versa.
+    # This rejects "Michigan or Delaware" matching "Michigan" — a
+    # genuine ambiguity should not score as correct. (Original
+    # substring-either-direction matching let through hedged
+    # answers.)
+    if key in {"governing_law", "venue"}:
+        p = _normalize_str(predicted)
+        e = _normalize_str(expected)
+        if not p or not e:
+            return p == e
+        if e not in p:
+            return False
+        # Reject hedging: predicted contains "<expected> or <other>"
+        # or "<other> or <expected>" patterns that include another
+        # known jurisdiction. Common hedge tokens: "or", "/", " and ".
+        hedge_tokens = (" or ", "/", " and ")
+        other_states = (
+            "delaware",
+            "michigan",
+            "california",
+            "nevada",
+            "new york",
+            "texas",
+            "florida",
+        )
+        for hedge in hedge_tokens:
+            if hedge in p:
+                # Look for another known state-name on the OTHER side
+                # of the hedge — that's the hedging pattern we reject.
+                parts = p.split(hedge)
+                other_parts = [pt for pt in parts if e not in pt]
+                if any(any(s in pt for s in other_states) for pt in other_parts):
+                    return False
+        return True
+
+    # Other string fields — substring match either direction (tolerates
+    # "Acme Co." vs "Acme Co" vs "Acme Company").
     p = _normalize_str(predicted)
     e = _normalize_str(expected)
     if not p or not e:
