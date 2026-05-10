@@ -131,6 +131,12 @@ from kaos_agents.memory import (
     step_iri,
     tool_call_iri,
 )
+from kaos_agents.optimization import (
+    AgentEvalResult,
+    AgentExample,
+    AgentMetricFn,
+    evaluate_agent,
+)
 from kaos_agents.patterns import ChatAgent, PlanExecuteAgent, ResearchAgent
 from kaos_agents.perception import (
     Perceiver,
@@ -250,8 +256,11 @@ __all__ = [
     "Actor",
     "Agent",
     "AgentEnvelope",
+    "AgentEvalResult",
+    "AgentExample",
     "AgentLoop",
     "AgentMetadata",
+    "AgentMetricFn",
     "AgentPattern",
     "AgentResponse",
     "AgentToolRegistration",
@@ -441,6 +450,7 @@ __all__ = [
     "doc_iri",
     "emit_from_event",
     "escalation_resource_uri",
+    "evaluate_agent",
     "events_to_jsonl",
     "events_to_sse",
     "expand_with_graph",
