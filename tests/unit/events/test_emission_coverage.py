@@ -31,9 +31,20 @@ from kaos_agents.base.event import KaosEvent
 # Adding to this set is fine — but it must come with a tracking note.
 KNOWN_UNEMITTED: dict[str, str] = {
     "ToolCallArgsDelta": (
-        "Streaming token-by-token tool argument construction. Same "
-        "shape as TextDelta but provider-specific; defer until a "
-        "provider exposes structured arg streaming."
+        "Streaming token-by-token tool-argument construction. "
+        "kaos-llm-client emits ``StreamChunk(type='tool_call_delta', "
+        "tool_call_delta=...)`` for OpenAI and Google providers — the "
+        "primitive exists at the provider layer. Bridging it through "
+        "to a kaos-agents ToolCallArgsDelta requires switching the "
+        "pattern dispatchers (chat.py, research/agent.py, "
+        "plan_execute.py) from ``Call.invoke()`` (non-streaming) to "
+        "``Call.stream()`` and routing the tool_call_delta chunks. "
+        "That's a real architectural change — pattern dispatch "
+        "currently materializes the full Invocation before any "
+        "trajectory walk happens. Defer to the same streaming-first "
+        "rewrite that would also surface incremental TextDelta "
+        "tokens (today TextDelta also fires once with the complete "
+        "string, not per-token)."
     ),
 }
 
