@@ -627,6 +627,16 @@ class ResearchAgent(ChatAgent):
                 source="rag-query",
             )
 
+            # Surface model reasoning blocks (Anthropic extended thinking,
+            # OpenAI o1 reasoning, etc.) when the underlying RAG call
+            # populated invocation.extras["native_thinking"]. Helper is
+            # a no-op when not present.
+            from kaos_agents.events import emit_thinking_from_invocation
+
+            rag_thinking = emit_thinking_from_invocation(emitter, rag_invocation)
+            if rag_thinking is not None:
+                yield rag_thinking
+
             # N4 — apply refusal policy (verifier_min_confidence threshold).
             # When the agent's effective_refusal_policy() is set and the
             # answer's confidence is below threshold, we collapse it to

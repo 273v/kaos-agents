@@ -261,4 +261,50 @@ def emit_usage_observed(
     )
 
 
-__all__ = ["EventEmitter", "emit_usage_observed"]
+def emit_thinking_from_invocation(
+    emitter: EventEmitter,
+    invocation: Any,
+) -> KaosEvent | None:
+    """Emit a ``ThinkingDelta`` from an Invocation's native-thinking content.
+
+    kaos-llm-client surfaces model reasoning blocks (Anthropic
+    extended thinking, OpenAI ``o1`` reasoning summaries, Google
+    ``thinkingConfig``) as ``Completion.thinking``. kaos-llm-core's
+    ChainOfThought + Call paths copy the concatenated thinking text
+    onto ``Invocation.extras["native_thinking"]`` so downstream
+    consumers can read it without unpacking the raw provider response.
+
+    Without this bridge, model reasoning was invisible in kaos-agents'
+    JSONL audit log even when the underlying provider exposed it.
+    Pattern dispatchers (chat / research / plan-execute) call this
+    helper after ``Call.invoke`` to surface thinking before
+    TextDelta.
+
+    Args:
+        emitter: Active EventEmitter for the current turn.
+        invocation: A kaos-llm-core ``Invocation`` whose ``extras``
+            may carry ``native_thinking``.
+
+    Returns:
+        The emitted ``ThinkingDelta`` event, or ``None`` when no
+        thinking content was present (most calls — thinking is
+        opt-in per provider config).
+    """
+    if invocation is None:
+        return None
+    extras = getattr(invocation, "extras", None) or {}
+    thinking = str(extras.get("native_thinking") or "").strip()
+    if not thinking:
+        return None
+    # Local import to avoid a cyclic import — this module is imported
+    # by events/__init__.py which also defines ThinkingDelta.
+    from kaos_agents.events.stream import ThinkingDelta
+
+    return emitter.emit(ThinkingDelta, content=thinking)
+
+
+__all__ = [
+    "EventEmitter",
+    "emit_thinking_from_invocation",
+    "emit_usage_observed",
+]

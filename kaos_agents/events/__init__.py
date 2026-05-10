@@ -52,6 +52,7 @@ from kaos_agents.events.collector import (
 )
 from kaos_agents.events.emitter import (
     EventEmitter,
+    emit_thinking_from_invocation,
     emit_usage_observed,
 )
 from kaos_agents.events.escalation import EscalationRequired
@@ -153,6 +154,7 @@ __all__ = [
     "collect_events",
     "deserialize_event",
     "deserialize_event_json",
+    "emit_thinking_from_invocation",
     "emit_usage_observed",
     "event_type_name",
     "push_event",

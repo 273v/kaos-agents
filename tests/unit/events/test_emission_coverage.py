@@ -30,11 +30,6 @@ from kaos_agents.base.event import KaosEvent
 # Classes that exist but are not (yet) emitted from production code.
 # Adding to this set is fine — but it must come with a tracking note.
 KNOWN_UNEMITTED: dict[str, str] = {
-    "ThinkingDelta": (
-        "Provider streaming of model reasoning blocks (Claude "
-        "extended thinking, Gemini reasoning) is not bridged from "
-        "kaos-llm-client through to kaos-agents events yet."
-    ),
     "ToolCallArgsDelta": (
         "Streaming token-by-token tool argument construction. Same "
         "shape as TextDelta but provider-specific; defer until a "
@@ -108,13 +103,30 @@ def _emit_sites_for(class_name: str) -> list[Path]:
         pattern = re.compile(rf"(?:{emit_pat})|(?:{direct_pat})")
     pkg_root = Path(__file__).parents[3] / "kaos_agents"
     hits: list[Path] = []
+    # Files inside events/ that are pure type definitions — emissions
+    # in those files are the typed-class declaration, not an event
+    # being fired. emitter.py + serde.py are the helper modules that
+    # genuinely emit (emit_thinking_from_invocation, etc.) and SHOULD
+    # be searched.
+    EVENTS_DEFINITION_FILES = {
+        "_intermediates.py",
+        "budget.py",
+        "collector.py",
+        "escalation.py",
+        "lifecycle.py",
+        "memory.py",
+        "plan.py",
+        "research.py",
+        "spans.py",
+        "stream.py",
+        "tools.py",
+        "__init__.py",
+    }
     for path in pkg_root.rglob("*.py"):
-        # Exclude the events module itself (it defines, doesn't emit)
-        # and any tests (we want production sites only).
         rel = path.relative_to(pkg_root.parent)
-        if rel.parts[1] == "events":
-            continue
         if "test" in rel.parts:
+            continue
+        if rel.parts[1] == "events" and path.name in EVENTS_DEFINITION_FILES:
             continue
         if pattern.search(path.read_text()):
             hits.append(path)

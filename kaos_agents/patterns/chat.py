@@ -256,6 +256,16 @@ class ChatAgent(BaseAgent):
             result = invocation.output
             t_total = (time.monotonic() - t_start) * 1000
 
+            # Surface model reasoning blocks (Anthropic extended thinking,
+            # OpenAI o1 reasoning, Google thinkingConfig) when the
+            # underlying provider exposed them. Helper is a no-op when
+            # `invocation.extras["native_thinking"]` is empty.
+            from kaos_agents.events import emit_thinking_from_invocation
+
+            thinking_event = emit_thinking_from_invocation(emitter, invocation)
+            if thinking_event is not None:
+                yield thinking_event
+
             # Emit tool call events from the trajectory
             total_tool_calls = 0
             for iteration in result.trajectory:
