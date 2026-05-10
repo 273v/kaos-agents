@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from kaos_agents.planning.graph import PlanGraph
+from kaos_agents.planning.planner import Plan, Planner, PlanResult
+from kaos_agents.planning.react_planner import ReActPlan, ReActPlanner
 from kaos_agents.types.plan import (
     ComposeResult,
     Decision,
@@ -22,9 +24,14 @@ __all__ = [
     "Decision",
     "EvalMode",
     "Judgment",
+    "Plan",
     "PlanBudget",
     "PlanGraph",
+    "PlanResult",
+    "Planner",
     "PrimitiveTrace",
+    "ReActPlan",
+    "ReActPlanner",
     "RouteResult",
     "Step",
     "StepStatus",
