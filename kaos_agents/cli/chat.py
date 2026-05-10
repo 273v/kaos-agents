@@ -1495,29 +1495,22 @@ async def _run_repl(args: argparse.Namespace) -> _SessionState:
 
 
 def _register_tool_modules(runtime: Any, args: argparse.Namespace) -> None:
-    """Import and register optional tool modules based on CLI flags."""
-    modules = []
-    if getattr(args, "with_source", False) or getattr(args, "with_all", False):
-        modules.append(("kaos_source.runtime.tools", "register_source_tools"))
-    if getattr(args, "with_pdf", False) or getattr(args, "with_all", False):
-        modules.append(("kaos_pdf.tools", "register_pdf_tools"))
-    if getattr(args, "with_office", False) or getattr(args, "with_all", False):
-        modules.append(("kaos_office.tools", "register_office_tools"))
-    if getattr(args, "with_web", False) or getattr(args, "with_all", False):
-        modules.append(("kaos_web.tools", "register_web_tools"))
-    if getattr(args, "with_citations", False) or getattr(args, "with_all", False):
-        modules.append(("kaos_citations.tools", "register_citations_tools"))
+    """Register optional tool modules per CLI flags.
 
-    for mod_path, func_name in modules:
-        try:
-            import importlib
+    Thin wrapper over the shared
+    :func:`kaos_agents.tools.optional_modules.register_optional_modules`
+    helper so the chat CLI and the serve CLI cannot drift on flag
+    coverage or import paths.
+    """
+    from kaos_agents.tools.optional_modules import register_optional_modules
 
-            mod = importlib.import_module(mod_path)
-            register_fn = getattr(mod, func_name)
-            n = register_fn(runtime)
-            print(f"  Loaded {mod_path}: {n} tools")
-        except ImportError as exc:
-            print(f"  (skip) {mod_path}: {exc}")
+    def _on_loaded(spec: Any, n: int) -> None:
+        print(f"  Loaded {spec.package}: {n} tools")
+
+    def _on_skipped(spec: Any, exc: BaseException) -> None:
+        print(f"  (skip) {spec.package}: {exc}")
+
+    register_optional_modules(runtime, args, on_loaded=_on_loaded, on_skipped=_on_skipped)
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -1597,12 +1590,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "/explain <path> to write to a file mid-session)."
         ),
     )
-    chat.add_argument("--with-source", action="store_true")
-    chat.add_argument("--with-pdf", action="store_true")
-    chat.add_argument("--with-office", action="store_true")
-    chat.add_argument("--with-web", action="store_true")
-    chat.add_argument("--with-citations", action="store_true")
-    chat.add_argument("--with-all", action="store_true", help="Register all tool modules")
+    from kaos_agents.tools.optional_modules import add_optional_module_flags
+
+    add_optional_module_flags(chat)
     # Retrieval / corpus knobs — overrides for power users. These set the
     # corresponding KAOS_AGENT_* env vars so the rest of the agent picks
     # them up via KaosAgentSettings hydration.
