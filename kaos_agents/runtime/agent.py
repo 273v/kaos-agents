@@ -45,6 +45,7 @@ from kaos_agents.events import (
     TextDelta,
     TurnSummary,
     UsageObserved,
+    collect_events,
 )
 from kaos_agents.memory.session import SessionMemory
 from kaos_agents.memory.store import SessionStore
@@ -179,6 +180,31 @@ class BaseAgent(KaosAgent):
         run_id = _generate_run_id()
         emitter = EventEmitter(session_id=session_id, run_id=run_id)
 
+        # Open an event collector so span auto-stitching works:
+        # - Each span_start pushes its span_id onto the collector's stack.
+        # - The next span_start (e.g. TOOL_CALL inside a TURN) reads the
+        #   stack top to synthesize parent_span_id automatically.
+        # - span_complete pops.
+        # Without this, every span_start lands as a root (parent_span_id
+        # null) and OTel tracing flattens the turn → step → tool_call
+        # tree. The collector's events list is not consumed — events
+        # still flow out via `yield`. This block must wrap every span
+        # emission, including those inside dispatched patterns
+        # (chat / plan_execute / research) which receive the same
+        # emitter and run inside this generator's frame.
+        with collect_events():
+            async for event in self._run_inner(message, session_id, emitter, run_id):
+                yield event
+
+    async def _run_inner(
+        self,
+        message: str,
+        session_id: str,
+        emitter: EventEmitter,
+        run_id: str,
+    ) -> AsyncIterator[KaosEvent]:
+        """Body of run() — extracted so the outer generator can wrap it
+        in a `with collect_events()` block for span-tree stitching."""
         # Step 1: Hydrate memory
         memory = await self._store.load_or_create(session_id)
         logger.debug(
