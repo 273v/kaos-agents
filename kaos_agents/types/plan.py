@@ -172,10 +172,27 @@ class PlanBudget:
         return None
 
     def record_step(self, cost_usd: float = 0.0, tokens: int = 0) -> None:
-        """Record a completed step's resource usage."""
+        """Record a completed step's resource usage.
+
+        Phase 5.E: when a kaos-llm-core
+        :class:`~kaos_llm_core.optimization.trial_runner.TrialRunner`
+        scope is active, this also forwards the step's ``cost_usd`` and
+        ``tokens`` to the trial accumulator via ``publish_invocation``.
+        Mirrors the Phase 5.A :class:`CostTrackingHook` wiring so a
+        plan-execute agent run inside an optimizer trial sees the right
+        running totals — without it, plan steps were invisible to
+        :class:`TrialRunner`.
+
+        No-op outside a trial scope. Defensive against missing
+        kaos-llm-core (degraded environments) — the local counters are
+        always updated regardless of the trial publish path.
+        """
         self.steps_executed += 1
         self.cost_usd += cost_usd
         self.tokens_used += tokens
+        # Forward to the active TrialRunner if any. Local import keeps
+        # the kaos-llm-core dep import lazy.
+        _publish_step_to_active_trial(cost_usd=cost_usd, tokens=tokens)
 
     def record_replan(self) -> None:
         """Record a replan event."""
@@ -222,3 +239,49 @@ class ComposeResult:
     replans: int = 0
     wall_clock_ms: float = 0.0
     step_results: dict[str, Any] = field(default_factory=dict)  # step_id -> result
+
+
+# ---------------------------------------------------------------------------
+# Phase 5.E — TrialRunner integration
+# ---------------------------------------------------------------------------
+
+
+def _publish_step_to_active_trial(*, cost_usd: float, tokens: int) -> None:
+    """Forward a plan step's cost+tokens to the active kaos-llm-core trial.
+
+    Phase 5.E (May 2026). When a
+    :class:`~kaos_llm_core.optimization.trial_runner.TrialRunner` scope
+    is active, the trial accumulator receives this step's contribution
+    via :func:`publish_invocation`. No-op outside a trial scope.
+
+    Mirrors Phase 5.A :class:`CostTrackingHook` integration so plan
+    steps and turn summaries both flow into the same trial accumulator
+    when an agent run is wrapped in an optimizer trial.
+
+    Defensive: any kaos-llm-core import failure (degraded environments)
+    silently returns. The caller's local counters are always updated;
+    this is purely an additional sink.
+    """
+    if cost_usd <= 0.0 and tokens <= 0:
+        # Skip the lazy import + lookup when there's nothing to charge —
+        # keeps the no-op path zero-overhead.
+        return
+    try:
+        from kaos_llm_core.optimization.trial_runner import (
+            current_trial,
+            publish_invocation,
+        )
+        from kaos_llm_core.programs._invocation import Invocation, TokenUsage
+    except (ImportError, AttributeError):
+        return
+    if current_trial() is None:
+        return
+    shim = Invocation(
+        usage=TokenUsage(
+            input_tokens=0,  # plan steps don't separate input/output tokens
+            output_tokens=0,
+            total_tokens=int(tokens),
+            cost_usd=float(cost_usd),
+        ),
+    )
+    publish_invocation(shim)

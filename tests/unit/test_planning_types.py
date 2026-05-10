@@ -138,6 +138,67 @@ class TestPlanBudget:
         assert budget.cost_usd == 0.5
 
 
+class TestPlanBudgetTrialIntegration:
+    """Phase 5.E — PlanBudget.record_step publishes to active TrialRunner.
+
+    Mirrors the Phase 5.A CostTrackingHook integration: when a plan-execute
+    agent runs inside an optimizer trial, each plan step's cost+tokens
+    flow into the trial accumulator. Without this, plan steps were
+    invisible to the optimizer's budget tracking.
+    """
+
+    def test_publishes_cost_and_tokens_to_active_trial(self) -> None:
+        from kaos_llm_core.optimization.trial_runner import TrialRunner
+
+        runner = TrialRunner()
+        with runner.trial("plan_test") as trial:
+            budget = PlanBudget()
+            budget.record_step(cost_usd=0.05, tokens=200)
+            budget.record_step(cost_usd=0.03, tokens=150)
+
+        # The trial accumulator received both publishes.
+        assert trial.cost_usd == pytest.approx(0.08)
+        assert trial.total_tokens == 350
+        assert trial.n_invocations == 2
+
+        # Local counters are still accurate.
+        assert budget.cost_usd == pytest.approx(0.08)
+        assert budget.tokens_used == 350
+        assert budget.steps_executed == 2
+
+    def test_no_publish_outside_trial_scope(self) -> None:
+        """Outside a trial scope, record_step still updates locals
+        and silently skips the publish."""
+        from kaos_llm_core.optimization.trial_runner import current_trial
+
+        assert current_trial() is None
+        budget = PlanBudget()
+        budget.record_step(cost_usd=0.10, tokens=500)
+        # Local counters intact.
+        assert budget.cost_usd == pytest.approx(0.10)
+        assert budget.tokens_used == 500
+        # Trial scope still empty.
+        assert current_trial() is None
+
+    def test_zero_cost_step_skips_publish(self) -> None:
+        """Steps with zero cost AND zero tokens skip the import + publish
+        path entirely — keeps the no-op fast path zero-overhead."""
+        from kaos_llm_core.optimization.trial_runner import TrialRunner
+
+        runner = TrialRunner()
+        with runner.trial("plan_zero") as trial:
+            budget = PlanBudget()
+            # Pure step counter increment — no LLM cost.
+            budget.record_step()
+
+        # Trial received nothing (the publish was skipped).
+        assert trial.cost_usd == 0.0
+        assert trial.total_tokens == 0
+        assert trial.n_invocations == 0
+        # But local step counter still advanced.
+        assert budget.steps_executed == 1
+
+
 class TestPrimitiveTrace:
     def test_frozen(self):
         trace = PrimitiveTrace(primitive="evaluate", step_id="s1", wall_clock_ms=15.5)
