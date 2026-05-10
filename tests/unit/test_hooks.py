@@ -459,6 +459,60 @@ class TestCostTrackingHook:
         assert totals["b"] == (200, 0.02, 1)
 
     @pytest.mark.asyncio
+    async def test_publishes_to_active_trial(self) -> None:
+        """Phase 5.A: turn cost flows to a kaos-llm-core TrialRunner scope.
+
+        Outside a trial scope, publish is a no-op. Inside, the trial
+        accumulator sees the turn's tokens + cost.
+        """
+        from kaos_llm_core.optimization.trial_runner import TrialRunner
+
+        hook = CostTrackingHook()
+        runner = TrialRunner()
+        with runner.trial("test_trial") as trial:
+            await hook.on_turn_summary(
+                _turn_summary(
+                    session_id="s1",
+                    run_id="r1",
+                    tokens_used=200,
+                    cost_usd=0.05,
+                )
+            )
+            await hook.on_turn_summary(
+                _turn_summary(
+                    session_id="s1",
+                    run_id="r2",
+                    tokens_used=300,
+                    cost_usd=0.03,
+                )
+            )
+
+        assert trial.cost_usd == pytest.approx(0.08)
+        assert trial.total_tokens == 500
+        # Two turns => two synthetic Invocation publishes.
+        assert trial.n_invocations == 2
+
+    @pytest.mark.asyncio
+    async def test_publish_is_no_op_outside_trial(self) -> None:
+        """Without a trial scope, publish silently does nothing."""
+        from kaos_llm_core.optimization.trial_runner import current_trial
+
+        hook = CostTrackingHook()
+        assert current_trial() is None
+        # Should not raise, should not affect anything outside the
+        # local hook's own totals dict.
+        await hook.on_turn_summary(
+            _turn_summary(
+                session_id="s1",
+                run_id="r1",
+                tokens_used=10,
+                cost_usd=0.001,
+            )
+        )
+        assert current_trial() is None
+        assert hook.totals["s1"] == (10, 0.001, 1)
+
+    @pytest.mark.asyncio
     async def test_reset_all(self) -> None:
         hook = CostTrackingHook()
         await hook.on_turn_summary(

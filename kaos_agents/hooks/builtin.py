@@ -173,6 +173,12 @@ class CostTrackingHook(KaosHook):
             cost + event.cost_usd,
             turns + 1,
         )
+        # Phase 5.A: when a kaos-llm-core TrialRunner scope is active,
+        # forward this turn's usage so optimizer trials see the agent
+        # layer's cost too. Lazy-imported because kaos-llm-core is now a
+        # hard dep but we still want to keep this hook free of import-
+        # time coupling to optimization internals.
+        _publish_turn_to_active_trial(event)
         logger.debug(
             "hook.cost: session=%s turn_tokens=%d turn_cost=$%.4f "
             "total_tokens=%d total_cost=$%.4f turns=%d",
@@ -259,6 +265,44 @@ class AuditHook(KaosHook):
 
     async def on_error(self, event: RunError) -> None:
         await self._append(event)
+
+
+def _publish_turn_to_active_trial(event: TurnSummary) -> None:
+    """Forward TurnSummary cost+tokens to the active kaos-llm-core trial.
+
+    No-op outside a :class:`~kaos_llm_core.optimization.trial_runner.Trial`
+    scope. When inside a trial, the turn's tokens and cost are charged
+    to the running accumulator via :func:`publish_invocation`.
+
+    The publish path constructs a synthetic :class:`Invocation` shim
+    (no client / no model / no real trace) since TurnSummary doesn't
+    carry a real Invocation. ``publish_invocation`` only reads
+    ``invocation.usage`` so the shim is sufficient. The trial sees:
+    cost_usd, input_tokens, output_tokens, total_tokens — same fields
+    a normal kaos-llm-core Call would charge.
+
+    Defensive: if any kaos-llm-core import fails (degraded environment),
+    the publish silently degrades rather than crashing the hook.
+    """
+    try:
+        from kaos_llm_core.optimization.trial_runner import (
+            current_trial,
+            publish_invocation,
+        )
+        from kaos_llm_core.programs._invocation import Invocation, TokenUsage
+    except (ImportError, AttributeError):
+        return
+    if current_trial() is None:
+        return
+    shim = Invocation(
+        usage=TokenUsage(
+            input_tokens=event.input_tokens,
+            output_tokens=event.output_tokens,
+            total_tokens=event.tokens_used,
+            cost_usd=event.cost_usd,
+        ),
+    )
+    publish_invocation(shim)
 
 
 __all__ = [
