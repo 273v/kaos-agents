@@ -54,6 +54,7 @@ from kaos_agents.events.emitter import (
     EventEmitter,
     emit_usage_observed,
 )
+from kaos_agents.events.escalation import EscalationRequired
 from kaos_agents.events.lifecycle import (
     IntentClassified,
     RunError,
@@ -124,6 +125,7 @@ __all__ = [
     "ALL_EVENT_TYPES",
     "BudgetExceeded",
     "CitationFound",
+    "EscalationRequired",
     "EventCollector",
     "EventEmitter",
     "EvidenceInsufficient",
