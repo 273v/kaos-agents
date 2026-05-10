@@ -222,6 +222,47 @@ def test_add_optional_module_flags_wires_every_spec() -> None:
     assert args.with_all is False
 
 
+@pytest.mark.parametrize("spec", OPTIONAL_MODULES)
+def test_each_optional_module_has_pyproject_extra(spec: OptionalModule) -> None:
+    """Every entry in OPTIONAL_MODULES must have a matching pyproject extra.
+
+    The extra name follows the spec's ``label`` attribute (lowercased).
+    Without this contract, ``--with-X`` flags can silently fail for
+    end users who never installed ``kaos-agents[X]``.
+
+    The ``full`` extra must also pull every spec's package transitively.
+    """
+    import tomllib  # stdlib in Python 3.11+, kaos-agents requires 3.13+
+    from pathlib import Path
+
+    pyproject = Path(__file__).parents[3] / "pyproject.toml"
+    data = tomllib.loads(pyproject.read_text())
+    extras = data["project"]["optional-dependencies"]
+
+    extra_name = spec.label.lower()
+    assert extra_name in extras, (
+        f"OPTIONAL_MODULES has '{spec.package}' (label={spec.label!r}) but "
+        f"pyproject.toml has no `[project.optional-dependencies]` entry "
+        f"named '{extra_name}'. Users cannot `pip install "
+        f"'kaos-agents[{extra_name}]'` to enable this tool module."
+    )
+
+    extra_packages = extras[extra_name]
+    pkg_dist_name = spec.package.replace("_", "-")
+    assert any(pkg_dist_name in dep for dep in extra_packages), (
+        f"Extra `{extra_name}` does not pull `{pkg_dist_name}`; "
+        f"declared deps are: {extra_packages!r}"
+    )
+
+    # `full` must transitively pull every per-tool extra so
+    # `pip install 'kaos-agents[full]'` is a one-shot install.
+    assert "full" in extras, "Missing `full` meta-extra in pyproject"
+    full_deps = extras["full"]
+    assert any(extra_name in dep for dep in full_deps), (
+        f"`full` extra must include `{extra_name}` (current full = {full_deps!r})"
+    )
+
+
 def test_add_optional_module_flags_parses_each_individually() -> None:
     """Each --with-X flag must flip exactly its own attr."""
     parser = argparse.ArgumentParser()

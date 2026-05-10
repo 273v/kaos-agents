@@ -24,6 +24,7 @@ classifiers = [
 ]
 dependencies = [
   "kaos-core>=0.1.0",
+  "kaos-content[markdown,html]>=0.1.0",
   "kaos-graph>=0.1.0",
   "kaos-nlp-core>=0.1.0",
   "pydantic>=2.11.0",
@@ -31,22 +32,48 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# LLM transport + typed Programs (Call, ReAct, RAG, Refine, BestOfN, ...)
 llm = ["kaos-llm-client>=0.1.0", "kaos-llm-core>=0.1.0"]
+# MCP server bridge (kaos-agents-serve --http and --stdio)
 mcp = ["kaos-mcp>=0.1.0"]
+# FastAPI HTTP API surface (kaos-agents-serve --api)
 api = ["fastapi[standard]>=0.115"]
+# OpenTelemetry export hook
 otel = ["opentelemetry-api>=1.20"]
+# Cross-encoder rerank + dense embeddings
 rerank = ["kaos-nlp-transformers[torch]>=0.1.0"]
+
+# Per-tool-module extras — each maps 1:1 to a `--with-X` CLI flag.
+# Users opt in via e.g. `pip install 'kaos-agents[pdf,source,web]'`.
+pdf = ["kaos-pdf>=0.1.0"]
+office = ["kaos-office[pptx]>=0.1.0"]
+source = ["kaos-source>=0.1.0"]
+web = ["kaos-web>=0.1.0"]
+citations = ["kaos-citations>=0.1.0"]
+tabular = ["kaos-tabular>=0.1.0"]
+
+# Convenience meta-extra: every tool module + every runtime extra.
+# Use `pip install 'kaos-agents[full]'` for a one-shot install of
+# everything required to run the chat CLI / serve CLI / FastAPI with
+# all `--with-*` flags enabled.
+full = [
+  "kaos-agents[llm,mcp,api,otel,rerank,pdf,office,source,web,citations,tabular]",
+]
 
 [dependency-groups]
 dev = [
   "kaos-llm-client>=0.1.0",
   "kaos-llm-core>=0.1.0",
   "kaos-mcp>=0.1.0",
-  "kaos-content[markdown,html]>=0.1.0",
   "kaos-pdf>=0.1.0",
   "kaos-office[pptx]>=0.1.0",
   "kaos-source>=0.1.0",
   "kaos-web>=0.1.0",
+  "kaos-citations>=0.1.0",
+  "kaos-tabular>=0.1.0",
+  # kaos-ml-core is unused in production code but referenced by two
+  # research-corpus tests (soft-imported via importlib.util.find_spec).
+  # Keeping it in `dev` so those tests RUN rather than silently skip.
   "kaos-ml-core>=0.1.0",
   "kaos-nlp-transformers[torch]>=0.1.0",
   "pytest>=8.3.5",
@@ -159,4 +186,6 @@ kaos-source = { path = "../kaos-source", editable = true }
 kaos-web = { path = "../kaos-web", editable = true }
 kaos-pdf = { path = "../kaos-pdf", editable = true }
 kaos-office = { path = "../kaos-office", editable = true }
+kaos-citations = { path = "../kaos-citations", editable = true }
+kaos-tabular = { path = "../kaos-tabular", editable = true }
 kaos-nlp-transformers = { path = "../kaos-nlp-transformers", editable = true }
