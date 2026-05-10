@@ -125,6 +125,8 @@ from kaos_agents.planning import (
     ComposeResult,
     Decision,
     EvalMode,
+    HierarchicalPlan,
+    HierarchicalPlanner,
     Judgment,
     Plan,
     PlanBudget,
@@ -142,6 +144,7 @@ from kaos_agents.planning import (
     StepStatus,
     StepType,
     StopReason,
+    SubAgentSpec,
 )
 from kaos_agents.registry import (
     AgentToolSpecRegistry,
@@ -260,6 +263,8 @@ __all__ = [
     "Goal",
     "GroundingRefusalTriggered",
     "HTTPMessageTrigger",
+    "HierarchicalPlan",
+    "HierarchicalPlanner",
     "HookAction",
     "HookMetadata",
     "HookRegistry",
@@ -339,6 +344,7 @@ __all__ = [
     "StepType",
     "StopReason",
     "StreamDelta",
+    "SubAgentSpec",
     "SummarizationPolicy",
     "TextDelta",
     "ThinkingDelta",
