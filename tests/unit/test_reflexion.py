@@ -167,8 +167,14 @@ class TestReflexionLoop:
         response = asyncio.run(loop.turn("question", "session-1"))
         assert response.text == "better second"
         assert critic.critique_count == 2
-        # Second call should have feedback from the first iteration
-        assert "Add a citation" in inner.calls[1][2]
+        # Second call should have feedback from the first iteration —
+        # prepended into the message itself (the inner agent has no
+        # extra_instruction kwarg surface, so _call_inner wraps the
+        # critique into the user message).
+        second_message = inner.calls[1][0]
+        assert "Add a citation" in second_message
+        assert "CRITIQUE FROM PRIOR ITERATION" in second_message
+        assert "question" in second_message  # original message preserved
         # Trace records both iterations
         trace = _trace_from_metadata(response)
         assert trace is not None

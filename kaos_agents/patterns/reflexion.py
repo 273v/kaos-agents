@@ -315,25 +315,45 @@ async def _call_inner(
     session_id: str,
     extra_instruction: str,
 ) -> AgentResponse:
-    """Call the inner agent's ``turn``, threading ``extra_instruction``
-    when the inner supports it. Falls back to a plain ``turn(message,
-    session_id)`` for inners that don't accept the optional arg.
+    """Call the inner agent's ``turn``, prepending the critic feedback
+    to the user message itself.
+
+    The :class:`KaosAgent` ABC has ``turn(message, session_id)`` —
+    no extra-instruction kwarg, and silently swallowing the feedback
+    via a TypeError fallback (the pre-fix behaviour) defeats the
+    whole point of the reflexion loop: the captured telemetry on
+    commit ``25b7d6f`` showed identical inner responses across all
+    three retry iterations because every iteration received the
+    *same* message with the critique nowhere in scope.
+
+    Prepending is the universal-fit choice — it works against any
+    :class:`KaosAgent` implementation without requiring the inner to
+    opt in. The user's original message stays verbatim after a
+    clearly-delimited ``=== CRITIQUE FROM PRIOR ITERATION ===``
+    block; well-behaved instruction-tuned models honour the critique
+    and patch their next response.
+
+    Trade-off: the prepended critique enters the inner's
+    conversation history too. For BaseAgent this means the message
+    section accumulates "CRITIQUE / ORIGINAL" wrappers across
+    iterations. That's acceptable for the reflexion use case — the
+    loop owns the inner's session for the duration of its work and
+    the bloat is bounded by ``max_iterations``.
     """
-    # The KaosAgent ABC has ``turn(message, session_id)`` but several
-    # patterns accept a ``extra_instruction=`` kwarg via their
-    # ``_handle_respond`` / ``_simple_respond`` path. We try kwarg-first;
-    # on TypeError (unexpected kw) we retry without.
-    if extra_instruction:
-        try:
-            return await inner.turn(
-                message,
-                session_id,
-                extra_instruction=extra_instruction,  # ty: ignore[unknown-argument]
-            )
-        except TypeError:
-            # Inner doesn't accept the kwarg — fall through.
-            pass
-    return await inner.turn(message, session_id)
+    if not extra_instruction:
+        return await inner.turn(message, session_id)
+
+    wrapped = (
+        "=== CRITIQUE FROM PRIOR ITERATION ===\n"
+        f"{extra_instruction}\n"
+        "=== END CRITIQUE ===\n\n"
+        "=== ORIGINAL REQUEST ===\n"
+        f"{message}\n"
+        "=== END REQUEST ===\n\n"
+        "Address every point in the critique. Quote the source where the "
+        "rubric requires it. Then answer the original request."
+    )
+    return await inner.turn(wrapped, session_id)
 
 
 def _attach_trace(response: AgentResponse, trace: ReflexionTrace) -> AgentResponse:

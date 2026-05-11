@@ -158,13 +158,27 @@ class TestReflexionLoopLive:
             f"Expected at least 2 iterations (initial fail + retry), "
             f"got {len(scores)}. Trace: {scores!r}"
         )
-        # Second iteration should score at least as well as the first
-        # (critique-driven improvement); we don't require strict
-        # monotonicity since LLMs are stochastic, but we do require
-        # that the loop made *some* progress.
-        assert max(scores[1:]) >= scores[0] - 0.1, (
-            f"Critique feedback should not dramatically degrade subsequent "
-            f"iterations. Scores: {scores!r}"
+        # The reflexion loop's contract is "the critique materially
+        # improves quality." Either some subsequent iteration scores
+        # strictly higher than iter 0, OR the loop accepts a later
+        # iteration (which by definition cleared the threshold the
+        # first did not). The earlier looser assertion
+        # (``max(scores[1:]) >= scores[0] - 0.1``) hid a real bug:
+        # captured telemetry on commit 25b7d6f showed scores going
+        # 0.30 -> 0.20 -> 0.20 — three identical inner responses —
+        # because the critic feedback was being silently dropped by
+        # the TypeError fallback in ``_call_inner``. The fix
+        # (prepending the critique into the message) is verified by
+        # this assertion: if the inner truly does not see the
+        # critique, scores cannot improve and the test fails loudly.
+        improved = max(scores[1:]) > scores[0]
+        accepted_after_first = trace["accepted"] and trace["final_iteration"] > 1
+        assert improved or accepted_after_first, (
+            f"Reflexion loop must materially improve quality across "
+            f"iterations. Scores: {scores!r}. accepted="
+            f"{trace['accepted']}. If this fails consistently, suspect "
+            f"the critique is not reaching the inner agent — diff the "
+            f"per-iteration inputs in the captured run JSONL."
         )
 
     async def test_max_iterations_returns_best_when_unapproved(self) -> None:
