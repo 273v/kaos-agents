@@ -198,6 +198,8 @@ def bridge_runtime_tools(
     filter_names: list[str] | None = None,
     max_tools: int = 30,
     permission_policy: PermissionPolicy | None = None,
+    relevance_query: str | None = None,
+    retrieval_lexicon: Any = None,
 ) -> list[Any]:
     """Bridge KaosRuntime tools to ReAct-compatible Tools.
 
@@ -214,22 +216,68 @@ def bridge_runtime_tools(
             into each bridged tool's executor so DENY / ASK decisions
             prevent the underlying ``KaosTool.execute()`` from running.
             ``None`` preserves legacy permissive behavior.
+        relevance_query: When set, replaces the iteration-order cap
+            with a BM25 retrieval over the tool catalog. The top
+            ``max_tools`` by relevance to ``relevance_query`` are
+            bridged; the rest are excluded. Composes with
+            ``filter_names`` (the glob filter applies first, then
+            retrieval ranks the survivors). Typically the user's
+            current message or step description.
+        retrieval_lexicon: Optional ``kaos_nlp_core.lexicon.Lexicon``
+            for synonym / hypernym expansion at retrieval time. Pass
+            a populated OpenGloss lexicon to turn near-misses ("FR"
+            vs "Federal Register") into hits. Only consulted when
+            ``relevance_query`` is set. Default ``None`` (plain BM25).
 
     Returns:
         List of kaos-llm-core Tool instances.
     """
+    candidates = list(runtime.tools.list_tool_objects())
+
+    # Step 1: apply name-glob filter (when set) to narrow the pool.
+    if filter_names:
+        candidates = [t for t in candidates if _matches_filter(t.metadata.name, filter_names)]
+
+    # Step 2: retrieval-rank when the caller passed a query.
+    # Without a query we fall back to iteration order (legacy behavior).
+    if relevance_query and len(candidates) > max_tools:
+        from kaos_agents.runtime.tool_retrieval import ToolRetrieval
+
+        retrieval = ToolRetrieval(candidates, lexicon=retrieval_lexicon)
+        ranked = retrieval.select(relevance_query, top_k=max_tools)
+        # ``ranked`` may be shorter than max_tools if many tools tied
+        # at score 0 and were filtered. In that case append the
+        # iteration-order tail to fill up to max_tools — keeps the
+        # ReAct surface roughly stable while still preferring
+        # high-relevance hits.
+        ranked_ids = {id(t) for t in ranked}
+        for t in candidates:
+            if len(ranked) >= max_tools:
+                break
+            if id(t) not in ranked_ids:
+                ranked.append(t)
+        candidates = ranked
+        logger.debug(
+            "tool_bridge: retrieval-ranked %d tools by relevance to query (len=%d chars)",
+            len(candidates),
+            len(relevance_query),
+        )
+
+    # Step 3: cap and bridge.
     tools = []
-    for kaos_tool in runtime.tools.list_tool_objects():
-        if filter_names and not _matches_filter(kaos_tool.metadata.name, filter_names):
-            continue
+    for kaos_tool in candidates:
         tools.append(kaos_tool_to_llm_tool(kaos_tool, context, permission_policy=permission_policy))
         if len(tools) >= max_tools:
-            logger.warning(
-                "tool_bridge: capped at %d tools (total available: %d). "
-                "Use filter_names to select relevant tools.",
-                max_tools,
-                len(list(runtime.tools.list_tool_objects())),
-            )
+            if not relevance_query and len(candidates) > max_tools:
+                # Only warn on iteration-order capping — retrieval capping
+                # is deliberate and the user opted in.
+                logger.warning(
+                    "tool_bridge: capped at %d tools (total available: %d). "
+                    "Pass relevance_query for query-aware selection, or "
+                    "use filter_names to narrow.",
+                    max_tools,
+                    len(candidates),
+                )
             break
 
     logger.debug("tool_bridge: bridged %d tools", len(tools))
