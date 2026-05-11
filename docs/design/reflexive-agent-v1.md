@@ -108,7 +108,7 @@ class CriterionVerdict:
 # 1. RubricDeriver — turns a prose task into a Rubric when one isn't supplied.
 class RubricDeriver(Program):
     """Signature: (task: str, examples: list[Rubric] | None) -> Rubric.
-    
+
     Built on a Refine'd Call so the derived rubric goes through its own
     critique pass before being used. Avoids "the rubric is wrong because
     the model was sloppy" failure mode.
@@ -118,7 +118,7 @@ class RubricDeriver(Program):
 # 2. RubricCritic — multi-criterion judge. Composes rubric_judge with map-reduce.
 class RubricCritic:
     """Score a deliverable against every criterion in a Rubric.
-    
+
     Implementation: asyncio.gather over rubric.criteria with bounded
     concurrency (same machinery as harvey_coc_benchmark._judge_all).
     Structural pre-checks first (deliverable empty? error prefix?) so

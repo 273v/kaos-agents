@@ -164,7 +164,7 @@ Build `BestOfNRunner` (Runner-level, not Agent-level):
 ```python
 class BestOfNRunner:
     """Run an agent N times in parallel, pick the best by an external verifier.
-    
+
     This is the literature's compute-optimal shape (Snell 2024, Brown 2024,
     AlphaCode 2022). No sequential refinement, no self-critique. Sample
     diversity comes from temperature variation; quality comes from a
@@ -175,7 +175,7 @@ class BestOfNRunner:
                  verifier: VerifierHierarchy,
                  n_samples: int = 6,
                  cross_family_invariant: bool = True): ...
-    
+
     async def run(self, task: str, *, session_id: str) -> AgentResponse:
         # asyncio.gather N samples with diverse temperatures
         # verifier scores each (verifier hierarchy: structural → grounded → LLM)
@@ -192,7 +192,7 @@ Build `ReflexiveRunner` (Runner-level, NOT BaseAgent subclass):
 ```python
 class ReflexiveRunner:
     """Iterate producer with cross-family verifier feedback.
-    
+
     Hard invariants:
     - critic.model_family != producer.model_family (assert at __init__)
     - critic sees only (rubric, final_deliverable), NOT producer's trace
@@ -223,7 +223,7 @@ the trace.
 ```python
 class VerifierHierarchy:
     """Per-criterion verification cascade.
-    
+
     Levels (cheapest first):
     1. STRUCTURAL — regex, substring match, schema match, citation lookup,
        numeric extraction. Sub-millisecond, zero LLM cost.
@@ -232,7 +232,7 @@ class VerifierHierarchy:
        Microseconds, zero LLM cost.
     3. LLM — last-resort rubric_judge call for criteria not amenable
        to structural verification. Cost: ~$0.001-$0.005 per criterion.
-    
+
     Reported metric: % of criteria evaluated structurally vs. via LLM.
     Per academic review: below 30% structural, the loop is judge-noise.
     """

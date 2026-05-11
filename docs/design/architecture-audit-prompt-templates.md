@@ -1,7 +1,7 @@
 # Prompt-Template Audit: kaos-agents
 
-**Date:** 2026-05-06  
-**Scope:** `/kaos-agents/kaos_agents/` — all agent, pattern, planning, context, benchmark, memory, and recipe files.  
+**Date:** 2026-05-06
+**Scope:** `/kaos-agents/kaos_agents/` — all agent, pattern, planning, context, benchmark, memory, and recipe files.
 **Goal:** Identify hand-rolled prompts that bypass the kaos-llm-core `Signature + Call` machinery and flag opportunities for typed Signatures, optimizer compatibility, and `Example`-based few-shot bootstrapping.
 
 ---

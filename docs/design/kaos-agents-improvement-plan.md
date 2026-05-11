@@ -172,11 +172,11 @@ it would be ignoring the data.
 ```python
 class BestOfNRunner:
     """Run agent N times in parallel; pick best by verifier."""
-    
+
     async def run(self, task: str, *, session_id: str) -> AgentResponse:
         # Diverse temps for sample diversity
         samples = await asyncio.gather(*[
-            self._producer.turn(task, session_id=f"{session_id}_s{i}", 
+            self._producer.turn(task, session_id=f"{session_id}_s{i}",
                                 temperature=0.7 + i * 0.05)
             for i in range(self._n_samples)
         ])
@@ -245,10 +245,10 @@ class LLMVerifier:
 
 class VerifierHierarchy:
     """Cascading per-criterion verification.
-    
+
     Each criterion declares its expected verifier class. If a structural
     or grounded verifier resolves the criterion, no LLM call is made.
-    
+
     Reports % structural coverage as a benchmark metric.
     """
 ```
@@ -287,7 +287,7 @@ markers don't appear in critic prompt.
 ```python
 def assert_critic_family_separation(producer_model: str, critic_model: str) -> None:
     """Hard-fail if critic and producer share model family.
-    
+
     Raises ConfigurationError with explanation. Per academic review §2.3:
     same-family critics inflate apparent pass rates via self-preference bias
     (Panickssery 2024, Li 2025 Preference Leakage).
@@ -310,14 +310,14 @@ class RubricCriterion:
     match: str
     weight: float = 1.0
     expected_verifier: VerifierClass | None = None  # NumericVerifier, CitationVerifier, ...
-    
+
 @dataclass(frozen=True, slots=True)
 class Rubric:
     criteria: tuple[RubricCriterion, ...]
-    
+
     @classmethod
     def from_harvey_task_json(cls, path: Path) -> Rubric: ...
-    
+
     @classmethod
     def from_extraction_recipe(cls, recipe_name: str) -> Rubric: ...
 ```
@@ -333,11 +333,11 @@ BigLaw Bench formula:
 ```python
 def biglaw_score(verdicts: tuple[CriterionVerdict, ...]) -> float:
     """Harvey BigLaw Bench scoring: (pos + neg) / total_pos.
-    
+
     pos = sum of weights of passed criteria
-    neg = -1 × sum of weights of HALLUCINATED criteria  
+    neg = -1 × sum of weights of HALLUCINATED criteria
     total_pos = sum of all positive-weight criteria
-    
+
     Continuous, range [-1.0, 1.0]. Hallucinations get negative scores.
     """
 ```
@@ -381,15 +381,15 @@ Test: same task with caching off vs on; assert cached run cost is
 ```python
 class IncrementalCritic:
     """Cache verdicts across iterations. Only re-judge failed criteria."""
-    
-    async def __call__(self, deliverable: str, rubric: Rubric, 
+
+    async def __call__(self, deliverable: str, rubric: Rubric,
                        prior_verdict: RubricVerdict | None = None) -> RubricVerdict:
         if prior_verdict is None:
             return await self._verifier.verify_all(deliverable, rubric)
         # Re-judge only criteria that previously failed
-        to_judge = tuple(c for c in rubric.criteria 
+        to_judge = tuple(c for c in rubric.criteria
                          if prior_verdict.criterion_passed(c.id) is False)
-        new_verdicts = await self._verifier.verify_all(deliverable, 
+        new_verdicts = await self._verifier.verify_all(deliverable,
                                                         Rubric(criteria=to_judge))
         return prior_verdict.merge(new_verdicts)
 ```
@@ -405,7 +405,7 @@ class PatienceEarlyStop:
     """Stop when iteration gain < epsilon AND CI overlaps."""
     epsilon: float = 0.05
     patience: int = 1  # iterations without improvement before stopping
-    
+
     def should_stop(self, history: list[float]) -> bool: ...
 ```
 

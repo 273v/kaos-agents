@@ -1,7 +1,7 @@
 # Architecture Audit: Raw LLM Call Bypass in kaos-agents
 
-**Audit date:** 2026-05-06  
-**Audited scope:** `kaos_agents/` — benchmarks, patterns, planning, context, agent.py, runner.py, retrieval_tools.py, tools.py  
+**Audit date:** 2026-05-06
+**Audited scope:** `kaos_agents/` — benchmarks, patterns, planning, context, agent.py, runner.py, retrieval_tools.py, tools.py
 **Audit methodology:** ripgrep scan for direct kaos-llm-client imports, bare `call()` vs `call.invoke()`, hand-built JSON schema dicts, constant system-prompt strings, manual JSON parsing, manual usage/cost plumbing, and `getattr(usage, ...)` duck-typing outside the designated factory boundary.
 
 ---
