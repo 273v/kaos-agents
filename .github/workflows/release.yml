@@ -65,9 +65,14 @@ jobs:
         run: uvx --from twine twine check --strict dist/*
 
       - name: Smoke-test the built wheel in a clean venv
+        # `[llm,mcp,api]` installed because the package eagerly
+        # imports `kaos_llm_core`, `kaos_mcp`, and `fastapi` at
+        # top-level. See the CI workflow comment for the full
+        # rationale; tracked as a Phase D follow-up to either make
+        # these imports lazy or promote them to runtime deps.
         run: |
           uv venv --python 3.13 /tmp/smoke
-          uv pip install --python /tmp/smoke/bin/python dist/kaos_agents-*-py3-none-any.whl
+          uv pip install --python /tmp/smoke/bin/python "$(ls dist/kaos_agents-*-py3-none-any.whl)[llm,mcp,api]"
           /tmp/smoke/bin/python -c "
           import kaos_agents
           from kaos_core import KaosRuntime

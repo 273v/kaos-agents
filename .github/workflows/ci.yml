@@ -267,9 +267,19 @@ jobs:
         # catches packaging bugs that source-tree tests miss: missing
         # data files, broken `__init__.py` exports, sdist-only files
         # that reference dist-only paths, etc.
+        #
+        # `[llm,mcp,api]` is installed because the top-level
+        # `kaos_agents` package eagerly imports `kaos_llm_core` (via
+        # `kaos_agents.action.actor`), `kaos_mcp` (via the tool
+        # registry), and `fastapi` (via `kaos_agents.api.wire`'s
+        # sibling import of `kaos_agents.api.server.create_app`).
+        # These are declared as optional extras in pyproject.toml
+        # today but are de facto hard deps at import time. Tracked
+        # as a Phase D follow-up to either make the imports lazy or
+        # promote all three to runtime deps.
         run: |
           uv venv --python 3.13 /tmp/smoke
-          uv pip install --python /tmp/smoke/bin/python dist/kaos_agents-*-py3-none-any.whl
+          uv pip install --python /tmp/smoke/bin/python "$(ls dist/kaos_agents-*-py3-none-any.whl)[llm,mcp,api]"
           /tmp/smoke/bin/python -c "
           import kaos_agents
           assert kaos_agents.__version__, 'version missing from wheel'
