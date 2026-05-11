@@ -134,13 +134,84 @@ class FilteredFinding:
     audit logs and downstream replay diffs."""
 
 
+# Stable refusal-reason strings.
+#
+# These are part of the public contract — downstream consumers
+# (MCP callers, UI, audit) branch on the string value. Treat them
+# like an enum even though they're stored as ``str`` for wire
+# friendliness (JSON-native, no enum serialisation gymnastics).
+#
+# Why these two and not more:
+#
+# - ``no_candidates_enumerated`` distinguishes "Phase 1 selector
+#   found nothing" (likely a vocabulary mismatch — the caller may
+#   want to switch to ``every_sentence_selector``) from
+# - ``no_relevant_candidates`` ("Phase 1 found N candidates but
+#   Phase 2 filtered them all out" — the agent looked and the
+#   answer is genuinely not in the document).
+#
+# Synthesis-step failures are NOT a refusal — they're errors and
+# surface via the normal exception path. A refusal means "the agent
+# completed its work and the honest answer is 'I don't know from
+# this document'."
+
+REFUSAL_NO_CANDIDATES_ENUMERATED = "no_candidates_enumerated"
+"""Phase 1 selector emitted zero candidates.
+
+Likely causes: the selector's token/entity didn't appear in the
+document, or the document is empty. The caller may want to retry
+with ``every_sentence_selector`` or a broader vocabulary.
+"""
+
+REFUSAL_NO_RELEVANT_CANDIDATES = "no_relevant_candidates"
+"""Phase 2 filter culled every Phase-1 candidate.
+
+The agent looked at every candidate and the cheap filter LLM judged
+none of them relevant enough to pass to synthesis. This is the
+canonical "the answer is not in this document" signal — for example
+asking "what is the liquidated damages amount?" of an NDA that has
+no such clause.
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class FindingsRefusal:
+    """Structured refusal record stamped onto :class:`FindingsResult`.
+
+    A refusal is NOT an error — it's the agent communicating "I did
+    my work and the honest answer is 'I cannot answer this question
+    from this document.'" Trust-skeptic Probe 2 (see
+    ``docs/design/skeptic-trust-findings.md``) flagged that the
+    pre-refusal API (``answer == ""``) was indistinguishable from a
+    tool crash. This type makes the refusal explicit.
+
+    Attributes:
+        reason: One of the ``REFUSAL_*`` constants above. Stable
+            string — branch on this in downstream consumers. Treat
+            as enum.
+        message: Human-readable explanation suitable for the audit
+            trail and operator-facing UI. Includes the candidate
+            counts inline for context.
+        candidates_enumerated: How many candidates Phase 1 produced.
+        candidates_surviving_filter: How many of those survived
+            Phase 2 (always ``0`` when refusal fires — the type only
+            exists because no survivors made it to synthesis).
+    """
+
+    reason: str
+    message: str
+    candidates_enumerated: int
+    candidates_surviving_filter: int
+
+
 @dataclass(frozen=True, slots=True)
 class FindingsResult:
     """Outcome of one FindingsAgent run.
 
     Attributes:
         question: The original user question.
-        answer: The synthesis LLM's final answer.
+        answer: The synthesis LLM's final answer. Empty string when
+            ``refusal`` is not ``None``.
         findings: The surviving candidates with relevance + reasoning.
             Ordered by descending relevance.
         total_enumerated: Number of candidates Phase 1 emitted.
@@ -149,6 +220,15 @@ class FindingsResult:
         synthesis_cost_usd: Cost of the single synthesis call.
         filter_calls: Number of filter calls actually made (= number
             of non-empty chunks).
+        refusal: Structured refusal record when the agent honestly
+            cannot answer — either because Phase 1 enumerated nothing
+            (``REFUSAL_NO_CANDIDATES_ENUMERATED``) or Phase 2 culled
+            every candidate (``REFUSAL_NO_RELEVANT_CANDIDATES``).
+            ``None`` when the synthesis call legitimately produced an
+            answer. Consumers must check this before treating
+            ``answer == ""`` as a failure — empty answer + populated
+            refusal is the correct-refusal signal; empty answer +
+            ``refusal=None`` would indicate a synthesis-pass bug.
     """
 
     question: str
@@ -159,6 +239,7 @@ class FindingsResult:
     filter_cost_usd: float
     synthesis_cost_usd: float
     filter_calls: int
+    refusal: FindingsRefusal | None = None
 
     @property
     def total_cost_usd(self) -> float:
@@ -515,6 +596,24 @@ class FindingsAgent:
         logger.debug("findings.phase1: enumerated %d candidates", total_enumerated)
 
         if not candidates:
+            refusal = FindingsRefusal(
+                reason=REFUSAL_NO_CANDIDATES_ENUMERATED,
+                message=(
+                    "FindingsAgent: Phase 1 selector enumerated zero "
+                    "candidates. Either the document is empty, the "
+                    "selector vocabulary did not match, or the "
+                    "selector mode is too narrow. Consider retrying "
+                    "with ``every_sentence_selector`` or a broader "
+                    "token/entity."
+                ),
+                candidates_enumerated=0,
+                candidates_surviving_filter=0,
+            )
+            logger.info(
+                "findings.refusal: reason=%s question=%r enumerated=0 surviving=0",
+                refusal.reason,
+                question,
+            )
             return FindingsResult(
                 question=question,
                 answer="",
@@ -524,6 +623,7 @@ class FindingsAgent:
                 filter_cost_usd=0.0,
                 synthesis_cost_usd=0.0,
                 filter_calls=0,
+                refusal=refusal,
             )
 
         # Phase 2 — parallel filter.
@@ -562,6 +662,26 @@ class FindingsAgent:
 
         # Phase 3 — synthesize.
         if not survivors:
+            refusal = FindingsRefusal(
+                reason=REFUSAL_NO_RELEVANT_CANDIDATES,
+                message=(
+                    f"FindingsAgent: the cheap filter pass judged all "
+                    f"{total_enumerated} Phase-1 candidate(s) "
+                    "irrelevant to the question. Synthesis was "
+                    "skipped to avoid hallucinating an answer "
+                    "without evidence. This is the canonical "
+                    "'answer is not in this document' signal — the "
+                    "agent did look at every candidate."
+                ),
+                candidates_enumerated=total_enumerated,
+                candidates_surviving_filter=0,
+            )
+            logger.info(
+                "findings.refusal: reason=%s question=%r enumerated=%d surviving=0",
+                refusal.reason,
+                question,
+                total_enumerated,
+            )
             return FindingsResult(
                 question=question,
                 answer="",
@@ -571,6 +691,7 @@ class FindingsAgent:
                 filter_cost_usd=filter_cost,
                 synthesis_cost_usd=0.0,
                 filter_calls=len(chunks),
+                refusal=refusal,
             )
 
         answer, synthesis_cost = await _synthesize(
@@ -809,9 +930,12 @@ def extract_finding_id_citations(answer: str) -> tuple[str, ...]:
 
 
 __all__ = [
+    "REFUSAL_NO_CANDIDATES_ENUMERATED",
+    "REFUSAL_NO_RELEVANT_CANDIDATES",
     "FilteredFinding",
     "FindingCandidate",
     "FindingsAgent",
+    "FindingsRefusal",
     "FindingsResult",
     "Selector",
     "every_sentence_selector",

@@ -91,7 +91,18 @@ class AgentFindingsTool(KaosTool):
                 "recall must be 1.0. Cost typically $0.05-0.10 per "
                 "real NDA. Pair with kaos-content-corpus-narrow to "
                 "first triage a large corpus to one or a few "
-                "artifacts, then run findings against each."
+                "artifacts, then run findings against each. "
+                "REFUSAL CONTRACT: when the agent cannot answer "
+                "from the document (Phase 1 produced no candidates, "
+                "or Phase 2 filtered them all out) the response is "
+                "still a structured SUCCESS (isError=false) but "
+                "carries ``refusal_reason`` (one of "
+                "``no_candidates_enumerated`` / "
+                "``no_relevant_candidates``) and ``refusal_message``. "
+                "Always check ``refusal_reason`` before treating an "
+                "empty ``answer`` as a failure — an empty answer with "
+                "a populated refusal is the agent honestly reporting "
+                "'this document does not contain the answer.'"
             ),
             category=ToolCategory.DOCUMENT,
             capability=ToolCapability.ANALYZE,
@@ -281,7 +292,7 @@ class AgentFindingsTool(KaosTool):
             }
             for f in result.findings
         ]
-        output = {
+        output: dict[str, Any] = {
             "artifact_id": artifact_id,
             "question": question,
             "select_by": select_by,
@@ -295,13 +306,29 @@ class AgentFindingsTool(KaosTool):
             "synthesis_cost_usd": result.synthesis_cost_usd,
             "total_cost_usd": result.total_cost_usd,
             "total_llm_calls": result.total_llm_calls,
+            # Refusal contract — see metadata.description. ``None``
+            # when synthesis produced a real answer; populated when
+            # the agent honestly cannot answer from this document.
+            # Downstream consumers (UI, audit, agent caller) must
+            # branch on ``refusal_reason`` before treating
+            # ``answer == ""`` as a failure.
+            "refusal_reason": (result.refusal.reason if result.refusal is not None else None),
+            "refusal_message": (result.refusal.message if result.refusal is not None else None),
         }
-        summary = (
-            f"Findings: enumerated={result.total_enumerated} "
-            f"filtered={result.total_filtered} "
-            f"calls={result.total_llm_calls} "
-            f"cost=${result.total_cost_usd:.4f}"
-        )
+        if result.refusal is not None:
+            summary = (
+                f"Findings refusal ({result.refusal.reason}): "
+                f"enumerated={result.total_enumerated} "
+                f"filtered={result.total_filtered} "
+                f"cost=${result.total_cost_usd:.4f}"
+            )
+        else:
+            summary = (
+                f"Findings: enumerated={result.total_enumerated} "
+                f"filtered={result.total_filtered} "
+                f"calls={result.total_llm_calls} "
+                f"cost=${result.total_cost_usd:.4f}"
+            )
         return ToolResult.create_success(output=output, summary=summary)
 
 
