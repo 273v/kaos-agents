@@ -259,7 +259,7 @@ class TestWireBenchmark:
         """Benchmark SSE serialization throughput."""
         import asyncio
 
-        events = asyncio.get_event_loop().run_until_complete(_make_event_stream())
+        events = asyncio.new_event_loop().run_until_complete(_make_event_stream())
 
         async def run_sse() -> int:
             count = 0
@@ -267,4 +267,11 @@ class TestWireBenchmark:
                 count += 1
             return count
 
-        benchmark(lambda: asyncio.get_event_loop().run_until_complete(run_sse()))
+        def _bench() -> int:
+            loop = asyncio.new_event_loop()
+            try:
+                return loop.run_until_complete(run_sse())
+            finally:
+                loop.close()
+
+        benchmark(_bench)

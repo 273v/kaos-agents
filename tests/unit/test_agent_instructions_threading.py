@@ -97,7 +97,7 @@ class TestSimpleRespondUsesInstructions:
             usage = _FakeUsage()
 
         class _FakeCall:
-            def __init__(self, sig, *, model, instructions):
+            def __init__(self, sig, *, model, instructions, **_kwargs):
                 captured["instructions"] = instructions
                 captured["model"] = model
 
@@ -141,7 +141,7 @@ class TestSimpleRespondUsesInstructions:
             usage = _FakeUsage()
 
         class _FakeCall:
-            def __init__(self, sig, *, model, instructions):
+            def __init__(self, sig, *, model, instructions, **_kwargs):
                 captured["instructions"] = instructions
 
             async def invoke(self, **kwargs):
