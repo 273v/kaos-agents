@@ -132,6 +132,7 @@ markers = [
   "integration: end-to-end behavior checks",
   "unit: focused unit checks",
   "live: requires live API keys",
+  "network: requires outbound network access (HTTP APIs, etc.)",
   "benchmark: performance benchmarks",
 ]
 
