@@ -101,24 +101,41 @@ exercise real models against real prompts. Without persisted output,
 
 ## Reproducing / inspecting
 
+The companion CLI (`tests/integration/runs_cli.py`) handles the
+common queries. Run it directly via `uv run --no-sync python`:
+
 ```bash
 # Run the full live tier — appends to today's date dir + INDEX.jsonl
 uv run --no-sync pytest tests/integration/ -m live --no-cov
 
-# Today's spend
-jq -s 'map(.total_cost_usd) | add' \
-    tests/integration/runs/INDEX.jsonl
+# Today's runs, sorted by cost
+uv run --no-sync python tests/integration/runs_cli.py list --sort cost
 
-# All tests on a given commit
-grep '"git_short_sha":"088136c"' tests/integration/runs/INDEX.jsonl
+# Filter by substring / outcome / commit / date
+uv run --no-sync python tests/integration/runs_cli.py list \
+    --grep reflexion --outcome failed
+uv run --no-sync python tests/integration/runs_cli.py list --commit 088136c
+
+# Pretty-print one run (header + every call + inputs/outputs)
+uv run --no-sync python tests/integration/runs_cli.py show strict_rubric
+
+# Side-by-side diff two runs of the same test (most-recent pair by default)
+uv run --no-sync python tests/integration/runs_cli.py diff strict_rubric
+
+# Cost / outcome rollups
+uv run --no-sync python tests/integration/runs_cli.py summary --by day
+uv run --no-sync python tests/integration/runs_cli.py summary --by commit
+uv run --no-sync python tests/integration/runs_cli.py summary --by test
+```
+
+Raw `jq` still works for ad-hoc queries that don't fit the CLI:
+
+```bash
+# Today's spend
+jq -s 'map(.total_cost_usd) | add' tests/integration/runs/INDEX.jsonl
 
 # Full content of one run
 cat tests/integration/runs/2026-05-11/<file>.jsonl | jq
-
-# Compare critic scores across two runs of the same test
-diff \
-    <(jq '.output.score' < runs/2026-05-11/...reflexion....jsonl) \
-    <(jq '.output.score' < runs/2026-05-12/...reflexion....jsonl)
 ```
 
 Opt-out: `KAOS_TESTS_NO_RECORD=1 pytest ...`.
@@ -127,11 +144,33 @@ Opt-out: `KAOS_TESTS_NO_RECORD=1 pytest ...`.
 
 This directory is committed to git so behavioral history travels
 with the repo. Files are small (~5-20 KB per test, ~200 KB for the
-full G6/G7 live tier). At sustained CI velocity, prune entries
-older than 90 days via:
+full G6/G7 live tier, ~1.4 MB for the combined G+ladder+parity
+corpus). Even at sustained CI velocity this is sub-100 MB per year.
+
+**Local repo retention: 90 days by default.** Run the prune script
+from the monorepo root:
 
 ```bash
-find tests/integration/runs -type d -mtime +90 -name '20*-*-*' -exec rm -rf {} +
+# Dry-run (default) — show what would be removed
+uv run --no-sync --project kaos-agents python \
+    scripts/prune-test-runs.py --days 90
+
+# Actually delete
+uv run --no-sync --project kaos-agents python \
+    scripts/prune-test-runs.py --days 90 --apply
 ```
 
-Or migrate older runs to an audit-grade cold store (S3 + Object Lock).
+The script deletes whole date directories older than `--days` days
+ago AND rewrites `INDEX.jsonl` in lockstep (atomic via tmpfile +
+`os.replace`). Idempotent: re-running after a successful prune is
+a no-op.
+
+**Audit-grade archive (regulatory regimes that require longer
+retention than the repo's 90-day window):** push pruned runs to S3
+with Object Lock in compliance mode before deletion. Recommended
+parameters depend on the regime — SOX 7 years, FINRA 4511 6 years,
+HIPAA §164.316(b)(2) 6 years from the date of creation or the date
+when it was last in effect (whichever is later). Bucket policy
+must deny `s3:DeleteObject` / `s3:PutObjectRetention` to all
+principals to make the retention non-bypassable. (Out of scope for
+the local prune script — wire up via your CI pipeline.)
