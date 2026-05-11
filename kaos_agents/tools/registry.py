@@ -1067,6 +1067,7 @@ def register_agent_tools(runtime: KaosRuntime) -> int:
     for group in _builtin_groups:
         default_tool_group_registry.register(group, force=True)
 
+    from kaos_agents.tools.corpus_filter import AgentCorpusFilterTool
     from kaos_agents.tools.findings import AgentFindingsTool
 
     tools: list[KaosTool] = [
@@ -1086,6 +1087,9 @@ def register_agent_tools(runtime: KaosRuntime) -> int:
         AgentGraphProjectionTool(),
         # K7 — recall-first FindingsAgent wrapper.
         AgentFindingsTool(),
+        # K8 — LLM-aided corpus precision filter (pairs with
+        # kaos-content-corpus-narrow as a two-stage funnel).
+        AgentCorpusFilterTool(),
     ]
     for tool in tools:
         runtime.tools.register_tool(tool)
