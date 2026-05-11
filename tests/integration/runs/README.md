@@ -37,12 +37,22 @@ Each per-test JSONL has two kinds of lines:
   "total_output_tokens": 288,
   "git": {"sha": "...", "short_sha": "...", "branch": "main", "dirty": "no"},
   "python_version": "3.13.5",
-  "schema_version": 1,
+  "schema_version": 4,
+  "streaming": true,
+  "trailer_optional": true,
+  "partial_last_line_tolerated": true,
+  "redaction_enabled": true,
+  "redaction_threshold_chars": 2048,
   "markers": ["asyncio", "skipif", "live"],
   "anthropic_key_present": true,
   "openai_key_present": true
 }
 ```
+
+Schema-v4 fields ``redaction_enabled`` and
+``redaction_threshold_chars`` are KC16-4 additions; the trailer
+adds ``redacted_count`` (total fields truncated). Schema-v3 readers
+ignore the new fields. ``runs_cli.load_run`` is forward-compatible.
 
 **Lines 2..N — one per LLM call.** The full `ExecutionTrace` from
 kaos-llm-core, untruncated:
@@ -142,10 +152,45 @@ Opt-out: `KAOS_TESTS_NO_RECORD=1 pytest ...`.
 
 ## Retention
 
-This directory is committed to git so behavioral history travels
-with the repo. Files are small (~5-20 KB per test, ~200 KB for the
-full G6/G7 live tier, ~1.4 MB for the combined G+ladder+parity
-corpus). Even at sustained CI velocity this is sub-100 MB per year.
+**Pre-KC16-4 captures are committed; new captures are gitignored.**
+
+The KC16 audit (Probe 4 + Probe 5 — transparency lens) flagged a
+release-blocker: pre-KC16-4 the recorder serialized full document
+bodies (50+ KB ``message`` fields) into JSONL and the JSONLs were
+committed to git. Every CI-processed document then became a
+secondary data plane in the repo — unacceptable for regulated-
+industry adopters.
+
+KC16-4 fixed this in three places:
+
+1. **Recorder redaction.** Both
+   ``tests/integration/_recorder.py`` and
+   ``kaos-llm-core/kaos_llm_core/observability/env_recorder.py``
+   now truncate every captured string longer than 2 KB to
+   ``<first 200 chars> ... [TRUNCATED N chars; sha256=<16 hex>]``.
+   Schema bumped to v4; header advertises
+   ``redaction_enabled`` + ``redaction_threshold_chars``; trailer
+   carries ``redacted_count``. Opt-out for local dev:
+   ``KAOS_RECORDER_FULL_TEXT=1`` disables the truncation.
+2. **`.gitignore` rule.** ``kaos-agents/tests/integration/runs/**/*.jsonl``
+   is now gitignored. ``INDEX.jsonl`` stays tracked via a negative
+   exception so ``runs_cli list`` keeps working across the
+   pre-KC16-4 / post-KC16-4 boundary.
+3. **History is intentional.** Existing captures under
+   ``runs/<date>/*.jsonl`` that were already in git history when
+   the gitignore rule landed remain tracked — git does not
+   retroactively untrack files, only ignores NEW writes. They
+   stay in the repo as the historical audit trail. Going forward,
+   local-dev captures stay local; CI captures land in
+   ``$CI_ARTIFACTS_DIR`` / S3 cold storage per the F4 retention
+   policy.
+
+This directory was originally committed to git so behavioral
+history travels with the repo. Files were small (~5-20 KB per
+test, ~200 KB for the full G6/G7 live tier, ~1.4 MB for the
+combined G+ladder+parity corpus). Even at sustained CI velocity
+this was sub-100 MB per year — but the per-document data-plane
+hazard means we no longer commit them.
 
 **Local repo retention: 90 days by default.** Run the prune script
 from the monorepo root:
