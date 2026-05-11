@@ -49,18 +49,38 @@ _FINDINGS_ANNOTATIONS = ToolAnnotations(
     openWorldHint=False,
 )
 
-_SELECT_BY_OPTIONS = ("every_sentence", "token", "entity")
+_SELECT_BY_OPTIONS = ("every_sentence", "token", "semantic", "entity")
 """Selector modes supported by the MCP tool.
 
-- ``every_sentence``: every non-empty sentence in the doc. Use when
-  recall must be 1.0 and the doc fits within the filter-pass budget.
-- ``token``: every sentence containing a literal substring (param
-  ``selector_arg``). Cheapest and most precise when you know the
-  vocabulary.
-- ``entity``: every sentence containing at least one match of a
-  typed entity (``selector_arg`` in
+- ``every_sentence``: every non-empty sentence in the doc. Recall
+  =1.0 across the whole doc; most expensive (the filter pass sees
+  every sentence). Use when missing a clause is unacceptable and
+  the doc fits within the filter budget.
+- ``token``: every sentence containing a literal substring of
+  ``selector_arg`` (case-insensitive). Cheap and most precise when
+  you know the document's vocabulary. **Silently low-recall when
+  your term isn't in the doc verbatim** — Sprint-2 #6 surfaces a
+  structured warning in this case so the recall failure doesn't
+  look like an LLM failure. Pair with ``select_by='semantic'``
+  when the user phrases the question abstractly.
+- ``semantic``: one cheap LLM pre-call rewrites the user's intent
+  into vocabulary likely to appear in the document, then runs the
+  union of literal-substring matches across those terms. Buys
+  vocabulary expansion for ~$0.001 — the right reach when the
+  question uses high-level language ("cyber risk mitigation")
+  that doesn't literally appear in the document body
+  ("multi-factor authentication and quarterly penetration
+  testing").
+- ``entity``: every sentence with at least one match of a typed
+  entity (``selector_arg`` in
   ``{"dates", "money", "percents", "durations", "numbers"}``).
-  Composes with K2."""
+  Composes with K2.
+
+The literal-substring semantic on ``token`` is intentional and
+load-bearing: the agent's recall here is a function of the
+*caller's* vocabulary choice, not the model's understanding. If
+the document and the question use different words, ``token``
+will quietly miss; ``semantic`` is the bridge."""
 
 
 class AgentFindingsTool(KaosTool):
@@ -81,17 +101,29 @@ class AgentFindingsTool(KaosTool):
                 "Recall-first exhaustive-search agent over a stored "
                 "ContentDocument. Three phases: enumerate every "
                 "candidate sentence via a Phase-1 selector "
-                "(every_sentence / token / entity), filter survivors "
-                "via parallel LLM calls (chunked), synthesize a final "
-                "answer that cites finding_ids inline. Use for "
-                "diligence / audit questions where missing a relevant "
-                "sentence costs more than the extra LLM cycles. Plain "
-                "RAG (kaos-agent-chat with retrieval) is cheaper for "
-                "ordinary Q&A; this tool is the right reach when "
-                "recall must be 1.0. Cost typically $0.05-0.10 per "
-                "real NDA. Pair with kaos-content-corpus-narrow to "
-                "first triage a large corpus to one or a few "
-                "artifacts, then run findings against each. "
+                "(every_sentence / token / semantic / entity), "
+                "filter survivors via parallel LLM calls (chunked), "
+                "synthesize a final answer that cites finding_ids "
+                "inline. Use for diligence / audit questions where "
+                "missing a relevant sentence costs more than the "
+                "extra LLM cycles. Plain RAG (kaos-agent-chat with "
+                "retrieval) is cheaper for ordinary Q&A; this tool "
+                "is the right reach when recall must be 1.0. Cost "
+                "typically $0.05-0.10 per real NDA. Pair with "
+                "kaos-content-corpus-narrow to first triage a large "
+                "corpus to one or a few artifacts, then run findings "
+                "against each. "
+                "SELECTOR MODES: 'every_sentence' recall=1.0 across "
+                "the whole doc (most expensive); 'token' literal "
+                "substring on selector_arg (cheap but SILENTLY "
+                "LOW-RECALL when your term isn't in the doc "
+                "verbatim — surfaces a warning in "
+                "structuredContent['warnings']); 'semantic' LLM "
+                "rewrites your intent into literal-tokens then "
+                "token-matches the union (one cheap pre-call buys "
+                "vocabulary expansion — use when the question is "
+                "abstract); 'entity' typed-entity match (dates / "
+                "money / percents / durations / numbers). "
                 "REFUSAL CONTRACT: when the agent cannot answer "
                 "from the document (Phase 1 produced no candidates, "
                 "or Phase 2 filtered them all out) the response is "
@@ -102,7 +134,15 @@ class AgentFindingsTool(KaosTool):
                 "Always check ``refusal_reason`` before treating an "
                 "empty ``answer`` as a failure — an empty answer with "
                 "a populated refusal is the agent honestly reporting "
-                "'this document does not contain the answer.'"
+                "'this document does not contain the answer.' "
+                "WARNINGS CONTRACT: structuredContent['warnings'] "
+                "may include a 'low_recall_token_selector' entry "
+                "when select_by='token' enumerated < 5 candidates "
+                "for a >= 6-word question; the agent's behavior is "
+                "unchanged, the warning surfaces the recall risk so "
+                "a missed clause isn't blamed on synthesis. "
+                "Consider switching to select_by='semantic' when "
+                "this fires."
             ),
             category=ToolCategory.DOCUMENT,
             capability=ToolCapability.ANALYZE,
@@ -132,12 +172,23 @@ class AgentFindingsTool(KaosTool):
                     name="select_by",
                     type="string",
                     description=(
-                        "Phase-1 selector mode. 'every_sentence' "
-                        "(recall=1.0 across the whole doc), 'token' "
-                        "(substring match; provide selector_arg), or "
-                        "'entity' (typed-entity match; provide "
-                        "selector_arg in {dates, money, percents, "
-                        "durations, numbers})."
+                        "Phase-1 selector mode. "
+                        "'every_sentence' — recall=1.0 across the "
+                        "whole doc, most expensive. "
+                        "'token' — literal substring match on "
+                        "selector_arg; CHEAP BUT SILENTLY LOW-RECALL "
+                        "when your term isn't in the doc verbatim "
+                        "(a structured warning surfaces in "
+                        "structuredContent['warnings'] when this "
+                        "happens). "
+                        "'semantic' — LLM rewrites your intent into "
+                        "literal-tokens, then token-matches; one "
+                        "cheap pre-call (~$0.001) buys vocabulary "
+                        "expansion. Use when the user phrases the "
+                        "question abstractly. "
+                        "'entity' — typed-entity match (dates / "
+                        "money / percents / durations / numbers) on "
+                        "selector_arg."
                     ),
                     required=False,
                     default="every_sentence",
@@ -149,9 +200,25 @@ class AgentFindingsTool(KaosTool):
                     description=(
                         "Argument for the selector. Required when "
                         "select_by='token' (the substring) or "
-                        "'entity' (the entity type name)."
+                        "'entity' (the entity type name). Ignored "
+                        "for 'every_sentence' and 'semantic' — "
+                        "semantic mode derives its terms from the "
+                        "question via the rewrite LLM."
                     ),
                     required=False,
+                ),
+                ParameterSchema(
+                    name="semantic_rewrite_model",
+                    type="string",
+                    description=(
+                        "Model for the semantic-rewrite pre-call "
+                        "(only used when select_by='semantic'). "
+                        "Default 'anthropic:claude-haiku-4-5' — the "
+                        "rewrite is a thin classifier; the spend per "
+                        "call is ~$0.001."
+                    ),
+                    required=False,
+                    default="anthropic:claude-haiku-4-5",
                 ),
                 ParameterSchema(
                     name="filter_model",
@@ -266,12 +333,48 @@ class AgentFindingsTool(KaosTool):
         runs = 1 if runs_raw is None else int(runs_raw)
         filter_model = str(inputs.get("filter_model") or "anthropic:claude-haiku-4-5")
         synthesis_model = str(inputs.get("synthesis_model") or "anthropic:claude-sonnet-4-6")
+        semantic_rewrite_model = str(
+            inputs.get("semantic_rewrite_model") or "anthropic:claude-haiku-4-5"
+        )
 
-        # Validate selector_arg / build selector.
-        try:
-            selector = _build_selector(select_by, selector_arg)
-        except ValueError as exc:
-            return ToolResult.create_error(str(exc))
+        # Sprint-2 #6 — semantic mode handles its own selector
+        # construction because the term list comes from an async LLM
+        # call. For every other mode the sync ``_build_selector``
+        # path is unchanged.
+        semantic_terms: tuple[str, ...] = ()
+        semantic_cost: float = 0.0
+        low_recall_arg: str | None = None
+        if select_by == "semantic":
+            from kaos_agents.patterns.findings import (
+                expand_question_to_terms,
+                sentences_with_any_token_selector,
+            )
+
+            try:
+                semantic_terms, semantic_cost = await expand_question_to_terms(
+                    str(question),
+                    model=semantic_rewrite_model,
+                )
+            except Exception as exc:
+                logger.exception("semantic rewrite failed")
+                return ToolResult.create_error(
+                    f"Semantic-rewrite LLM call failed: {exc}. "
+                    "Verify ANTHROPIC_API_KEY is set, or fall back "
+                    "to select_by='token' / 'every_sentence'."
+                )
+            selector = sentences_with_any_token_selector(semantic_terms)
+            # Surface the expanded terms in the low-recall hint
+            # context so a downstream zero-candidate refusal still
+            # carries the term list for the audit trail.
+            low_recall_arg = ",".join(semantic_terms) if semantic_terms else None
+        else:
+            # Validate selector_arg / build selector.
+            try:
+                selector = _build_selector(select_by, selector_arg)
+            except ValueError as exc:
+                return ToolResult.create_error(str(exc))
+            if select_by == "token" and selector_arg:
+                low_recall_arg = str(selector_arg)
 
         # Load document and build view.
         try:
@@ -300,6 +403,7 @@ class AgentFindingsTool(KaosTool):
                 relevance_threshold=relevance_threshold,
                 temperature=temperature,
                 runs=runs,
+                low_recall_selector_arg=low_recall_arg,
             )
         except ValueError as exc:
             return ToolResult.create_error(f"FindingsAgent rejected the configuration: {exc}")
@@ -330,6 +434,11 @@ class AgentFindingsTool(KaosTool):
             }
             for f in result.findings
         ]
+        # Sprint-2 #6 — semantic mode adds the rewrite call's cost
+        # to the headline ``total_cost_usd`` so the figure the caller
+        # sees in summary == real spend. Per-stage costs stay
+        # separated for accounting purposes.
+        total_cost_with_rewrite = result.total_cost_usd + semantic_cost
         output: dict[str, Any] = {
             "artifact_id": artifact_id,
             "question": question,
@@ -344,8 +453,28 @@ class AgentFindingsTool(KaosTool):
             "filter_calls": result.filter_calls,
             "filter_cost_usd": result.filter_cost_usd,
             "synthesis_cost_usd": result.synthesis_cost_usd,
-            "total_cost_usd": result.total_cost_usd,
-            "total_llm_calls": result.total_llm_calls,
+            "semantic_rewrite_cost_usd": semantic_cost,
+            "total_cost_usd": total_cost_with_rewrite,
+            "total_llm_calls": (result.total_llm_calls + (1 if select_by == "semantic" else 0)),
+            # Sprint-2 #6 — semantic-mode terms for audit / debug.
+            # Empty list for non-semantic modes so the wire shape
+            # stays consistent. Consumers can compare against the
+            # selector_arg the user sent vs. the LLM's expansion.
+            "semantic_terms": list(semantic_terms),
+            # Sprint-2 #6 — structured warnings. Always present
+            # (default empty list); the K7 agent's caller (a
+            # higher-level agent or a UI) iterates this to surface
+            # recall risk before treating an empty answer as a
+            # synthesis failure. Each warning has stable ``kind``
+            # string, human ``message``, and structured ``details``.
+            "warnings": [
+                {
+                    "kind": w.kind,
+                    "message": w.message,
+                    "details": dict(w.details),
+                }
+                for w in result.warnings
+            ],
             # Refusal contract — see metadata.description. ``None``
             # when synthesis produced a real answer; populated when
             # the agent honestly cannot answer from this document.
@@ -384,6 +513,11 @@ def _build_selector(select_by: str, selector_arg: Any) -> Any:
     Raises ``ValueError`` with an actionable message when the arguments
     don't match the chosen mode. The execute() body catches and
     forwards the message verbatim to ``ToolResult.create_error``.
+
+    Sprint-2 #6: ``semantic`` mode is intentionally NOT handled here
+    because it requires an async LLM call to construct the term list.
+    The execute() body builds the semantic selector itself before
+    calling this function for the non-semantic modes.
     """
     from kaos_agents.patterns.findings import (
         every_sentence_selector,
@@ -407,6 +541,17 @@ def _build_selector(select_by: str, selector_arg: Any) -> Any:
                 "durations, numbers."
             )
         return sentences_with_entity_selector(str(selector_arg))
+
+    if select_by == "semantic":
+        # The K7 execute() body handles semantic mode directly
+        # because constructing the selector requires an async LLM
+        # call. This branch exists only to give a clear error if
+        # something ever invokes _build_selector with this mode.
+        raise ValueError(
+            "select_by='semantic' is handled by the execute() body, "
+            "not _build_selector. This is a programming error — "
+            "open a bug."
+        )
 
     raise ValueError(f"Unknown select_by={select_by!r}")
 

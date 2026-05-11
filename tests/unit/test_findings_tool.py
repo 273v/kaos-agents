@@ -45,9 +45,11 @@ class TestToolMetadata:
         tool = AgentFindingsTool()
         select_by = next(p for p in tool.metadata.input_schema if p.name == "select_by")
         assert "enum" in select_by.constraints
+        # Sprint-2 #6: 'semantic' added as the LLM-rewrite mode.
         assert set(select_by.constraints["enum"]) == {
             "every_sentence",
             "token",
+            "semantic",
             "entity",
         }
 

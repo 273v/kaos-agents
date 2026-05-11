@@ -71,7 +71,7 @@ import hashlib
 import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from kaos_core.logging import get_logger
 
@@ -105,6 +105,76 @@ output, an audit reader can compare two ids by eye, and the citation
 regex in :func:`extract_finding_id_citations` still picks them up
 cleanly. Don't drop below 12 — anything narrower starts hitting
 collisions on real diligence-room corpora."""
+
+
+# ---------------------------------------------------------------------------
+# Sprint-2 #6 — Low-recall warning thresholds (token selector quality lens)
+# ---------------------------------------------------------------------------
+#
+# PA6 (parallel-agent sub-agent test build) made it clear that the
+# silent failure mode of the token selector — vocabulary mismatch
+# producing < 5 candidates on a 10+ word question — looks like an
+# LLM synthesis failure rather than what it actually is (a recall
+# failure on the selector). The thresholds below tune when the
+# agent surfaces a structured warning advising the caller to switch
+# selector mode.
+#
+# Defaults are conservative: a question only triggers warnings once
+# it's meaningfully long (>= 6 words — short Qs frequently have
+# tiny but correct candidate sets), and the candidate floor of 5 is
+# the empirical bar from the PA6 reproduction where the planted
+# answer rode on slide bodies that didn't contain the question's
+# literal keyword. Module-level constants make these easy to tune
+# from a single place if downstream usage shows the defaults are
+# too noisy or too quiet.
+
+_LOW_RECALL_CANDIDATE_THRESHOLD = 5
+"""Token-selector candidate count below which a low-recall warning fires.
+
+Calibrated to the PA6 reproduction (PPTX board deck, "cyber risk
+mitigation" question): the planted answer survived in 3 token
+candidates and the question had > 6 words. 5 is the smallest floor
+that catches that failure without over-spamming on the long tail
+of perfectly-fine 1-4 candidate questions. Raise this to be louder,
+lower it to be quieter; module-level constant so tuning is local."""
+
+_LOW_RECALL_QUESTION_WORDS_THRESHOLD = 6
+"""Minimum word count of the question before the low-recall warning
+is allowed to fire.
+
+Below this floor, almost every question has a small literal-token
+match set even with adequate recall, so the warning would mostly
+be noise. The PA6 reproduction question had 5 content words +
+"What's the" — comfortably above this floor. Whitespace-tokenized
+word count; this is heuristic, not a parser."""
+
+_MAX_SEMANTIC_TERM_LENGTH = 50
+"""Reject any expanded semantic term longer than this many characters.
+
+Sprint-2 #6 sanitization: terms returned by the rewrite LLM are
+treated as untrusted data (a malicious document could attempt to
+poison the rewrite indirectly via session memory in a future
+threat model). 50 chars covers any legitimate technical or legal
+phrase ("multi-factor authentication" = 28 chars) and rejects
+pathological inputs (paragraphs masquerading as terms)."""
+
+_MAX_SEMANTIC_TERMS = 8
+"""Maximum number of expansion terms accepted from the rewrite LLM.
+
+Bounded so a runaway response can't blow up the per-sentence
+``in``-check cost into a quadratic timewise. 8 terms covers the
+realistic vocabulary expansion ("cyber", "security", "auth",
+"penetration testing", "encryption", "firewall", "intrusion",
+"vulnerability") on a typical diligence question."""
+
+_DEFAULT_SEMANTIC_REWRITE_MODEL = "anthropic:claude-haiku-4-5"
+"""Default model for the semantic-rewrite pre-call.
+
+Cheap by design — the entire purpose is "spend $0.001 to recover
+a vocabulary gap that would otherwise look like an LLM failure."
+Callers can pass a stronger model via the tool surface if their
+domain has aggressive jargon (legal acronyms, scientific
+nomenclature) that Haiku struggles to expand."""
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +306,49 @@ class FindingsRefusal:
     candidates_surviving_filter: int
 
 
+_WARNING_LOW_RECALL_TOKEN = "low_recall_token_selector"
+"""Stable kind string for the low-recall token-selector warning.
+
+Part of the public wire contract — UIs and audit consumers branch
+on the string. The warning is informational; it does NOT change
+the agent's behavior, it only surfaces the risk so a missed clause
+doesn't get blamed on the synthesis model."""
+
+
+@dataclass(frozen=True, slots=True)
+class FindingsWarning:
+    """Structured informational warning stamped onto :class:`FindingsResult`.
+
+    Sprint-2 #6 (quality + transparency lens): the K7 token selector
+    silently fails on recall when the literal token isn't in the
+    document, and the failure mode was getting misread as an LLM
+    failure. This type makes the recall risk explicit so the caller
+    sees "your selector might be missing things" rather than just an
+    empty answer.
+
+    Attributes:
+        kind: Stable string identifying the warning category. Treat
+            as enum even though the underlying type is ``str`` —
+            downstream consumers branch on this value. The current
+            kind set lives at the top of this module.
+        message: Human-readable explanation including the relevant
+            counts and a remediation hint (which alternative
+            ``select_by`` mode to try).
+        details: Optional structured payload — counts, candidate
+            terms, etc. Empty dict by default. Consumers that want
+            to render the warning in a UI can use ``details`` for
+            machine-readable context without parsing ``message``.
+    """
+
+    kind: str
+    message: str
+    details: tuple[tuple[str, Any], ...] = ()
+    """Structured payload as a tuple of (key, value) pairs so the
+    dataclass stays hashable. Callers that need a dict can
+    ``dict(warning.details)`` — we keep tuples on the wire because
+    frozen+slots prohibits a default ``dict`` factory."""
+
+
 @dataclass(frozen=True, slots=True)
 class FindingsResult:
     """Outcome of one FindingsAgent run.
@@ -272,6 +385,15 @@ class FindingsResult:
     synthesis_cost_usd: float
     filter_calls: int
     refusal: FindingsRefusal | None = None
+    warnings: tuple[FindingsWarning, ...] = ()
+    """Structured informational warnings produced during the run.
+
+    Sprint-2 #6: low-recall warnings are the inaugural use — when
+    the token selector enumerates a tiny candidate set for a long
+    question, the agent surfaces a remediation hint here rather
+    than letting the recall failure look like an LLM failure.
+    Always present (default empty tuple); consumers can iterate it
+    cheaply without a None-check."""
 
     @property
     def total_cost_usd(self) -> float:
@@ -369,6 +491,59 @@ def sentences_with_token_selector(token: str, *, case_sensitive: bool = False) -
     return selector
 
 
+def sentences_with_any_token_selector(
+    tokens: Iterable[str], *, case_sensitive: bool = False
+) -> Selector:
+    """Selector factory: every sentence containing ANY of ``tokens``.
+
+    Sprint-2 #6 (semantic mode): the union side of the
+    semantic-rewrite pipeline. The rewrite LLM emits N expansion
+    terms; we run an ``or`` union of literal-substring matches
+    across them. Each sentence is emitted at most once even when
+    multiple terms match — first match wins, deterministic-id
+    stays the canonical ``(block_ref, char_span, text)`` triple
+    independent of which term matched.
+
+    Empty ``tokens`` → empty result (no candidates), which trips
+    the existing :data:`REFUSAL_NO_CANDIDATES_ENUMERATED` contract
+    cleanly. Whitespace-only terms are silently dropped before
+    matching.
+
+    Note: this is a pure-Python ``in``-check loop. For N terms on
+    M sentences the cost is O(N*M) per-sentence substring tests.
+    The :data:`_MAX_SEMANTIC_TERMS` cap keeps this bounded.
+    """
+    cleaned = [
+        (t if case_sensitive else t.lower())
+        for t in (str(term).strip() for term in tokens)
+        if t and t.strip()
+    ]
+
+    def selector(view: DocumentView, _question: str) -> Iterable[FindingCandidate]:
+        if not cleaned:
+            return
+        seen: set[str] = set()
+        for sentence in view.sentences:
+            haystack = sentence.text if case_sensitive else sentence.text.lower()
+            if not any(needle in haystack for needle in cleaned):
+                continue
+            char_span = _sentence_char_span(sentence)
+            fid = _deterministic_finding_id(sentence.paragraph_ref, char_span, sentence.text)
+            if fid in seen:
+                continue
+            seen.add(fid)
+            yield FindingCandidate(
+                finding_id=fid,
+                text=sentence.text,
+                block_ref=sentence.paragraph_ref,
+                char_span=char_span,
+                section_title=_section_title(view, sentence.section_ref),
+                page=sentence.page,
+            )
+
+    return selector
+
+
 def sentences_with_entity_selector(entity_type: str) -> Selector:
     """Selector factory: every sentence with at least one match of
     ``entity_type`` (composes with K2).
@@ -401,6 +576,277 @@ def sentences_with_entity_selector(entity_type: str) -> Selector:
             )
 
     return selector
+
+
+# ---------------------------------------------------------------------------
+# Sprint-2 #6 — Semantic vocabulary expansion (select_by="semantic")
+# ---------------------------------------------------------------------------
+#
+# The literal-token selector silently fails on recall when the
+# user's chosen keyword doesn't appear verbatim in the document
+# (PA6 reproduction: question about "cyber risk mitigation"; the
+# planted mitigation sentence used "multi-factor authentication"
+# and "penetration testing" but never the word "cyber" — so the
+# token selector enumerated nothing useful and the agent looked
+# like it had an LLM failure when in fact recall failed at the
+# selector boundary).
+#
+# Mechanism: one cheap LLM call rewrites the user's intent into
+# vocabulary likely to appear in the document, returning a list
+# of literal terms. We then run a union of token-selector
+# matches across the expanded terms. The expansion is bounded
+# (:data:`_MAX_SEMANTIC_TERMS`), sanitized
+# (:func:`sanitize_semantic_terms`), and treated as untrusted
+# data — never executed, never interpolated into another prompt
+# without escaping, and rejected on suspicious shapes.
+
+
+_SUSPICIOUS_TERM_PATTERN = re.compile(
+    r"[\n\r<>{}]|\bIGNORE\b|\bSYSTEM\b|\bOVERRIDE\b",
+    re.IGNORECASE,
+)
+"""Reject any expansion term that looks like an injection vector.
+
+Conservative — matches newlines (terms must be single-line),
+HTML/template markup (which would break the XML envelope on
+downstream candidates), and the dictionary words the OWASP
+LLM01 payload corpora actually use. Loose match; false
+positives just lose a term, never break the pipeline."""
+
+
+def sanitize_semantic_terms(raw_terms: Iterable[Any]) -> tuple[str, ...]:
+    """Normalize + filter raw LLM-output terms for safe selector use.
+
+    The rewrite LLM's output is treated as untrusted data —
+    Sprint-1 #3 prompt-injection defense still applies even though
+    no candidate text was involved (a future threat model includes
+    session-memory poisoning of the rewrite step). Filters applied,
+    in order:
+
+    1. Coerce to ``str``; drop non-coercible entries silently.
+    2. Strip surrounding whitespace; drop empty results.
+    3. Reject terms longer than :data:`_MAX_SEMANTIC_TERM_LENGTH`
+       (50 chars) — pathological inputs.
+    4. Reject terms matching :data:`_SUSPICIOUS_TERM_PATTERN` —
+       injection-shaped content (newlines, markup, instruction
+       words).
+    5. Lower-case + de-duplicate while preserving first-seen
+       order.
+    6. Cap at :data:`_MAX_SEMANTIC_TERMS` (8 terms) total.
+
+    Pure function — no LLM, no I/O. Safe to call on any input,
+    including the empty iterable (returns empty tuple).
+    """
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_terms:
+        if raw is None:
+            continue
+        try:
+            term = str(raw).strip()
+        except Exception:
+            continue
+        if not term:
+            continue
+        if len(term) > _MAX_SEMANTIC_TERM_LENGTH:
+            logger.warning(
+                "findings.semantic.term_rejected_length: len=%d term_preview=%r",
+                len(term),
+                term[:80],
+            )
+            continue
+        if _SUSPICIOUS_TERM_PATTERN.search(term):
+            logger.warning(
+                "findings.semantic.term_rejected_suspicious: term=%r",
+                term[:120],
+            )
+            continue
+        lower = term.lower()
+        if lower in seen:
+            continue
+        seen.add(lower)
+        cleaned.append(lower)
+        if len(cleaned) >= _MAX_SEMANTIC_TERMS:
+            break
+    return tuple(cleaned)
+
+
+async def expand_question_to_terms(
+    question: str,
+    *,
+    model: str = _DEFAULT_SEMANTIC_REWRITE_MODEL,
+    max_terms: int = _MAX_SEMANTIC_TERMS,
+) -> tuple[tuple[str, ...], float]:
+    """Run the semantic-rewrite Call. Returns ``(terms, cost_usd)``.
+
+    Single cheap LLM call that rewrites the user's intent into the
+    literal vocabulary the document would actually use. The output
+    feeds :func:`sentences_with_any_token_selector` for an
+    ``or``-union token match.
+
+    Defensive about LLM output: every returned term is run through
+    :func:`sanitize_semantic_terms` so suspicious content can't
+    poison the selector pipeline. Empty / pathological output is
+    valid and returns an empty tuple — the caller (typically the
+    K7 tool) gets a clean refusal via
+    :data:`REFUSAL_NO_CANDIDATES_ENUMERATED` if no terms survive.
+
+    Args:
+        question: The user's question.
+        model: Provider:model string. Default is the cheap Haiku
+            model — the rewrite is a thin classifier, not the
+            quality-critical step.
+        max_terms: Soft cap on the expansion. Default
+            :data:`_MAX_SEMANTIC_TERMS`. Treated as a hint to the
+            model and enforced server-side after sanitization.
+
+    Returns:
+        Tuple of ``(sanitized_terms, cost_usd)``. ``cost_usd`` is
+        the real LLM spend from the Invocation usage. Plumbs into
+        the agent's filter-cost accounting so the total reported
+        cost includes the rewrite.
+    """
+    from kaos_agents._llm_imports import require_llm_core
+
+    require_llm_core()
+    from kaos_llm_core.programs.call import Call
+    from kaos_llm_core.signatures.fields import InputField, OutputField
+    from kaos_llm_core.signatures.signature import Signature
+
+    class _RewriteSignature(Signature):
+        """Expand a user's question into SPECIFIC literal vocabulary for substring retrieval.
+
+        Given a user question, return a list of CONCRETE, SPECIFIC
+        words and short phrases that would LITERALLY APPEAR in a
+        document containing the answer.
+
+        CRITICAL: prefer specific implementation terms over abstract
+        category terms. A document containing the answer to "what's
+        the cyber risk mitigation?" almost never contains the literal
+        phrase "cyber risk mitigation" — it contains the specific
+        tactic: "multi-factor authentication", "penetration testing",
+        "encryption at rest". OUTPUT THE TACTIC, not the category.
+
+        Heuristic by example:
+        - "What's the cyber risk mitigation?" →
+          GOOD: ["multi-factor", "authentication", "penetration",
+                 "encryption", "firewall", "MFA", "SSO", "tabletop"]
+          BAD:  ["cyber risk mitigation", "cybersecurity",
+                 "threat management"]   (re-states the question)
+        - "Are there indemnification carve-outs?" →
+          GOOD: ["indemnif", "hold harmless", "carve-out",
+                 "exclusion", "gross negligence", "willful misconduct"]
+          BAD:  ["indemnification carve-outs"]   (full phrase)
+        - "When does the contract expire?" →
+          GOOD: ["term", "expire", "expiration", "termination",
+                 "effective date", "renewal", "anniversary"]
+          BAD:  ["contract expiration date"]
+
+        Style rules:
+        - Single words and short phrases (1-3 words MAX). Substring
+          match is brittle on long phrases.
+        - Include both base forms AND inflected variants ("indemnify"
+          AND "indemnif" — the second matches indemnification too).
+        - Include common acronyms expanded ("MFA", "multi-factor").
+        - Lowercase preferred — the downstream match is case-
+          insensitive but lowercase makes the trace cleaner.
+        - NEVER repeat the question's own words verbatim as one
+          term — that defeats the purpose.
+        """
+
+        question: str = InputField(
+            description="The user's question — phrased as a person would ask it.",
+        )
+        max_terms: int = InputField(
+            description=(
+                "Soft cap on number of terms. Return up to this many "
+                "high-quality SPECIFIC expansions; fewer is fine when "
+                "the question is narrow."
+            ),
+        )
+        search_terms: list[str] = OutputField(
+            description=(
+                "Specific, concrete words / short phrases (1-3 words "
+                "each) that would appear in a document containing the "
+                "answer. Output the IMPLEMENTATION, not the CATEGORY. "
+                "Output literal text (no quotes, no JSON wrapping)."
+            ),
+        )
+
+    call = Call(_RewriteSignature, model=model, temperature=0.0)
+    invocation = await call.invoke(question=question, max_terms=max_terms)
+    raw_terms = getattr(invocation.output, "search_terms", []) or []
+    cost = float(getattr(invocation.usage, "cost_usd", 0.0) or 0.0)
+    sanitized = sanitize_semantic_terms(raw_terms)
+    logger.debug(
+        "findings.semantic.rewrite: question=%r raw=%d sanitized=%d cost=$%.4f",
+        question[:80],
+        len(raw_terms),
+        len(sanitized),
+        cost,
+    )
+    return sanitized, cost
+
+
+# ---------------------------------------------------------------------------
+# Sprint-2 #6 — Low-recall warning builder
+# ---------------------------------------------------------------------------
+
+
+def _question_word_count(question: str) -> int:
+    """Whitespace-tokenized word count. Heuristic, not a parser."""
+    return len([w for w in question.split() if w.strip()])
+
+
+def low_recall_warning(
+    *,
+    candidate_count: int,
+    question: str,
+    selector_arg: str,
+    candidate_threshold: int = _LOW_RECALL_CANDIDATE_THRESHOLD,
+    question_words_threshold: int = _LOW_RECALL_QUESTION_WORDS_THRESHOLD,
+) -> FindingsWarning | None:
+    """Build a low-recall warning when the token selector is suspiciously thin.
+
+    Sprint-2 #6: when the token selector enumerates fewer than
+    :data:`_LOW_RECALL_CANDIDATE_THRESHOLD` candidates AND the
+    question is meaningfully long (>= :data:`_LOW_RECALL_QUESTION_WORDS_THRESHOLD`
+    words), this is the structured warning that surfaces in
+    :attr:`FindingsResult.warnings` and the K7 tool's
+    ``structuredContent["warnings"]``.
+
+    The warning is informational — it does NOT change the agent's
+    behavior. It exists so a recall failure doesn't get misread as
+    an LLM failure when the synthesis step truthfully reports
+    "no answer found."
+
+    Returns ``None`` when either gate is not met (short question,
+    or enough candidates) — callers can unconditionally append the
+    result to their warnings list with a single ``if w is not None``
+    guard.
+    """
+    if candidate_count >= candidate_threshold:
+        return None
+    if _question_word_count(question) < question_words_threshold:
+        return None
+    message = (
+        f"Token selector found only {candidate_count} candidate "
+        f"sentences for selector_arg={selector_arg!r}. Recall may "
+        "be low. Consider select_by='semantic' for vocabulary "
+        "expansion, or select_by='every_sentence' for recall-first "
+        "(more LLM cost)."
+    )
+    return FindingsWarning(
+        kind=_WARNING_LOW_RECALL_TOKEN,
+        message=message,
+        details=(
+            ("candidate_count", candidate_count),
+            ("candidate_threshold", candidate_threshold),
+            ("question_words", _question_word_count(question)),
+            ("question_words_threshold", question_words_threshold),
+            ("selector_arg", selector_arg),
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -697,6 +1143,7 @@ class FindingsAgent:
     __slots__ = (
         "chunk_size",
         "filter_model",
+        "low_recall_selector_arg",
         "num_parallel",
         "relevance_threshold",
         "runs",
@@ -716,6 +1163,7 @@ class FindingsAgent:
         relevance_threshold: float = 0.5,
         temperature: float = _DEFAULT_TEMPERATURE,
         runs: int = 1,
+        low_recall_selector_arg: str | None = None,
     ) -> None:
         if chunk_size < 1:
             raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
@@ -735,6 +1183,13 @@ class FindingsAgent:
         self.relevance_threshold = relevance_threshold
         self.temperature = temperature
         self.runs = runs
+        # Sprint-2 #6: when set (typically by the K7 tool when
+        # select_by='token'), the agent attaches a low-recall
+        # warning if Phase 1 enumerates too few candidates for a
+        # long question. The string is purely for the warning's
+        # remediation hint ("for selector_arg='X'"); the selector
+        # itself stays opaque to the agent.
+        self.low_recall_selector_arg = low_recall_selector_arg
 
     async def run(
         self,
@@ -752,6 +1207,28 @@ class FindingsAgent:
         candidates = tuple(self.selector(view, question))
         total_enumerated = len(candidates)
         logger.debug("findings.phase1: enumerated %d candidates", total_enumerated)
+
+        # Sprint-2 #6 — low-recall warning. Compute once before
+        # refusal so it surfaces in both the refusal-path result
+        # and the happy-path result. ``low_recall_selector_arg``
+        # is wired by the K7 tool when select_by='token' so the
+        # warning's remediation hint can include the offending
+        # term. Other selectors leave it None and skip the check.
+        warnings_collected: list[FindingsWarning] = []
+        if self.low_recall_selector_arg is not None:
+            warning = low_recall_warning(
+                candidate_count=total_enumerated,
+                question=question,
+                selector_arg=self.low_recall_selector_arg,
+            )
+            if warning is not None:
+                logger.info(
+                    "findings.warning: %s candidate_count=%d question_words=%d",
+                    warning.kind,
+                    total_enumerated,
+                    _question_word_count(question),
+                )
+                warnings_collected.append(warning)
 
         if not candidates:
             refusal = FindingsRefusal(
@@ -782,6 +1259,7 @@ class FindingsAgent:
                 synthesis_cost_usd=0.0,
                 filter_calls=0,
                 refusal=refusal,
+                warnings=tuple(warnings_collected),
             )
 
         # Phase 2 — parallel filter (``runs`` independent passes).
@@ -890,6 +1368,7 @@ class FindingsAgent:
                 synthesis_cost_usd=0.0,
                 filter_calls=total_filter_calls,
                 refusal=refusal,
+                warnings=tuple(warnings_collected),
             )
 
         answer, synthesis_cost = await _synthesize(
@@ -913,6 +1392,7 @@ class FindingsAgent:
             filter_cost_usd=filter_cost,
             synthesis_cost_usd=synthesis_cost,
             filter_calls=total_filter_calls,
+            warnings=tuple(warnings_collected),
         )
 
 
@@ -1156,11 +1636,16 @@ __all__ = [
     "FindingsAgent",
     "FindingsRefusal",
     "FindingsResult",
+    "FindingsWarning",
     "Selector",
     "every_sentence_selector",
+    "expand_question_to_terms",
     "extract_finding_id_citations",
     "flag_injection_suspected",
     "is_injection_suspected",
+    "low_recall_warning",
+    "sanitize_semantic_terms",
+    "sentences_with_any_token_selector",
     "sentences_with_entity_selector",
     "sentences_with_token_selector",
 ]
