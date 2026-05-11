@@ -41,15 +41,24 @@ Manual usage:
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import json
+import os
 import subprocess
+import tempfile
 import time
 import traceback
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+
+# KC6 — env var read by kaos-llm-core's env_recorder when a subprocess
+# imports it. The parent test sets this var (in the subprocess env only,
+# never in its own os.environ) so cross-process LLM calls land in the
+# test's run directory and can be stitched into the main JSONL on exit.
+_SUBPROCESS_ENV_VAR = "KAOS_LLM_CORE_RECORDER_DIR"
 
 # ---------------------------------------------------------------------------
 # Git context
@@ -168,15 +177,31 @@ class _Capture:
             test-body assertion failures — pytest catches them first.
         error_override: Long-form failure repr from pytest's report.
             Only consulted when ``outcome_override == "failed"``.
+        subprocess_dir: Temporary directory passed to subprocesses via
+            ``KAOS_LLM_CORE_RECORDER_DIR`` (KC6). Subprocess
+            kaos-llm-core imports auto-install the env recorder and
+            append per-PID JSONL records here. The records are
+            stitched into the main JSONL on exit.
+        subprocess_records: Stitched records from the subprocess_dir,
+            populated at exit by ``_collect_subprocess_records()``.
     """
 
-    __slots__ = ("error_override", "invocations", "lock_count", "outcome_override")
+    __slots__ = (
+        "error_override",
+        "invocations",
+        "lock_count",
+        "outcome_override",
+        "subprocess_dir",
+        "subprocess_records",
+    )
 
     def __init__(self) -> None:
         self.invocations: list[Any] = []
         self.lock_count: int = 0
         self.outcome_override: str | None = None
         self.error_override: str | None = None
+        self.subprocess_dir: Path | None = None
+        self.subprocess_records: list[dict[str, Any]] = []
 
 
 @asynccontextmanager
@@ -233,6 +258,11 @@ async def record_live_test(
         Call._execute = patched_execute  # ty: ignore[invalid-assignment]
     capture.lock_count += 1
 
+    # KC6: set up a per-test subprocess capture dir + Popen patch so
+    # LLM calls inside spawned children land in our JSONL stitch.
+    capture.subprocess_dir = Path(tempfile.mkdtemp(prefix="kaos-recorder-sub-"))
+    _subprocess_patches = _install_subprocess_env_patches(capture.subprocess_dir)
+
     start_ts = datetime.datetime.now(datetime.UTC).isoformat()
     start_perf = time.perf_counter()
     repo_root = _find_repo_root(out_dir)
@@ -251,6 +281,17 @@ async def record_live_test(
         capture.lock_count -= 1
         if capture.lock_count == 0:
             Call._execute = original_execute
+
+        # KC6: roll back the subprocess.Popen / asyncio patches and
+        # stitch any subprocess-written JSONL records into the
+        # capture. Done before the file write so the main JSONL
+        # carries both in-process and subprocess records.
+        _restore_subprocess_env_patches(_subprocess_patches)
+        try:
+            capture.subprocess_records = _collect_subprocess_records(capture.subprocess_dir)
+        except Exception:
+            capture.subprocess_records = []
+        _cleanup_subprocess_dir(capture.subprocess_dir)
 
         # The caller (typically the pytest conftest fixture) may have
         # stamped a definitive outcome on the capture after ``yield``
@@ -279,9 +320,25 @@ async def record_live_test(
             except Exception:
                 continue
 
+        # KC6: roll subprocess records into the same totals so the
+        # header reflects total spend across both surfaces.
+        for sub_record in capture.subprocess_records:
+            usage_dict = sub_record.get("usage") or {}
+            if not isinstance(usage_dict, dict):
+                continue
+            try:
+                total_cost += float(usage_dict.get("cost_usd", 0.0) or 0.0)
+                total_input_tokens += int(usage_dict.get("input_tokens", 0) or 0)
+                total_output_tokens += int(usage_dict.get("output_tokens", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+
         out_dir.mkdir(parents=True, exist_ok=True)
         fname = _sanitize_nodeid(test_nodeid) + ".jsonl"
         out_path = out_dir / fname
+
+        total_subprocess_calls = len(capture.subprocess_records)
+        total_calls = len(capture.invocations) + total_subprocess_calls
 
         header = {
             "kind": "header",
@@ -292,13 +349,15 @@ async def record_live_test(
             "outcome": outcome,
             "error": error_repr,
             "traceback": error_tb,
-            "call_count": len(capture.invocations),
+            "call_count": total_calls,
+            "in_process_call_count": len(capture.invocations),
+            "subprocess_call_count": total_subprocess_calls,
             "total_cost_usd": round(total_cost, 6),
             "total_input_tokens": total_input_tokens,
             "total_output_tokens": total_output_tokens,
             "git": git_context(repo_root) if repo_root else {},
             "python_version": _python_version(),
-            "schema_version": 1,
+            "schema_version": 2,
             **(extra_metadata or {}),
         }
 
@@ -308,6 +367,13 @@ async def record_live_test(
                 for i, inv in enumerate(capture.invocations, start=1):
                     record = serialize_invocation(inv, call_seq=i)
                     fh.write(json.dumps(record, separators=(",", ":")) + "\n")
+                # KC6: stitched subprocess records, tagged so consumers
+                # can distinguish their origin from in-process records.
+                for j, sub_record in enumerate(
+                    capture.subprocess_records, start=len(capture.invocations) + 1
+                ):
+                    stitched = {**sub_record, "call_seq": j, "source": "subprocess"}
+                    fh.write(json.dumps(stitched, separators=(",", ":")) + "\n")
         except Exception as exc:
             # The recorder must never break tests. If we can't write
             # the JSONL, write a tiny error stub and move on.
@@ -337,7 +403,7 @@ async def record_live_test(
                             "outcome": outcome,
                             "elapsed_s": round(elapsed_s, 4),
                             "total_cost_usd": round(total_cost, 6),
-                            "call_count": len(capture.invocations),
+                            "call_count": total_calls,
                             "end_ts_utc": end_ts,
                             "file": str(out_path.relative_to(out_dir.parent.parent)),
                             "git_short_sha": header["git"].get("short_sha", "")
@@ -379,6 +445,114 @@ def _python_version() -> str:
     import sys
 
     return f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+
+
+# ---------------------------------------------------------------------------
+# KC6 — subprocess capture helpers
+# ---------------------------------------------------------------------------
+
+
+def _inject_env(env_arg: Any, recorder_dir: Path) -> dict[str, str]:
+    """Build the env dict that subprocess.Popen will use.
+
+    Adds ``KAOS_LLM_CORE_RECORDER_DIR`` to whatever the caller passed.
+    When ``env_arg`` is None, copies os.environ so we don't strip the
+    subprocess of every other var.
+    """
+    # Caller may have passed os.environ or a custom dict; copy to
+    # avoid mutating the original. None → start from os.environ so
+    # the subprocess keeps every other var the parent has.
+    base = dict(os.environ) if env_arg is None else dict(env_arg)
+    base[_SUBPROCESS_ENV_VAR] = str(recorder_dir)
+    return base
+
+
+def _install_subprocess_env_patches(recorder_dir: Path) -> dict[str, Any]:
+    """Patch subprocess.Popen + asyncio subprocess helpers to inject the env var.
+
+    Returns the originals dict so ``_restore_subprocess_env_patches``
+    can roll them back. Idempotency / nesting is handled by the
+    caller's lock_count check — this function unconditionally wraps.
+    """
+    originals: dict[str, Any] = {}
+
+    original_popen_init = subprocess.Popen.__init__
+    originals["popen_init"] = original_popen_init
+
+    def patched_popen_init(self: Any, *args: Any, **kwargs: Any) -> None:
+        kwargs["env"] = _inject_env(kwargs.get("env"), recorder_dir)
+        return original_popen_init(self, *args, **kwargs)
+
+    subprocess.Popen.__init__ = patched_popen_init  # ty: ignore[invalid-assignment]
+
+    original_create_exec = asyncio.create_subprocess_exec
+    originals["asyncio_exec"] = original_create_exec
+
+    async def patched_create_exec(*args: Any, **kwargs: Any) -> Any:
+        kwargs["env"] = _inject_env(kwargs.get("env"), recorder_dir)
+        return await original_create_exec(*args, **kwargs)
+
+    asyncio.create_subprocess_exec = patched_create_exec  # ty: ignore[invalid-assignment]
+
+    original_create_shell = asyncio.create_subprocess_shell
+    originals["asyncio_shell"] = original_create_shell
+
+    async def patched_create_shell(*args: Any, **kwargs: Any) -> Any:
+        kwargs["env"] = _inject_env(kwargs.get("env"), recorder_dir)
+        return await original_create_shell(*args, **kwargs)
+
+    asyncio.create_subprocess_shell = patched_create_shell  # ty: ignore[invalid-assignment]
+
+    return originals
+
+
+def _restore_subprocess_env_patches(originals: dict[str, Any]) -> None:
+    """Roll back the patches installed by ``_install_subprocess_env_patches``."""
+    if "popen_init" in originals:
+        subprocess.Popen.__init__ = originals["popen_init"]
+    if "asyncio_exec" in originals:
+        asyncio.create_subprocess_exec = originals["asyncio_exec"]
+    if "asyncio_shell" in originals:
+        asyncio.create_subprocess_shell = originals["asyncio_shell"]
+
+
+def _collect_subprocess_records(recorder_dir: Path | None) -> list[dict[str, Any]]:
+    """Read every ``subprocess-<pid>-<hex>.jsonl`` under ``recorder_dir``.
+
+    Returns the parsed records as a flat list, sorted by PID + line
+    order so deterministic across runs. Missing dir or unreadable
+    files contribute zero records.
+    """
+    if recorder_dir is None or not recorder_dir.exists():
+        return []
+    records: list[dict[str, Any]] = []
+    for jsonl_path in sorted(recorder_dir.glob("subprocess-*.jsonl")):
+        try:
+            with jsonl_path.open("r", encoding="utf-8") as fh:
+                for raw in fh:
+                    stripped = raw.strip()
+                    if not stripped:
+                        continue
+                    try:
+                        records.append(json.loads(stripped))
+                    except json.JSONDecodeError:
+                        # Corrupt line — skip but keep the rest.
+                        continue
+        except OSError:
+            continue
+    return records
+
+
+def _cleanup_subprocess_dir(recorder_dir: Path | None) -> None:
+    """Remove the subprocess recorder tempdir. Best-effort."""
+    if recorder_dir is None:
+        return
+    try:
+        import shutil
+
+        shutil.rmtree(recorder_dir, ignore_errors=True)
+    except Exception:
+        pass
 
 
 __all__ = [
