@@ -1,0 +1,304 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # ────────────── lint ──────────────
+  # Separate from tests so format / lint / type failures fail-fast and
+  # are easy to spot without combing through test output.
+  lint:
+    name: Lint
+    runs-on: kaos-x64-16core
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install Python 3.13
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --group dev --python 3.13
+
+      - name: Ruff format check
+        run: uv run ruff format --check kaos_agents/ tests/
+
+      - name: Ruff lint
+        run: uv run ruff check kaos_agents/ tests/
+
+      - name: Type check (ty)
+        run: uv run ty check kaos_agents/ tests/
+
+  # ────────────── pre-commit ──────────────
+  # Catches any drift between the local pre-commit config and the
+  # checks above. If a contributor disabled their local hooks, this
+  # job still enforces the contract on the PR.
+  pre-commit:
+    name: Pre-commit hooks
+    runs-on: kaos-x64-16core
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install Python 3.13
+        run: uv python install 3.13
+
+      - name: Install dependencies (needed by the local ty hook)
+        run: uv sync --group dev --python 3.13
+
+      - name: Run pre-commit
+        run: uvx pre-commit run --all-files --show-diff-on-failure
+
+  # ────────────── test ──────────────
+  test:
+    name: Test (${{ matrix.display-os }} / Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    # Linux x64 (self-hosted) keeps the 4-Python-version matrix for
+    # fast PR feedback. macOS-arm64 + Windows-x64 each get a single
+    # Python 3.13 leg, gated experimental until proven stable.
+    # Mirrors the cross-OS pattern across the kaos-* family.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ── Linux x64 (self-hosted) — full Python matrix ──
+          - python-version: "3.13"
+            os: kaos-x64-16core
+            display-os: linux-x64
+            experimental: false
+          - python-version: "3.14"
+            os: kaos-x64-16core
+            display-os: linux-x64
+            experimental: false
+          # Free-threaded build (PEP 703).
+          - python-version: "3.14t"
+            os: kaos-x64-16core
+            display-os: linux-x64
+            experimental: true
+          # Pre-release of 3.15.
+          - python-version: "3.15"
+            os: kaos-x64-16core
+            display-os: linux-x64
+            experimental: true
+          # ── macOS arm64 — single Python smoke ──
+          - python-version: "3.13"
+            os: macos-14
+            display-os: macos-arm64
+            experimental: true
+          # ── Windows x64 — single Python smoke ──
+          - python-version: "3.13"
+            os: windows-latest
+            display-os: windows-x64
+            experimental: true
+    continue-on-error: ${{ matrix.experimental }}
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          cache-suffix: test-${{ matrix.display-os }}-py${{ matrix.python-version }}
+
+      - name: Install Python ${{ matrix.python-version }}
+        # `--preview` lets `uv python install` resolve in-development
+        # interpreters (3.15) and the free-threaded variant (3.14t).
+        # No-op for stable versions.
+        run: uv python install --preview ${{ matrix.python-version }}
+
+      - name: Install system build deps (lxml needs libxml2/libxslt headers)
+        # lxml ships pre-built wheels for stable cp3.X releases. For
+        # pre-release Pythons (3.15) and the free-threaded variant
+        # (3.14t), wheels may not exist yet and uv falls back to a
+        # source build. Install the headers so the source build
+        # actually works rather than failing the whole matrix entry.
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libxml2-dev libxslt1-dev
+
+      - name: Install dependencies
+        run: uv sync --group dev --python ${{ matrix.python-version }}
+
+      - name: Run unit tests with coverage
+        # Only `tests/unit/` runs in regular CI. `tests/integration/`
+        # is the live-tier (real provider APIs) — gated behind the
+        # `[live]` PR label so we don't auto-spend on every push.
+        # `shell: bash` for `\` continuations on Windows.
+        shell: bash
+        run: |
+          uv run pytest tests/unit/ \
+            --cov=kaos_agents \
+            --cov-branch \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml
+
+      - name: Upload coverage report
+        if: always() && !matrix.experimental
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-${{ matrix.display-os }}-py${{ matrix.python-version }}
+          path: coverage.xml
+          retention-days: 14
+
+  # ────────────── min-deps ──────────────
+  # Resolve and test against the minimum declared versions of every
+  # dependency so we catch "we said >=X but actually need X+1" drift.
+  # Runs on 3.13 only; 3.14 is the cutting edge and may not have wheels
+  # for very old dep versions.
+  min-deps:
+    name: Test against minimum dependencies
+    runs-on: kaos-x64-16core
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install Python 3.13
+        run: uv python install 3.13
+
+      - name: Install with lowest-direct resolution
+        run: uv sync --group dev --resolution=lowest-direct --python 3.13
+
+      - name: Run unit tests
+        run: |
+          uv run pytest tests/unit/ \
+            --no-cov \
+            -q
+
+  # ────────────── live (opt-in via [live] PR label) ──────────────
+  # Live-API integration tests (real provider calls). Cost-incurring
+  # and slow, so gated behind the `[live]` PR label or manual dispatch.
+  # The job is skipped on every other event so default-PR cost stays
+  # zero.
+  live:
+    name: Live integration tests
+    if: |
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'live')) ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: kaos-x64-16core
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install Python 3.13
+        run: uv python install 3.13
+
+      - name: Install dependencies (with live-tests extra)
+        run: uv sync --group dev --extra live-tests --python 3.13
+
+      - name: Run integration tests (live + network markers)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          GOVINFO_API_KEY: ${{ secrets.GOVINFO_API_KEY }}
+          SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+          EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+          BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+        run: |
+          uv run pytest tests/integration/ \
+            -m "live or network" \
+            --no-cov \
+            -q
+
+  # ────────────── build + wheel smoke test ──────────────
+  build:
+    name: Build distribution + smoke test
+    runs-on: kaos-x64-16core
+    needs: [lint, test]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install Python 3.13
+        run: uv python install 3.13
+
+      - name: Build wheel + sdist
+        run: uv build
+
+      - name: Verify metadata (twine check)
+        run: uvx --from twine twine check --strict dist/*
+
+      - name: Smoke-test the built wheel in a clean venv
+        # Install the actually-built wheel (not the source tree) into a
+        # clean Python environment and exercise the public API. This
+        # catches packaging bugs that source-tree tests miss: missing
+        # data files, broken `__init__.py` exports, sdist-only files
+        # that reference dist-only paths, etc.
+        run: |
+          uv venv --python 3.13 /tmp/smoke
+          uv pip install --python /tmp/smoke/bin/python dist/kaos_agents-*-py3-none-any.whl
+          /tmp/smoke/bin/python -c "
+          import kaos_agents
+          assert kaos_agents.__version__, 'version missing from wheel'
+          # Public symbols import without error.
+          from kaos_agents import (
+              Agent,
+              AgentPattern,
+              AgentResponse,
+              ChatAgent,
+              KaosAgent,
+              PlanExecuteAgent,
+              ResearchAgent,
+              Runner,
+              SessionMemory,
+              register_agent_tools,
+          )
+          # Runtime container resolves and agent tools register.
+          from kaos_core import KaosRuntime
+          rt = KaosRuntime()
+          n = register_agent_tools(rt)
+          assert n > 0, 'no agent tools registered'
+          print(f'kaos-agents {kaos_agents.__version__}: {n} agent tools registered')
+          "
+          # Exercise the CLI entrypoint.
+          /tmp/smoke/bin/kaos-agent --help
+
+      - name: Upload distribution artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist-${{ github.sha }}
+          path: dist/
+          retention-days: 7
