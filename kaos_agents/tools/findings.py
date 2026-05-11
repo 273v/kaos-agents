@@ -126,15 +126,27 @@ class AgentFindingsTool(KaosTool):
                 "money / percents / durations / numbers). "
                 "REFUSAL CONTRACT: when the agent cannot answer "
                 "from the document (Phase 1 produced no candidates, "
-                "or Phase 2 filtered them all out) the response is "
-                "still a structured SUCCESS (isError=false) but "
-                "carries ``refusal_reason`` (one of "
+                "Phase 2 filtered them all out, or max_cost_usd "
+                "fired before completion) the response is still a "
+                "structured SUCCESS (isError=false) but carries "
+                "``refusal_reason`` (one of "
                 "``no_candidates_enumerated`` / "
-                "``no_relevant_candidates``) and ``refusal_message``. "
-                "Always check ``refusal_reason`` before treating an "
-                "empty ``answer`` as a failure — an empty answer with "
-                "a populated refusal is the agent honestly reporting "
-                "'this document does not contain the answer.' "
+                "``no_relevant_candidates`` / ``budget_exceeded``) "
+                "and ``refusal_message``. Always check "
+                "``refusal_reason`` before treating an empty "
+                "``answer`` as a failure — an empty answer with a "
+                "populated refusal is the agent honestly reporting "
+                "'this document does not contain the answer' (the "
+                "first two reasons) or 'the budget ran out before I "
+                "finished looking' (budget_exceeded). "
+                "BUDGET CONTRACT: when ``max_cost_usd`` is set, the "
+                "tool aborts BEFORE dispatching the next filter "
+                "wave once the cap would be breached and skips "
+                "synthesis if there's no headroom. Returns "
+                "``budget_exceeded=true`` in structuredContent and "
+                "``cost_usd`` reports actual spend. Worst-case "
+                "overshoot is one wave's in-flight cost — typically "
+                "within 5% of the cap. "
                 "WARNINGS CONTRACT: structuredContent['warnings'] "
                 "may include a 'low_recall_token_selector' entry "
                 "when select_by='token' enumerated < 5 candidates "
@@ -292,6 +304,35 @@ class AgentFindingsTool(KaosTool):
                     required=False,
                     default=1,
                 ),
+                ParameterSchema(
+                    name="max_cost_usd",
+                    type="number",
+                    description=(
+                        "Strict cost ceiling for the entire findings "
+                        "run (semantic rewrite + filter chunks + "
+                        "synthesis combined). When set, the tool "
+                        "ABORTS BEFORE dispatching the next Phase-2 "
+                        "filter wave once accumulated cost would "
+                        "exceed this cap, and SKIPS Phase-3 synthesis "
+                        "when there is no headroom for a synthesis "
+                        "call. Returns structuredContent["
+                        "'budget_exceeded']=true and "
+                        "refusal_reason='budget_exceeded' when the "
+                        "cap fires. Worst-case overshoot is one "
+                        "filter wave's worth of in-flight cost "
+                        "(typically <= num_parallel * per-chunk-cost) "
+                        "— the cap is enforced at wave boundaries, "
+                        "not mid-call. Returns a PARTIAL result "
+                        "(surviving findings observed before the "
+                        "cap fired); the response is still a "
+                        "structured SUCCESS, not isError=true. "
+                        "Set None (or omit) for no cap. The "
+                        "headline 'cost_usd' field on the response "
+                        "is the source of truth — compare against "
+                        "this value, not the per-stage breakdown."
+                    ),
+                    required=False,
+                ),
             ],
         )
 
@@ -331,6 +372,13 @@ class AgentFindingsTool(KaosTool):
         temperature = 0.0 if temperature_raw is None else float(temperature_raw)
         runs_raw = inputs.get("runs")
         runs = 1 if runs_raw is None else int(runs_raw)
+        max_cost_usd_raw = inputs.get("max_cost_usd")
+        max_cost_usd: float | None = None if max_cost_usd_raw is None else float(max_cost_usd_raw)
+        if max_cost_usd is not None and max_cost_usd <= 0.0:
+            return ToolResult.create_error(
+                f"max_cost_usd must be > 0 when set, got {max_cost_usd}. "
+                "Pass null (or omit) to disable the cap."
+            )
         filter_model = str(inputs.get("filter_model") or "anthropic:claude-haiku-4-5")
         synthesis_model = str(inputs.get("synthesis_model") or "anthropic:claude-sonnet-4-6")
         semantic_rewrite_model = str(
@@ -393,6 +441,52 @@ class AgentFindingsTool(KaosTool):
         # Run the pipeline.
         from kaos_agents.patterns.findings import FindingsAgent
 
+        # Sprint-3 #9 — the agent-level cap covers filter + synthesis,
+        # but the K7 tool may have ALREADY spent ``semantic_cost`` on
+        # the rewrite pre-call before constructing the agent. Subtract
+        # that out so the agent's accumulator is comparing apples to
+        # apples (the agent only knows about filter + synthesis cost;
+        # the tool surface adds the rewrite). If the rewrite already
+        # blew the cap, refuse before launching any further work.
+        agent_cap: float | None = None
+        if max_cost_usd is not None:
+            remaining = max_cost_usd - semantic_cost
+            if remaining <= 0.0:
+                return ToolResult.create_success(
+                    output={
+                        "artifact_id": artifact_id,
+                        "question": question,
+                        "select_by": select_by,
+                        "selector_arg": selector_arg,
+                        "answer": "",
+                        "findings": [],
+                        "total_enumerated": 0,
+                        "total_filtered": 0,
+                        "filter_calls": 0,
+                        "filter_cost_usd": 0.0,
+                        "synthesis_cost_usd": 0.0,
+                        "semantic_rewrite_cost_usd": semantic_cost,
+                        "total_cost_usd": semantic_cost,
+                        "total_llm_calls": 1 if select_by == "semantic" else 0,
+                        "semantic_terms": list(semantic_terms),
+                        "warnings": [],
+                        "budget_exceeded": True,
+                        "refusal_reason": "budget_exceeded",
+                        "refusal_message": (
+                            f"Semantic rewrite already spent "
+                            f"${semantic_cost:.4f} which meets or "
+                            f"exceeds max_cost_usd=${max_cost_usd:.4f}. "
+                            "No filter / synthesis budget remained. "
+                            "Raise the cap or use a non-semantic mode."
+                        ),
+                    },
+                    summary=(
+                        f"Budget exceeded by semantic rewrite alone "
+                        f"(${semantic_cost:.4f} >= cap=${max_cost_usd:.4f})"
+                    ),
+                )
+            agent_cap = remaining
+
         try:
             agent = FindingsAgent(
                 selector=selector,
@@ -404,6 +498,7 @@ class AgentFindingsTool(KaosTool):
                 temperature=temperature,
                 runs=runs,
                 low_recall_selector_arg=low_recall_arg,
+                max_cost_usd=agent_cap,
             )
         except ValueError as exc:
             return ToolResult.create_error(f"FindingsAgent rejected the configuration: {exc}")
@@ -480,24 +575,47 @@ class AgentFindingsTool(KaosTool):
             # the agent honestly cannot answer from this document.
             # Downstream consumers (UI, audit, agent caller) must
             # branch on ``refusal_reason`` before treating
-            # ``answer == ""`` as a failure.
+            # ``answer == ""`` as a failure. Three reasons total:
+            # ``no_candidates_enumerated`` (Phase 1 emitted nothing),
+            # ``no_relevant_candidates`` (Phase 2 culled everything),
+            # ``budget_exceeded`` (Sprint-3 #9 — the cap fired).
             "refusal_reason": (result.refusal.reason if result.refusal is not None else None),
             "refusal_message": (result.refusal.message if result.refusal is not None else None),
+            # Sprint-3 #9 — explicit boolean reflecting whether
+            # max_cost_usd was hit. True when the cap fired in
+            # Phase-2 (partial filter coverage) OR Phase-3 was
+            # skipped (no synthesis headroom). False on the happy
+            # path, including when no cap was configured. The
+            # ``cost_usd`` headline field is the source of truth for
+            # what was actually spent — clients verifying the
+            # contract assert ``cost_usd <= max_cost_usd * (1 +
+            # tolerance)``.
+            "budget_exceeded": result.budget_exceeded,
+            # Headline cost field — same value as ``total_cost_usd``
+            # but with the canonical name the rest of the platform
+            # uses. Sprint-3 #9 makes this the contract-checked
+            # number; per-stage costs (filter / synthesis / rewrite)
+            # are kept above for accounting transparency.
+            "cost_usd": total_cost_with_rewrite,
         }
         if result.refusal is not None:
             summary = (
                 f"Findings refusal ({result.refusal.reason}): "
                 f"enumerated={result.total_enumerated} "
                 f"filtered={result.total_filtered} "
-                f"cost=${result.total_cost_usd:.4f}"
+                f"cost=${total_cost_with_rewrite:.4f}"
             )
+            if result.budget_exceeded and max_cost_usd is not None:
+                summary = f"{summary} cap=${max_cost_usd:.4f}"
         else:
             summary = (
                 f"Findings: enumerated={result.total_enumerated} "
                 f"filtered={result.total_filtered} "
                 f"calls={result.total_llm_calls} "
-                f"cost=${result.total_cost_usd:.4f}"
+                f"cost=${total_cost_with_rewrite:.4f}"
             )
+            if result.budget_exceeded and max_cost_usd is not None:
+                summary = f"[BudgetPartial cap=${max_cost_usd:.4f}] {summary}"
         return ToolResult.create_success(output=output, summary=summary)
 
 

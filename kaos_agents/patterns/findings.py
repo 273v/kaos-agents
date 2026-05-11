@@ -167,6 +167,21 @@ realistic vocabulary expansion ("cyber", "security", "auth",
 "penetration testing", "encryption", "firewall", "intrusion",
 "vulnerability") on a typical diligence question."""
 
+_DEFAULT_SYNTHESIS_COST_ESTIMATE_USD = 0.02
+"""Conservative headroom check for the Phase-3 synthesis call.
+
+Sprint-3 #9 (transparency — the tool keeps its own contract): when
+``FindingsAgent`` carries a ``max_cost_usd`` cap, the agent must
+decide before dispatching the synthesis call whether spending more
+would breach the cap. A Sonnet 4.6 synthesis over 20-50 surviving
+findings typically lands at $0.01-0.03; $0.02 is the working
+default. Callers running a cheaper synthesis model (Haiku) can
+override down; callers running Opus-grade synthesis should override
+up. The check is conservative — it prefers an honest budget
+refusal (REFUSAL_BUDGET_EXCEEDED) over a "just one more call"
+overshoot."""
+
+
 _DEFAULT_SEMANTIC_REWRITE_MODEL = "anthropic:claude-haiku-4-5"
 """Default model for the semantic-rewrite pre-call.
 
@@ -273,6 +288,29 @@ none of them relevant enough to pass to synthesis. This is the
 canonical "the answer is not in this document" signal — for example
 asking "what is the liquidated damages amount?" of an NDA that has
 no such clause.
+"""
+
+
+REFUSAL_BUDGET_EXCEEDED = "budget_exceeded"
+"""The configured ``max_cost_usd`` cap was hit before synthesis could run.
+
+Sprint-3 #9 (transparency — the tool keeps its own contract). The
+agent honored the cost cap and either aborted Phase 2 mid-flight
+(partial filter coverage) or skipped Phase 3 synthesis (no
+headroom to call the synthesis model). The result still carries
+the surviving findings found before the cap fired so the caller
+can see what work was done; ``answer`` is empty because synthesis
+was skipped.
+
+This is **NOT** the same refusal as
+:data:`REFUSAL_NO_RELEVANT_CANDIDATES` — that signal means "the
+agent looked at every candidate and judged none relevant." The
+budget refusal means "the agent did not finish looking; the
+configured spending ceiling stopped the run before completion."
+Consumers must branch on the reason because the remediation
+differs: ``no_relevant_candidates`` → "the answer is not in
+this document"; ``budget_exceeded`` → "raise the cap and re-run,
+or accept the partial findings."
 """
 
 
@@ -385,6 +423,17 @@ class FindingsResult:
     synthesis_cost_usd: float
     filter_calls: int
     refusal: FindingsRefusal | None = None
+    budget_exceeded: bool = False
+    """Sprint-3 #9 — True when ``FindingsAgent(max_cost_usd=...)``
+    was set and the accumulated LLM spend hit the cap. The run
+    completed gracefully (no exception, no isError) but ``answer``
+    may be empty (synthesis skipped) and / or ``total_filtered``
+    may be smaller than ``total_enumerated`` (filter chunks were
+    short-circuited). Compose with ``refusal`` to see whether the
+    refusal was budget-driven or no-candidates-driven.
+
+    Always present (default False); consumers can branch on this
+    cheaply without a None-check."""
     warnings: tuple[FindingsWarning, ...] = ()
     """Structured informational warnings produced during the run.
 
@@ -1137,17 +1186,42 @@ class FindingsAgent:
             test in ``tests/integration/test_findings_consistency_live.py``
             shows ``runs=2`` reliably captures the indemnification
             clause that the trust-skeptic probe saw missing in
-            1/5 single-run synth passes.
+            1/5 single-run synth passes. The ``max_cost_usd`` cap
+            (when set) bounds the TOTAL spend across all runs +
+            synthesis combined — it is not a per-run cap.
+        max_cost_usd: Sprint-3 #9 strict cost ceiling. ``None``
+            (default) means uncapped. When set: after each Phase-2
+            chunk-wave completes, the accumulated filter cost is
+            checked against the cap; if exceeded, remaining filter
+            chunks are not dispatched and the result carries
+            ``budget_exceeded=True`` (plus a partial filter
+            coverage flag). Before Phase-3 synthesis, the agent
+            checks whether ``filter_cost + synthesis_cost_estimate_usd``
+            would breach the cap; if it would, synthesis is skipped
+            and the result carries
+            :data:`REFUSAL_BUDGET_EXCEEDED` so callers can
+            distinguish "the agent honored its contract" from "the
+            agent looked at everything and found nothing." The cap
+            is enforced at wave boundaries (granularity =
+            ``num_parallel`` chunks); the worst-case overshoot is
+            one wave's worth of in-flight filter cost.
+        synthesis_cost_estimate_usd: Pre-synthesis headroom check.
+            Default $0.02 — a Sonnet 4.6 synthesis over typical
+            survivor counts. Override down when synthesis runs on
+            Haiku; override up for Opus-grade synthesis. Ignored
+            when ``max_cost_usd`` is ``None``.
     """
 
     __slots__ = (
         "chunk_size",
         "filter_model",
         "low_recall_selector_arg",
+        "max_cost_usd",
         "num_parallel",
         "relevance_threshold",
         "runs",
         "selector",
+        "synthesis_cost_estimate_usd",
         "synthesis_model",
         "temperature",
     )
@@ -1164,6 +1238,8 @@ class FindingsAgent:
         temperature: float = _DEFAULT_TEMPERATURE,
         runs: int = 1,
         low_recall_selector_arg: str | None = None,
+        max_cost_usd: float | None = None,
+        synthesis_cost_estimate_usd: float = _DEFAULT_SYNTHESIS_COST_ESTIMATE_USD,
     ) -> None:
         if chunk_size < 1:
             raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
@@ -1175,6 +1251,14 @@ class FindingsAgent:
             raise ValueError(f"temperature must be >= 0, got {temperature}")
         if runs < 1:
             raise ValueError(f"runs must be >= 1, got {runs}")
+        if max_cost_usd is not None and max_cost_usd <= 0.0:
+            raise ValueError(
+                f"max_cost_usd must be > 0 when set, got {max_cost_usd}. Pass None for no cap."
+            )
+        if synthesis_cost_estimate_usd < 0.0:
+            raise ValueError(
+                f"synthesis_cost_estimate_usd must be >= 0, got {synthesis_cost_estimate_usd}."
+            )
         self.selector = selector
         self.filter_model = filter_model
         self.synthesis_model = synthesis_model
@@ -1183,6 +1267,20 @@ class FindingsAgent:
         self.relevance_threshold = relevance_threshold
         self.temperature = temperature
         self.runs = runs
+        # Sprint-3 #9 — strict cost ceiling. None means uncapped.
+        # When set: Phase 2 chunk dispatch checks accumulated filter
+        # cost after each chunk completes; if the next chunk would
+        # push past the cap we stop dispatching new chunks and return
+        # a partial result with budget_exceeded=True. If filter
+        # finishes but accumulated + synthesis_cost_estimate_usd >
+        # cap, synthesis is skipped and the result carries
+        # REFUSAL_BUDGET_EXCEEDED.
+        self.max_cost_usd = max_cost_usd
+        # Used as the headroom check before launching synthesis.
+        # Conservative default of $0.02 reflects a Sonnet 4.6
+        # synthesis call over ~20-50 surviving findings; tunable for
+        # cheaper / pricier synthesis models.
+        self.synthesis_cost_estimate_usd = synthesis_cost_estimate_usd
         # Sprint-2 #6: when set (typically by the K7 tool when
         # select_by='token'), the agent attaches a low-recall
         # warning if Phase 1 enumerates too few candidates for a
@@ -1272,39 +1370,74 @@ class FindingsAgent:
         # ``finding_id`` (Sprint-2 #5: same sentence → same id, so
         # set-union is well-defined). Cost scales linearly with
         # ``runs``; synthesis still fires once.
+        #
+        # Sprint-3 #9 (transparency — tool keeps its contract):
+        # when ``max_cost_usd`` is set, the chunk dispatcher gates
+        # each wave through a budget check. We dispatch chunks in
+        # waves of ``num_parallel`` for both runs together; after
+        # each wave completes we accumulate the chunk costs and stop
+        # dispatching further chunks if the cap would be breached.
+        # Any chunks already in flight finish (we don't cancel mid-
+        # call — that would discard work already paid for). The
+        # union step only sees the chunks that actually completed,
+        # and the result carries ``budget_exceeded=True`` plus a
+        # partial filter coverage flag for the caller.
         chunks = _chunk(candidates, self.chunk_size)
-        sem = asyncio.Semaphore(self.num_parallel)
+        # Flatten (run, chunk) → linear work queue so the wave-batched
+        # dispatch loop can stop cleanly when the cap fires. The order
+        # is deterministic: run 0 / chunk 0, run 0 / chunk 1, ..., run
+        # 1 / chunk 0, ... which mirrors the historical asyncio.gather
+        # nested-gather shape but lets us peel work units off the
+        # front instead of awaiting all of them at once.
+        work_units: list[tuple[int, int, tuple[FindingCandidate, ...]]] = [
+            (run_idx, chunk_idx, chunk)
+            for run_idx in range(self.runs)
+            for chunk_idx, chunk in enumerate(chunks)
+        ]
 
         async def _run_chunk(
             chunk: tuple[FindingCandidate, ...],
         ) -> tuple[tuple[FilteredFinding, ...], float]:
-            async with sem:
-                return await _filter_chunk(
-                    chunk,
-                    question=question,
-                    model=self.filter_model,
-                    threshold=self.relevance_threshold,
-                    temperature=self.temperature,
-                )
+            return await _filter_chunk(
+                chunk,
+                question=question,
+                model=self.filter_model,
+                threshold=self.relevance_threshold,
+                temperature=self.temperature,
+            )
 
-        # Fan out runs * chunks calls and await them all together.
-        # We need to know which run / which chunk each result came
-        # from for cost accounting; the union step only cares about
-        # the surviving findings.
-        per_run_chunk_results = await asyncio.gather(
-            *(asyncio.gather(*(_run_chunk(c) for c in chunks)) for _ in range(self.runs)),
-        )
-
-        # Union surviving findings across runs by finding_id. The
-        # deterministic id guarantees that the same sentence in the
-        # same source produces the same id on every run; max
-        # relevance wins on conflict so a less-confident pass
-        # doesn't drag the score down.
         survivors_by_id: dict[str, FilteredFinding] = {}
         filter_cost = 0.0
         total_filter_calls = 0
-        for run_idx, chunk_results in enumerate(per_run_chunk_results):
-            for chunk_survivors, chunk_cost in chunk_results:
+        budget_exceeded_during_filter = False
+        cap = self.max_cost_usd
+        # Dispatch in waves of num_parallel. When uncapped, this is
+        # equivalent to the historical asyncio.gather-everything
+        # behavior modulo the wave granularity (which is bounded by
+        # the same semaphore size num_parallel anyway). When capped,
+        # we get clean abort semantics at wave boundaries.
+        idx = 0
+        while idx < len(work_units):
+            if cap is not None and filter_cost >= cap:
+                # Pre-wave check: we've already crossed the cap, stop
+                # dispatching new work. Any chunks already counted
+                # contribute to the partial result.
+                budget_exceeded_during_filter = True
+                logger.info(
+                    "findings.budget_exceeded: filter_cost=$%.4f >= cap=$%.4f "
+                    "(after %d/%d chunks), aborting remaining filter work",
+                    filter_cost,
+                    cap,
+                    total_filter_calls,
+                    len(work_units),
+                )
+                break
+            wave_end = min(idx + self.num_parallel, len(work_units))
+            wave = work_units[idx:wave_end]
+            wave_results = await asyncio.gather(*(_run_chunk(c) for _, _, c in wave))
+            for (_run_idx, _chunk_idx, _chunk_item), (chunk_survivors, chunk_cost) in zip(
+                wave, wave_results, strict=True
+            ):
                 filter_cost += chunk_cost
                 total_filter_calls += 1
                 for finding in chunk_survivors:
@@ -1312,11 +1445,13 @@ class FindingsAgent:
                     if existing is None or finding.relevance > existing.relevance:
                         survivors_by_id[finding.candidate.finding_id] = finding
             logger.debug(
-                "findings.phase2.run %d/%d: union size so far = %d",
-                run_idx + 1,
-                self.runs,
+                "findings.phase2.wave: end=%d/%d filter_cost=$%.4f survivors=%d",
+                wave_end,
+                len(work_units),
+                filter_cost,
                 len(survivors_by_id),
             )
+            idx = wave_end
 
         # Sort by relevance descending, ties broken by finding_id
         # for stable ordering across runs.
@@ -1337,20 +1472,45 @@ class FindingsAgent:
 
         # Phase 3 — synthesize.
         if not survivors:
-            refusal = FindingsRefusal(
-                reason=REFUSAL_NO_RELEVANT_CANDIDATES,
-                message=(
-                    f"FindingsAgent: the cheap filter pass judged all "
-                    f"{total_enumerated} Phase-1 candidate(s) "
-                    f"irrelevant across {self.runs} run(s). Synthesis "
-                    "was skipped to avoid hallucinating an answer "
-                    "without evidence. This is the canonical "
-                    "'answer is not in this document' signal — the "
-                    "agent did look at every candidate."
-                ),
-                candidates_enumerated=total_enumerated,
-                candidates_surviving_filter=0,
-            )
+            # Distinguish two no-survivor paths:
+            #   (a) every chunk ran and the filter culled them all
+            #       → REFUSAL_NO_RELEVANT_CANDIDATES (the agent
+            #       looked at everything and the answer isn't here)
+            #   (b) the cap fired before every chunk ran AND no
+            #       survivors came out of the chunks that did run
+            #       → REFUSAL_BUDGET_EXCEEDED (the agent did NOT
+            #       finish looking; the cap caused the empty result)
+            if budget_exceeded_during_filter:
+                refusal = FindingsRefusal(
+                    reason=REFUSAL_BUDGET_EXCEEDED,
+                    message=(
+                        f"FindingsAgent: max_cost_usd=${cap:.4f} cap "
+                        f"was hit during Phase-2 filtering after "
+                        f"{total_filter_calls}/{len(work_units)} "
+                        f"chunks (filter_cost=${filter_cost:.4f}). "
+                        "The completed chunks produced no surviving "
+                        "candidates, but the agent did NOT finish "
+                        "looking at every chunk — raise the cap and "
+                        "re-run, or accept this as a partial result."
+                    ),
+                    candidates_enumerated=total_enumerated,
+                    candidates_surviving_filter=0,
+                )
+            else:
+                refusal = FindingsRefusal(
+                    reason=REFUSAL_NO_RELEVANT_CANDIDATES,
+                    message=(
+                        f"FindingsAgent: the cheap filter pass judged all "
+                        f"{total_enumerated} Phase-1 candidate(s) "
+                        f"irrelevant across {self.runs} run(s). Synthesis "
+                        "was skipped to avoid hallucinating an answer "
+                        "without evidence. This is the canonical "
+                        "'answer is not in this document' signal — the "
+                        "agent did look at every candidate."
+                    ),
+                    candidates_enumerated=total_enumerated,
+                    candidates_surviving_filter=0,
+                )
             logger.info(
                 "findings.refusal: reason=%s question=%r enumerated=%d surviving=0 runs=%d",
                 refusal.reason,
@@ -1368,6 +1528,54 @@ class FindingsAgent:
                 synthesis_cost_usd=0.0,
                 filter_calls=total_filter_calls,
                 refusal=refusal,
+                budget_exceeded=budget_exceeded_during_filter,
+                warnings=tuple(warnings_collected),
+            )
+
+        # Pre-synthesis budget check: if we don't have headroom to
+        # fit a Phase-3 synthesis call inside the remaining cap, skip
+        # it and return the surviving findings with a budget refusal.
+        # Better an honest partial-and-skipped-synthesis than a
+        # "one more call" overshoot.
+        if cap is not None and filter_cost + self.synthesis_cost_estimate_usd > cap:
+            refusal = FindingsRefusal(
+                reason=REFUSAL_BUDGET_EXCEEDED,
+                message=(
+                    f"FindingsAgent: max_cost_usd=${cap:.4f} cap "
+                    f"would be breached by Phase-3 synthesis. "
+                    f"Phase-2 filter spent ${filter_cost:.4f}; "
+                    f"synthesis estimate ${self.synthesis_cost_estimate_usd:.4f} "
+                    f"would push total to "
+                    f"${filter_cost + self.synthesis_cost_estimate_usd:.4f} "
+                    f"> cap=${cap:.4f}. Synthesis skipped. "
+                    f"Returning {len(survivors)} surviving finding(s) "
+                    "as partial result — caller can either consume "
+                    "the findings directly, or raise the cap and "
+                    "re-run for the synthesized answer."
+                ),
+                candidates_enumerated=total_enumerated,
+                candidates_surviving_filter=len(survivors),
+            )
+            logger.info(
+                "findings.budget_exceeded: skipping synthesis "
+                "(filter=$%.4f + synth_estimate=$%.4f > cap=$%.4f) "
+                "returning %d survivors",
+                filter_cost,
+                self.synthesis_cost_estimate_usd,
+                cap,
+                len(survivors),
+            )
+            return FindingsResult(
+                question=question,
+                answer="",
+                findings=tuple(survivors),
+                total_enumerated=total_enumerated,
+                total_filtered=total_filtered,
+                filter_cost_usd=filter_cost,
+                synthesis_cost_usd=0.0,
+                filter_calls=total_filter_calls,
+                refusal=refusal,
+                budget_exceeded=True,
                 warnings=tuple(warnings_collected),
             )
 
@@ -1383,6 +1591,12 @@ class FindingsAgent:
             len(answer),
         )
 
+        # If we got here with partial filter coverage (budget fired
+        # mid-Phase-2) but did find survivors and had synthesis
+        # headroom, the result is "happy path with partial filter"
+        # — we surface budget_exceeded=True so the caller knows the
+        # findings aren't from a complete scan, even though synthesis
+        # did run on the survivors we have.
         return FindingsResult(
             question=question,
             answer=answer,
@@ -1392,6 +1606,7 @@ class FindingsAgent:
             filter_cost_usd=filter_cost,
             synthesis_cost_usd=synthesis_cost,
             filter_calls=total_filter_calls,
+            budget_exceeded=budget_exceeded_during_filter,
             warnings=tuple(warnings_collected),
         )
 
@@ -1629,6 +1844,7 @@ def extract_finding_id_citations(answer: str) -> tuple[str, ...]:
 
 
 __all__ = [
+    "REFUSAL_BUDGET_EXCEEDED",
     "REFUSAL_NO_CANDIDATES_ENUMERATED",
     "REFUSAL_NO_RELEVANT_CANDIDATES",
     "FilteredFinding",

@@ -119,6 +119,25 @@ class AgentCorpusFilterTool(KaosTool):
                     required=False,
                     default="anthropic:claude-haiku-4-5",
                 ),
+                ParameterSchema(
+                    name="max_cost_usd",
+                    type="number",
+                    description=(
+                        "Strict cost ceiling for the filter call. "
+                        "K8 makes ONE LLM call (one classification "
+                        "over all artifacts' summaries), so the cap "
+                        "is checked AFTER the call returns — there "
+                        "is no mid-call abort path. Returns "
+                        "structuredContent['budget_exceeded']=true "
+                        "when the actual spend exceeded the cap so "
+                        "callers can detect (and audit) the "
+                        "overshoot. For genuinely strict pre-call "
+                        "enforcement, use kaos-content-corpus-narrow "
+                        "instead (BM25 only, zero LLM spend). Set "
+                        "null (or omit) to disable the check."
+                    ),
+                    required=False,
+                ),
             ],
         )
 
@@ -140,6 +159,14 @@ class AgentCorpusFilterTool(KaosTool):
         max_keep = 20 if max_keep_raw is None else int(max_keep_raw)
         if max_keep < 1:
             return ToolResult.create_error("'max_keep' must be >= 1.")
+
+        max_cost_usd_raw = inputs.get("max_cost_usd")
+        max_cost_usd: float | None = None if max_cost_usd_raw is None else float(max_cost_usd_raw)
+        if max_cost_usd is not None and max_cost_usd <= 0.0:
+            return ToolResult.create_error(
+                f"max_cost_usd must be > 0 when set, got {max_cost_usd}. "
+                "Pass null (or omit) to disable the cap."
+            )
 
         model = str(inputs.get("model") or "anthropic:claude-haiku-4-5")
 
@@ -179,6 +206,7 @@ class AgentCorpusFilterTool(KaosTool):
                     "total_input": len(raw_ids),
                     "total_loadable": 0,
                     "cost_usd": 0.0,
+                    "budget_exceeded": False,
                 },
                 summary="No artifacts loadable; nothing to filter.",
             )
@@ -197,6 +225,22 @@ class AgentCorpusFilterTool(KaosTool):
                 "kaos-content-corpus-narrow which is BM25-only."
             )
 
+        # Sprint-3 #9 — the K8 path is one LLM call. We cannot abort
+        # mid-call, so the cap is checked AFTER the call returns:
+        # if actual_cost > max_cost_usd, surface budget_exceeded so
+        # callers can audit / branch on the overshoot. The findings
+        # work unit IS still returned (we already paid for it; we
+        # don't throw away the result).
+        budget_exceeded = False
+        if max_cost_usd is not None and cost > max_cost_usd:
+            budget_exceeded = True
+            logger.info(
+                "corpus_filter.budget_exceeded: actual=$%.4f > cap=$%.4f "
+                "(K8 is a single LLM call, mid-call abort is not possible)",
+                cost,
+                max_cost_usd,
+            )
+
         output = {
             "intent": intent,
             "kept": kept,
@@ -204,11 +248,14 @@ class AgentCorpusFilterTool(KaosTool):
             "total_input": len(raw_ids),
             "total_loadable": len(rendered_artifacts),
             "cost_usd": cost,
+            "budget_exceeded": budget_exceeded,
         }
         summary_text = (
             f"Kept {len(kept)} of {len(rendered_artifacts)} loadable "
             f"artifacts (max_keep={max_keep}), cost=${cost:.4f}"
         )
+        if budget_exceeded and max_cost_usd is not None:
+            summary_text = f"[BudgetOvershoot cap=${max_cost_usd:.4f}] {summary_text}"
         return ToolResult.create_success(output=output, summary=summary_text)
 
 

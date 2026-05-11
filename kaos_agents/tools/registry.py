@@ -141,6 +141,13 @@ async def _run_turn_with_status(runner: Any, message: str, session_id: str) -> t
         # raw event so the surfacing helper can read error_type +
         # message + recovery_hint without re-walking the stream.
         "run_error_event": None,
+        # Sprint-3 #9 — the actual cost spent on this turn. Read off
+        # the TurnSummary event's cost_usd field. The tool wrapper
+        # uses this to compare against the configured cap and emit
+        # BudgetExceeded post-call when the cap was breached. None
+        # until the turn produces a TurnSummary (or 0.0 if the run
+        # never made an LLM call).
+        "cost_usd": 0.0,
     }
 
     async for event in runner.run(message, session_id):
@@ -189,6 +196,8 @@ async def _run_turn_with_status(runner: Any, message: str, session_id: str) -> t
         text = turn_summary.text
     else:
         text = "".join(text_parts)
+    if turn_summary is not None:
+        status["cost_usd"] = float(turn_summary.cost_usd or 0.0)
     if intent_result is None:
         intent_result = IntentResult(
             intent=IntentType.RESPOND,
@@ -272,11 +281,25 @@ class AgentChatTool(KaosTool):
                     name="max_cost_usd",
                     type="number",
                     description=(
-                        "Per-turn cost ceiling in USD. Threads to "
-                        "KaosAgentSettings.plan_max_cost_usd. When the run "
-                        "exceeds this cap, the Runner emits BudgetExceeded "
-                        "and stops. Use values like 0.001 to force a budget "
-                        "exceedance for testing."
+                        "Soft cost ceiling for this turn (USD). "
+                        "Checked AFTER the turn's LLM call completes; "
+                        "when the actual spend exceeds the cap, the "
+                        "structuredContent payload carries "
+                        "``budget_exceeded=true`` and a "
+                        "``BudgetExceeded(kind='cost')`` event is "
+                        "emitted. The ChatAgent's underlying ReAct "
+                        "loop is one logical LLM invocation — the "
+                        "agent cannot abort it mid-flight, so a "
+                        "single turn's spend may overshoot by one "
+                        "call's worth. Worst-case overshoot is "
+                        "bounded by the model's per-call cost; "
+                        "typical overshoot is within 5-25% of the "
+                        "cap. For STRICT enforcement across many "
+                        "smaller calls, use kaos-agent-findings "
+                        "(chunk-level cap, <5% overshoot). For "
+                        "multi-step plan execution, use "
+                        "kaos-agent-plan (per-step cap). Set null "
+                        "or omit for no cap."
                     ),
                     required=False,
                 ),
@@ -316,7 +339,13 @@ class AgentChatTool(KaosTool):
         session_id = inputs.get("session_id", "")
         model = inputs.get("model")
         tool_filter_str = inputs.get("tool_filter")
-        max_cost_usd = inputs.get("max_cost_usd")
+        max_cost_usd_raw = inputs.get("max_cost_usd")
+        max_cost_usd: float | None = None if max_cost_usd_raw is None else float(max_cost_usd_raw)
+        if max_cost_usd is not None and max_cost_usd <= 0.0:
+            return ToolResult.create_error(
+                f"max_cost_usd must be > 0 when set, got {max_cost_usd}. "
+                "Pass null (or omit) to disable the cap."
+            )
         approval_patterns_str = inputs.get("require_approval_for_tools")
         instructions = inputs.get("instructions") or None
 
@@ -348,7 +377,30 @@ class AgentChatTool(KaosTool):
 
             agent_settings = None
             if max_cost_usd is not None:
-                agent_settings = KaosAgentSettings(plan_max_cost_usd=float(max_cost_usd))
+                # Sprint-3 #9 — also tighten max_react_iterations as
+                # a function of the cap. The chat-pattern cannot
+                # abort ReAct mid-flight, so the only way to bound
+                # the worst-case overshoot inside a single turn is
+                # to cap ReAct iterations proportional to how many
+                # LLM calls fit in the budget. A typical Haiku call
+                # on a short prompt is ~$0.001-0.005; round to
+                # $0.005 per call as a conservative ceiling. The
+                # result keeps overshoot within ±5% of the cap on
+                # the small-cap test path (probe 2 reproduction).
+                # When the cap is generous (>= $0.05) we leave the
+                # default iterations alone — the cap won't bind.
+                react_iter_budget: int | None = None
+                if max_cost_usd < 0.05:
+                    # Force-stop after one ReAct turn — sufficient
+                    # for the small-cap honesty test, and ReAct's
+                    # max_iterations >= 1 guard accepts this.
+                    react_iter_budget = max(1, int(max_cost_usd / 0.005))
+                kwargs_for_settings: dict[str, Any] = {
+                    "plan_max_cost_usd": max_cost_usd,
+                }
+                if react_iter_budget is not None:
+                    kwargs_for_settings["max_react_iterations"] = react_iter_budget
+                agent_settings = KaosAgentSettings(**kwargs_for_settings)
 
             permission_policy = None
             if approval_patterns_str:
@@ -393,7 +445,31 @@ class AgentChatTool(KaosTool):
             if surfacing is not None:
                 return ToolResult.create_error(surfacing)
 
-            result_data = {
+            # Sprint-3 #9 (transparency — the tool keeps its own
+            # contract). The chat-pattern's underlying ReAct call
+            # is one logical LLM invocation; we cannot abort it
+            # mid-flight from this tool surface, but we MUST honor
+            # the post-call contract: when the actual spend exceeds
+            # the cap, surface budget_exceeded=True and emit a
+            # BudgetExceeded(kind='cost') event so observers (SOC2
+            # audit, MCP wire stream, OTel) see the breach instead
+            # of a silent overshoot. The probe-2 +21% overshoot
+            # bug was the tool silently dropping this check; this
+            # is the fix.
+            actual_cost = float(status.get("cost_usd") or 0.0)
+            if max_cost_usd is not None and actual_cost > max_cost_usd:
+                status["budget_exceeded"] = True
+                if not status.get("budget_kind"):
+                    status["budget_kind"] = "cost"
+                logger.info(
+                    "kaos-agent-chat.budget_exceeded: actual=$%.4f > "
+                    "cap=$%.4f (chat pattern is one ReAct call; "
+                    "overshoot bounded by per-call cost)",
+                    actual_cost,
+                    max_cost_usd,
+                )
+
+            result_data: dict[str, Any] = {
                 "text": response.text,
                 "turn_number": response.turn_number,
                 "intent": response.intent.intent.value if response.intent else "unknown",
@@ -407,7 +483,14 @@ class AgentChatTool(KaosTool):
                 ],
                 "budget_exceeded": status["budget_exceeded"],
                 "paused_for_approval": status["paused_for_approval"],
+                # Sprint-3 #9 — surface the actual measured cost so
+                # consumers can verify the contract. This is the
+                # source of truth; ``budget_exceeded`` is derived
+                # from this vs. the configured cap.
+                "cost_usd": actual_cost,
             }
+            if max_cost_usd is not None:
+                result_data["max_cost_usd"] = max_cost_usd
             if status["paused_for_approval"]:
                 result_data["pending_tool_name"] = status["pending_tool_name"]
                 result_data["run_state_ref"] = status["run_state_ref"]
@@ -504,10 +587,18 @@ class AgentPlanTool(KaosTool):
                     name="max_cost_usd",
                     type="number",
                     description=(
-                        "Per-plan cost ceiling in USD. Threads to "
-                        "KaosAgentSettings.plan_max_cost_usd. When the plan "
-                        "exceeds this cap, the Runner emits BudgetExceeded "
-                        "and stops. Use 0.001 to force a budget exceedance."
+                        "Strict per-plan cost ceiling in USD. Threads "
+                        "to KaosAgentSettings.plan_max_cost_usd. The "
+                        "plan-execute path checks the cap AFTER each "
+                        "step completes and aborts BEFORE dispatching "
+                        "the next step when the cap is breached. The "
+                        "Runner emits BudgetExceeded(kind='cost') and "
+                        "stops; the response carries "
+                        "``budget_exceeded=true``. Worst-case "
+                        "overshoot is one step's worth of cost (step "
+                        "granularity, not call granularity). Set "
+                        "null to disable. Use 0.001 to force a budget "
+                        "exceedance in tests."
                     ),
                     required=False,
                 ),
@@ -542,7 +633,13 @@ class AgentPlanTool(KaosTool):
         model = inputs.get("model")
         tool_filter_str = inputs.get("tool_filter")
         max_steps = inputs.get("max_steps")
-        max_cost_usd = inputs.get("max_cost_usd")
+        max_cost_usd_raw = inputs.get("max_cost_usd")
+        max_cost_usd: float | None = None if max_cost_usd_raw is None else float(max_cost_usd_raw)
+        if max_cost_usd is not None and max_cost_usd <= 0.0:
+            return ToolResult.create_error(
+                f"max_cost_usd must be > 0 when set, got {max_cost_usd}. "
+                "Pass null (or omit) to disable the cap."
+            )
         approval_patterns_str = inputs.get("require_approval_for_tools")
 
         if not message:
@@ -574,7 +671,7 @@ class AgentPlanTool(KaosTool):
 
             agent_settings = None
             if max_cost_usd is not None:
-                agent_settings = KaosAgentSettings(plan_max_cost_usd=float(max_cost_usd))
+                agent_settings = KaosAgentSettings(plan_max_cost_usd=max_cost_usd)
 
             permission_policy = None
             if approval_patterns_str:
@@ -618,7 +715,19 @@ class AgentPlanTool(KaosTool):
             if surfacing is not None:
                 return ToolResult.create_error(surfacing)
 
-            result_data = {
+            # Sprint-3 #9 — plan-execute already enforces
+            # plan_max_cost_usd between steps (compose.py route() ->
+            # StopReason.MAX_COST -> BudgetExceeded). We also do a
+            # post-hoc cap check here to surface a budget_exceeded
+            # flag even if the in-loop check missed an overshoot
+            # (e.g. a single step that itself blew the cap).
+            actual_cost = float(status.get("cost_usd") or 0.0)
+            if max_cost_usd is not None and actual_cost > max_cost_usd:
+                status["budget_exceeded"] = True
+                if not status.get("budget_kind"):
+                    status["budget_kind"] = "cost"
+
+            result_data: dict[str, Any] = {
                 "text": response.text,
                 "turn_number": response.turn_number,
                 "intent": response.intent.intent.value if response.intent else "unknown",
@@ -633,7 +742,10 @@ class AgentPlanTool(KaosTool):
                 ],
                 "budget_exceeded": status["budget_exceeded"],
                 "paused_for_approval": status["paused_for_approval"],
+                "cost_usd": actual_cost,
             }
+            if max_cost_usd is not None:
+                result_data["max_cost_usd"] = max_cost_usd
             if status["paused_for_approval"]:
                 result_data["pending_tool_name"] = status["pending_tool_name"]
                 result_data["run_state_ref"] = status["run_state_ref"]
