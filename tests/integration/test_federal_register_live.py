@@ -166,15 +166,17 @@ async def _fetch_and_parse_fr_doc(
     html = await fetch_document_content(fr_doc, format="html")
     assert isinstance(html, str)
 
-    # ``pre_content_mode="prose"`` — FR's body_html sometimes wraps
-    # plain paragraphs in <pre> tags (an artifact of the original
-    # type-setting). The default ``"code"`` mode would turn the entire
-    # rule into one CodeBlock, which the entity filters can't traverse
-    # at sentence granularity. ``"prose"`` re-segments on blank lines.
+    # FR's body_html sometimes wraps plain paragraphs in <pre> tags
+    # (an artifact of the original type-setting). ``parse_html``'s
+    # default ``pre_content_mode="prose"`` (since kaos-content
+    # 0.1.0a3) re-segments on blank lines, which the K3 entity
+    # filters then traverse at sentence granularity. Prior to that
+    # default flip this call had to pass ``pre_content_mode="prose"``
+    # explicitly — the silent failure mode it worked around is what
+    # motivated the default change.
     content_doc = parse_html(
         html,
         url=f"https://www.federalregister.gov/d/{document_number}",
-        pre_content_mode="prose",
     )
     return html, content_doc
 
