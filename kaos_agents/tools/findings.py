@@ -126,19 +126,32 @@ class AgentFindingsTool(KaosTool):
                 "money / percents / durations / numbers). "
                 "REFUSAL CONTRACT: when the agent cannot answer "
                 "from the document (Phase 1 produced no candidates, "
-                "Phase 2 filtered them all out, or max_cost_usd "
-                "fired before completion) the response is still a "
-                "structured SUCCESS (isError=false) but carries "
-                "``refusal_reason`` (one of "
+                "Phase 2 filtered them all out, max_cost_usd fired "
+                "before completion, max_candidates would be exceeded, "
+                "or max_chunks would be exceeded) the response is "
+                "still a structured SUCCESS (isError=false) but "
+                "carries ``refusal_reason`` (one of "
                 "``no_candidates_enumerated`` / "
-                "``no_relevant_candidates`` / ``budget_exceeded``) "
+                "``no_relevant_candidates`` / ``budget_exceeded`` / "
+                "``too_many_candidates`` / ``too_many_chunks``) "
                 "and ``refusal_message``. Always check "
                 "``refusal_reason`` before treating an empty "
                 "``answer`` as a failure — an empty answer with a "
                 "populated refusal is the agent honestly reporting "
                 "'this document does not contain the answer' (the "
                 "first two reasons) or 'the budget ran out before I "
-                "finished looking' (budget_exceeded). "
+                "finished looking' (budget_exceeded) or 'the workload "
+                "exceeded a hard safety ceiling and I refused before "
+                "any LLM call' (too_many_candidates / "
+                "too_many_chunks). "
+                "SCALE-CAP CONTRACT (KC16-9): max_candidates and "
+                "max_chunks are hard caps that refuse before any LLM "
+                "call; defense-in-depth alongside max_cost_usd. Both "
+                "default to enforceable values (max_candidates=5000, "
+                "max_chunks=200) so the tool ships safe-by-default "
+                "against misrouted every_sentence calls on huge "
+                "corpora. Pass null to disable each cap (escape "
+                "hatch for power users). "
                 "BUDGET CONTRACT: when ``max_cost_usd`` is set, the "
                 "tool aborts BEFORE dispatching the next filter "
                 "wave once the cap would be breached and skips "
@@ -345,6 +358,51 @@ class AgentFindingsTool(KaosTool):
                     ),
                     required=False,
                 ),
+                ParameterSchema(
+                    name="max_candidates",
+                    type="integer",
+                    description=(
+                        "KC16-9 hard cap that REFUSES BEFORE ANY LLM "
+                        "CALL when Phase-1 enumerates more candidates "
+                        "than this number; defense-in-depth alongside "
+                        "max_cost_usd (which is provider-fragile on "
+                        "mispriced models). Default 5000 — comfortably "
+                        "above a typical real document (NDA ~90, "
+                        "100-page brief ~3000) and below the runaway "
+                        "case (10K-paragraph corpus ~30K sentences). "
+                        "Refusal_reason='too_many_candidates' fires "
+                        "without spending a cent. Set null to disable "
+                        "the cap (escape hatch for power users scanning "
+                        "huge corpora). Differs from max_cost_usd in "
+                        "that the default is enforceable (not null) — "
+                        "this cap is new, so we can ship sane defaults "
+                        "without breaking existing callers."
+                    ),
+                    required=False,
+                    default=5000,
+                ),
+                ParameterSchema(
+                    name="max_chunks",
+                    type="integer",
+                    description=(
+                        "KC16-9 hard cap that REFUSES BEFORE ANY LLM "
+                        "CALL when the planned Phase-2 fan-out "
+                        "(runs * ceil(candidates / chunk_size)) would "
+                        "exceed this number of chunk-LLM-calls; "
+                        "defense-in-depth alongside max_cost_usd. "
+                        "Default 200 — bounds the worst-case parallel "
+                        "asyncio.gather fan-out. Refusal_reason="
+                        "'too_many_chunks' fires without spending a "
+                        "cent. Catches pathological chunk_size=1 + "
+                        "runs=10 configurations that max_candidates "
+                        "alone wouldn't stop. Set null to disable "
+                        "the cap (escape hatch). Defaults to an "
+                        "enforceable value (not null) for the same "
+                        "reason as max_candidates."
+                    ),
+                    required=False,
+                    default=200,
+                ),
             ],
         )
 
@@ -391,6 +449,39 @@ class AgentFindingsTool(KaosTool):
                 f"max_cost_usd must be > 0 when set, got {max_cost_usd}. "
                 "Pass null (or omit) to disable the cap."
             )
+        # KC16-9 — hard defense-in-depth caps. The "raw is missing"
+        # branch picks up the agent's default (5000 / 200); a
+        # missing key from the MCP layer is "use the safe default,"
+        # NOT "disable the cap" — disabling requires an explicit
+        # null on the wire. Negative / zero values are rejected
+        # before the agent so the error surface stays at the tool
+        # boundary.
+        if "max_candidates" in inputs:
+            max_candidates_raw = inputs.get("max_candidates")
+            if max_candidates_raw is None:
+                max_candidates: int | None = None
+            else:
+                max_candidates = int(max_candidates_raw)
+                if max_candidates < 1:
+                    return ToolResult.create_error(
+                        f"max_candidates must be >= 1 when set, got "
+                        f"{max_candidates}. Pass null to disable the cap."
+                    )
+        else:
+            max_candidates = 5000
+        if "max_chunks" in inputs:
+            max_chunks_raw = inputs.get("max_chunks")
+            if max_chunks_raw is None:
+                max_chunks: int | None = None
+            else:
+                max_chunks = int(max_chunks_raw)
+                if max_chunks < 1:
+                    return ToolResult.create_error(
+                        f"max_chunks must be >= 1 when set, got "
+                        f"{max_chunks}. Pass null to disable the cap."
+                    )
+        else:
+            max_chunks = 200
         filter_model = str(inputs.get("filter_model") or "anthropic:claude-haiku-4-5")
         synthesis_model = str(inputs.get("synthesis_model") or "anthropic:claude-sonnet-4-6")
         semantic_rewrite_model = str(
@@ -526,6 +617,8 @@ class AgentFindingsTool(KaosTool):
                 runs=runs,
                 low_recall_selector_arg=low_recall_arg,
                 max_cost_usd=agent_cap,
+                max_candidates=max_candidates,
+                max_chunks=max_chunks,
             )
         except ValueError as exc:
             return ToolResult.create_error(f"FindingsAgent rejected the configuration: {exc}")

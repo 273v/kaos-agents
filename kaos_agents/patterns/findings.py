@@ -167,6 +167,33 @@ realistic vocabulary expansion ("cyber", "security", "auth",
 "penetration testing", "encryption", "firewall", "intrusion",
 "vulnerability") on a typical diligence question."""
 
+_DEFAULT_MAX_CANDIDATES = 5000
+"""KC16-9 default hard ceiling on Phase-1 enumerated candidates.
+
+Sized so a typical real document (NDA: ~90 sentences; 100-page filing
+brief: ~3000 sentences) sits comfortably below the cap while a
+misrouted ``every_sentence`` call on a 10K-paragraph corpus
+(~30K sentences) refuses cleanly before any LLM call. Power users
+who legitimately want to scan a huge corpus can disable the cap by
+passing ``max_candidates=None``; the default is enforceable rather
+than ``None`` (opposite to ``max_cost_usd``) because this cap is a
+NEW addition, so we can ship sane defaults without breaking any
+existing caller. The cost-cap defaults to ``None`` for backward
+compatibility — this cap doesn't have that constraint."""
+
+
+_DEFAULT_MAX_CHUNKS = 200
+"""KC16-9 default hard ceiling on Phase-2 chunk-LLM-calls.
+
+Sized to bound the worst-case parallel-LLM fan-out under the default
+``chunk_size=20`` + ``runs=1`` configuration: 200 chunks cover up to
+4000 candidates per pass. A pathological ``runs=10`` + ``chunk_size=1``
+configuration over 50 candidates would dispatch 500 LLM calls, which
+this cap refuses before the first ``asyncio.gather`` wave fires.
+Power users can disable via ``max_chunks=None`` — same opt-in
+rationale as :data:`_DEFAULT_MAX_CANDIDATES`."""
+
+
 _DEFAULT_SYNTHESIS_COST_ESTIMATE_USD = 0.02
 """Conservative headroom check for the Phase-3 synthesis call.
 
@@ -311,6 +338,50 @@ Consumers must branch on the reason because the remediation
 differs: ``no_relevant_candidates`` → "the answer is not in
 this document"; ``budget_exceeded`` → "raise the cap and re-run,
 or accept the partial findings."
+"""
+
+
+REFUSAL_TOO_MANY_CANDIDATES = "too_many_candidates"
+"""KC16-9 (defense-in-depth on Phase-1 enumeration scale).
+
+Phase 1 enumerated more candidates than ``max_candidates`` permits;
+the agent refuses BEFORE dispatching any Phase-2 LLM filter call.
+This is a HARD CEILING that fires before any spend — distinct from
+:data:`REFUSAL_BUDGET_EXCEEDED` which only fires after some spend
+has already happened.
+
+Why a separate refusal reason: a misrouted ``every_sentence`` call
+against a 10K-paragraph corpus enumerates ~30K candidates and would
+queue ~1500 chunk coroutines simultaneously via ``asyncio.gather``.
+The cost-cap is provider-fragile (Skeptic Probe 3b: $1.50/call
+possibility on gpt-5.5) and only defends *after* the dispatcher
+has paid for one wave. ``max_candidates`` defends *before* any LLM
+call so even a buggy / mispriced cost-cap can't burn through the
+ceiling.
+
+Remediation differs from the cost-cap and the relevance refusals:
+the caller should narrow the selector (switch from ``every_sentence``
+to ``token`` / ``semantic``) or triage the corpus to a smaller
+subset before re-running.
+"""
+
+
+REFUSAL_TOO_MANY_CHUNKS = "too_many_chunks"
+"""KC16-9 (defense-in-depth on Phase-2 fan-out scale).
+
+Phase 1 enumerated a permissible candidate count but the resulting
+chunk plan (``runs * ceil(candidates / chunk_size)``) would exceed
+``max_chunks`` LLM filter calls. The agent refuses BEFORE
+dispatching the first Phase-2 wave — no LLM call is made.
+
+Why this is separate from :data:`REFUSAL_TOO_MANY_CANDIDATES`: the
+chunk count can blow up two ways. Either Phase 1 enumerated too
+many candidates (caught by ``max_candidates``) OR a tiny
+``chunk_size`` + a large ``runs`` union turns even a moderate
+candidate set into thousands of LLM calls. Both vectors deserve
+distinct refusal reasons so the caller's remediation is targeted:
+``too_many_candidates`` → narrow the selector; ``too_many_chunks``
+→ raise ``chunk_size`` or lower ``runs``.
 """
 
 
@@ -1267,12 +1338,38 @@ class FindingsAgent:
             survivor counts. Override down when synthesis runs on
             Haiku; override up for Opus-grade synthesis. Ignored
             when ``max_cost_usd`` is ``None``.
+        max_candidates: KC16-9 defense-in-depth hard ceiling on the
+            number of Phase-1 enumerated candidates. Default
+            :data:`_DEFAULT_MAX_CANDIDATES` (5000). When Phase 1
+            emits more than this many candidates, the agent refuses
+            BEFORE Phase 2 with :data:`REFUSAL_TOO_MANY_CANDIDATES`
+            — no LLM call is made. Pass ``None`` to disable the cap
+            (escape hatch for power users scanning huge corpora).
+            Defaults to an enforceable value (NOT ``None``, opposite
+            to ``max_cost_usd``) because this cap is NEW and safe to
+            ship without breaking existing callers; the cost-cap was
+            added late and had to default to ``None`` for backward
+            compatibility.
+        max_chunks: KC16-9 defense-in-depth hard ceiling on the
+            number of Phase-2 chunk-LLM-calls that would be
+            dispatched. Default :data:`_DEFAULT_MAX_CHUNKS` (200).
+            When ``runs * ceil(candidates / chunk_size)`` exceeds
+            this, the agent refuses BEFORE the first
+            ``asyncio.gather`` filter wave with
+            :data:`REFUSAL_TOO_MANY_CHUNKS`. Pass ``None`` to
+            disable. Same enforceable-default rationale as
+            ``max_candidates``. Defense-in-depth complement to
+            ``max_cost_usd``: if the cost-cap math is buggy on a
+            provider (PA15-fragile on gpt-5.5), this ceiling still
+            holds.
     """
 
     __slots__ = (
         "chunk_size",
         "filter_model",
         "low_recall_selector_arg",
+        "max_candidates",
+        "max_chunks",
         "max_cost_usd",
         "num_parallel",
         "relevance_threshold",
@@ -1297,6 +1394,8 @@ class FindingsAgent:
         low_recall_selector_arg: str | None = None,
         max_cost_usd: float | None = None,
         synthesis_cost_estimate_usd: float = _DEFAULT_SYNTHESIS_COST_ESTIMATE_USD,
+        max_candidates: int | None = _DEFAULT_MAX_CANDIDATES,
+        max_chunks: int | None = _DEFAULT_MAX_CHUNKS,
     ) -> None:
         if chunk_size < 1:
             raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
@@ -1315,6 +1414,16 @@ class FindingsAgent:
         if synthesis_cost_estimate_usd < 0.0:
             raise ValueError(
                 f"synthesis_cost_estimate_usd must be >= 0, got {synthesis_cost_estimate_usd}."
+            )
+        if max_candidates is not None and max_candidates < 1:
+            raise ValueError(
+                f"max_candidates must be >= 1 when set, got {max_candidates}. "
+                "Pass None for no cap (opt-in escape hatch for power users)."
+            )
+        if max_chunks is not None and max_chunks < 1:
+            raise ValueError(
+                f"max_chunks must be >= 1 when set, got {max_chunks}. "
+                "Pass None for no cap (opt-in escape hatch for power users)."
             )
         self.selector = selector
         self.filter_model = filter_model
@@ -1345,6 +1454,20 @@ class FindingsAgent:
         # remediation hint ("for selector_arg='X'"); the selector
         # itself stays opaque to the agent.
         self.low_recall_selector_arg = low_recall_selector_arg
+        # KC16-9 — defense-in-depth hard ceilings. Both default to
+        # enforceable values (NOT None) so the agent ships safe-by-
+        # default. The cost-cap (max_cost_usd) defaults to None for
+        # backward compatibility; these caps are NEW so we can ship
+        # sane defaults without breaking anyone. Pass None to opt
+        # out. ``max_candidates`` fires BEFORE Phase-2 dispatch; the
+        # check is a hard count comparison so it is cheap and robust
+        # to any provider-side cost-cap fragility. ``max_chunks``
+        # fires after Phase-1 chunking, BEFORE the first
+        # ``asyncio.gather`` filter wave, so a pathological
+        # chunk_size + runs combination cannot fan out an unbounded
+        # number of concurrent LLM coroutines.
+        self.max_candidates = max_candidates
+        self.max_chunks = max_chunks
 
     async def run(
         self,
@@ -1362,6 +1485,17 @@ class FindingsAgent:
         candidates = tuple(self.selector(view, question))
         total_enumerated = len(candidates)
         logger.debug("findings.phase1: enumerated %d candidates", total_enumerated)
+
+        # KC16-9 — defense-in-depth: flag injection_suspected on EVERY
+        # candidate up front (even on the refusal path), so audit trace
+        # consumers can see which candidates triggered the heuristic
+        # regardless of whether the run completes. The Sprint-1 #3
+        # filter pipeline also flags candidates inside ``_filter_chunk``,
+        # but on a too-many-candidates refusal Phase 2 never runs and
+        # we'd lose the flag visibility. The cost is one regex sweep
+        # per candidate (cheap) and the resulting tuple replaces the
+        # raw candidates so downstream id-based lookups still work.
+        candidates = flag_injection_suspected(candidates)
 
         # Sprint-2 #6 — low-recall warning. Compute once before
         # refusal so it surfaces in both the refusal-path result
@@ -1384,6 +1518,48 @@ class FindingsAgent:
                     _question_word_count(question),
                 )
                 warnings_collected.append(warning)
+
+        # KC16-9 — Phase-1 hard ceiling on enumerated candidates.
+        # Fires BEFORE any LLM call so even a buggy / mispriced
+        # cost-cap can't burn through the ceiling. The injection
+        # heuristic was already applied so any flagged candidates
+        # still surface in the audit trail (a refused run still logs
+        # the heuristic flags via ``flag_injection_suspected``'s
+        # warning emit). Pass ``max_candidates=None`` to disable.
+        if self.max_candidates is not None and total_enumerated > self.max_candidates:
+            refusal = FindingsRefusal(
+                reason=REFUSAL_TOO_MANY_CANDIDATES,
+                message=(
+                    f"FindingsAgent: Phase 1 enumerated {total_enumerated} "
+                    f"candidates > max_candidates={self.max_candidates}; "
+                    "refusing BEFORE any LLM call. Narrow the selector "
+                    "(switch from 'every_sentence' to 'token' or "
+                    "'semantic'), triage the corpus to a smaller subset, "
+                    "or raise max_candidates (pass None to disable the "
+                    "cap entirely)."
+                ),
+                candidates_enumerated=total_enumerated,
+                candidates_surviving_filter=0,
+            )
+            logger.info(
+                "findings.refusal: reason=%s question=%r enumerated=%d cap=%d",
+                refusal.reason,
+                question,
+                total_enumerated,
+                self.max_candidates,
+            )
+            return FindingsResult(
+                question=question,
+                answer="",
+                findings=(),
+                total_enumerated=total_enumerated,
+                total_filtered=0,
+                filter_cost_usd=0.0,
+                synthesis_cost_usd=0.0,
+                filter_calls=0,
+                refusal=refusal,
+                warnings=tuple(warnings_collected),
+            )
 
         if not candidates:
             refusal = FindingsRefusal(
@@ -1440,6 +1616,55 @@ class FindingsAgent:
         # and the result carries ``budget_exceeded=True`` plus a
         # partial filter coverage flag for the caller.
         chunks = _chunk(candidates, self.chunk_size)
+        # KC16-9 — Phase-2 hard ceiling on chunk-LLM-calls. The
+        # total dispatch count is ``runs * len(chunks)``; if that
+        # would exceed ``max_chunks`` we refuse BEFORE the first
+        # ``asyncio.gather`` wave fires — no LLM call is made, no
+        # spend. Defense-in-depth complement to ``max_cost_usd``
+        # (which may be provider-fragile on misconfigured pricing,
+        # see Skeptic Probe 3b at $1.50/call on gpt-5.5). Pass
+        # ``max_chunks=None`` to disable.
+        total_chunks_planned = self.runs * len(chunks)
+        if self.max_chunks is not None and total_chunks_planned > self.max_chunks:
+            refusal = FindingsRefusal(
+                reason=REFUSAL_TOO_MANY_CHUNKS,
+                message=(
+                    f"FindingsAgent: Phase 2 would dispatch "
+                    f"{total_chunks_planned} chunk-LLM-calls "
+                    f"(runs={self.runs} * chunks={len(chunks)}) "
+                    f"> max_chunks={self.max_chunks}; refusing "
+                    "BEFORE any LLM call. Raise chunk_size to "
+                    "produce fewer chunks per pass, lower runs, or "
+                    "raise max_chunks (pass None to disable the cap "
+                    "entirely)."
+                ),
+                candidates_enumerated=total_enumerated,
+                candidates_surviving_filter=0,
+            )
+            logger.info(
+                "findings.refusal: reason=%s question=%r enumerated=%d "
+                "chunks=%d runs=%d planned=%d cap=%d",
+                refusal.reason,
+                question,
+                total_enumerated,
+                len(chunks),
+                self.runs,
+                total_chunks_planned,
+                self.max_chunks,
+            )
+            return FindingsResult(
+                question=question,
+                answer="",
+                findings=(),
+                total_enumerated=total_enumerated,
+                total_filtered=0,
+                filter_cost_usd=0.0,
+                synthesis_cost_usd=0.0,
+                filter_calls=0,
+                refusal=refusal,
+                warnings=tuple(warnings_collected),
+            )
+
         # Flatten (run, chunk) → linear work queue so the wave-batched
         # dispatch loop can stop cleanly when the cap fires. The order
         # is deterministic: run 0 / chunk 0, run 0 / chunk 1, ..., run
@@ -1930,6 +2155,8 @@ __all__ = [
     "REFUSAL_BUDGET_EXCEEDED",
     "REFUSAL_NO_CANDIDATES_ENUMERATED",
     "REFUSAL_NO_RELEVANT_CANDIDATES",
+    "REFUSAL_TOO_MANY_CANDIDATES",
+    "REFUSAL_TOO_MANY_CHUNKS",
     "FilteredFinding",
     "FindingCandidate",
     "FindingsAgent",
