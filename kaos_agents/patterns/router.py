@@ -110,10 +110,17 @@ class RoutingDecision:
 
 @dataclass(frozen=True, slots=True)
 class RoutingTrace:
-    """Trace attached to the response's ``metadata`` as ``routing_trace``."""
+    """Trace attached to the response's ``metadata`` as ``routing_trace``.
+
+    ``classifier_cost_usd`` is the USD cost of the routing classifier
+    call. Populated when the classifier is an LLM call routed through
+    ``Call.invoke()`` so ``Invocation.usage.cost_usd`` is reachable;
+    0.0 for deterministic / cached / non-LLM routers.
+    """
 
     decision: RoutingDecision
     available_specialists: tuple[str, ...]
+    classifier_cost_usd: float = 0.0
 
 
 class RouterAgent:
@@ -190,7 +197,7 @@ class RouterAgent:
 
     async def turn(self, message: str, session_id: str) -> AgentResponse:
         """Classify ``message``, then delegate to the chosen specialist."""
-        decision = await self.classify(message)
+        decision, classifier_cost = await self._classify_with_cost(message)
         specialist = self._by_name[decision.specialist_name]
 
         logger.debug(
@@ -205,6 +212,7 @@ class RouterAgent:
         trace = RoutingTrace(
             decision=decision,
             available_specialists=tuple(s.name for s in self.specialists),
+            classifier_cost_usd=classifier_cost,
         )
         return _attach_trace(response, trace)
 
@@ -216,15 +224,31 @@ class RouterAgent:
         unknown name or confidence below ``min_confidence`` and a
         ``default_specialist`` is configured, the decision's
         ``fallback_used`` field is True.
+
+        Public API. For routing-with-cost (used internally by
+        :meth:`turn`) see :meth:`_classify_with_cost`.
         """
-        raw_name, raw_confidence, raw_reasoning = await self._invoke_classifier(message)
+        decision, _cost = await self._classify_with_cost(message)
+        return decision
+
+    async def _classify_with_cost(self, message: str) -> tuple[RoutingDecision, float]:
+        """Run the classifier and return ``(decision, classifier_cost_usd)``.
+
+        Internal counterpart to :meth:`classify` — :meth:`turn` uses
+        this to populate ``RoutingTrace.classifier_cost_usd`` without
+        widening the public :meth:`classify` return signature.
+        """
+        raw_name, raw_confidence, raw_reasoning, cost = await self._invoke_classifier(message)
 
         confidence = max(0.0, min(1.0, float(raw_confidence)))
         if raw_name in self._by_name and confidence >= self.min_confidence:
-            return RoutingDecision(
-                specialist_name=raw_name,
-                confidence=confidence,
-                reasoning=raw_reasoning,
+            return (
+                RoutingDecision(
+                    specialist_name=raw_name,
+                    confidence=confidence,
+                    reasoning=raw_reasoning,
+                ),
+                cost,
             )
 
         # Classifier failed — pick the fallback.
@@ -236,19 +260,26 @@ class RouterAgent:
                 f"Set default_specialist=... on the RouterAgent to fall back "
                 f"instead of raising."
             )
-        return RoutingDecision(
-            specialist_name=self.default_specialist,
-            confidence=confidence,
-            reasoning=(
-                f"Fell back to {self.default_specialist!r}: classifier emitted "
-                f"{raw_name!r} (confidence={confidence:.2f}, threshold="
-                f"{self.min_confidence}). Original reasoning: {raw_reasoning}"
+        return (
+            RoutingDecision(
+                specialist_name=self.default_specialist,
+                confidence=confidence,
+                reasoning=(
+                    f"Fell back to {self.default_specialist!r}: classifier emitted "
+                    f"{raw_name!r} (confidence={confidence:.2f}, threshold="
+                    f"{self.min_confidence}). Original reasoning: {raw_reasoning}"
+                ),
+                fallback_used=True,
             ),
-            fallback_used=True,
+            cost,
         )
 
-    async def _invoke_classifier(self, message: str) -> tuple[str, float, str]:
-        """Run the LLM classification call. Returns ``(name, confidence, reasoning)``.
+    async def _invoke_classifier(self, message: str) -> tuple[str, float, str, float]:
+        """Run the LLM classification call.
+
+        Returns ``(name, confidence, reasoning, cost_usd)``. The cost
+        component is the USD cost of the classifier LLM call so the
+        routing trace can surface real per-turn router overhead.
 
         Lazy-imports kaos-llm-core so the agent module stays importable
         without the ``[llm]`` extra.
@@ -287,14 +318,19 @@ class RouterAgent:
             )
 
         call = Call(_RoutingSignature, model=self.model)
-        result = await call(
+        # KC9: use .invoke() instead of bare __call__ so Invocation.usage
+        # is available — otherwise the router's classifier cost is dropped.
+        invocation = await call.invoke(
             message=message,
             specialists=self._format_specialist_catalog(),
         )
+        result = invocation.output
+        cost = float(getattr(invocation.usage, "cost_usd", 0.0) or 0.0)
         return (
             str(result.specialist_name).strip(),
             float(result.confidence),
             str(result.reasoning),
+            cost,
         )
 
     def _format_specialist_catalog(self) -> str:

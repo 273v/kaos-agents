@@ -71,12 +71,18 @@ class CritiqueResult:
             iteration's prompt. Empty when ``approved`` is True.
         reasoning: Short justification — surfaces in audit logs and
             replay diffs.
+        cost_usd: USD cost of the critic LLM call. Defaults to 0.0
+            for non-LLM critics; LLM critics route through
+            ``Call.invoke()`` so ``Invocation.usage.cost_usd`` is
+            available and aggregable into the wrapping ReflexionLoop's
+            cost trace.
     """
 
     score: float
     approved: bool
     feedback: str
     reasoning: str
+    cost_usd: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,7 +186,15 @@ class ReflexionCritic:
             )
 
         call = Call(_ReflexionCritiqueSignature, model=self.model)
-        result = await call(question=question, rubric=self.rubric, candidate_output=output)
+        # KC9: use .invoke() instead of bare __call__ so Invocation.usage
+        # is available — otherwise the critic's tokens + cost are dropped.
+        invocation = await call.invoke(
+            question=question,
+            rubric=self.rubric,
+            candidate_output=output,
+        )
+        result = invocation.output
+        cost = float(getattr(invocation.usage, "cost_usd", 0.0) or 0.0)
         score = float(result.score)
         # Clamp defensively — a poorly-behaved model could emit > 1 or < 0.
         score = max(0.0, min(1.0, score))
@@ -190,6 +204,7 @@ class ReflexionCritic:
             approved=approved,
             feedback=str(result.feedback) if not approved else "",
             reasoning=str(result.reasoning),
+            cost_usd=cost,
         )
 
 

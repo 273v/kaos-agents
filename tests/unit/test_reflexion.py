@@ -114,6 +114,17 @@ class TestCritiqueResult:
         with pytest.raises((AttributeError, TypeError)):
             r.score = 0.5  # ty: ignore[invalid-assignment]
 
+    def test_cost_usd_defaults_to_zero(self) -> None:
+        """KC9: non-LLM critics keep the zero default so they round-trip
+        through existing constructor sites."""
+        r = CritiqueResult(score=0.9, approved=True, feedback="", reasoning="ok")
+        assert r.cost_usd == 0.0
+
+    def test_cost_usd_accepts_explicit_value(self) -> None:
+        """KC9: ReflexionCritic.critique populates this from Invocation.usage."""
+        r = CritiqueResult(score=0.8, approved=True, feedback="", reasoning="ok", cost_usd=0.00037)
+        assert r.cost_usd == 0.00037
+
 
 # ---------------------------------------------------------------------------
 # ReflexionLoop control flow

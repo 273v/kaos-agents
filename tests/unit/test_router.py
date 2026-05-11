@@ -59,6 +59,7 @@ def _trace_from_metadata(response: AgentResponse) -> RoutingTrace | None:
 def _make_router(
     *,
     classifier_result: tuple[str, float, str],
+    classifier_cost_usd: float = 0.0,
     default_specialist: str | None = None,
     min_confidence: float = 0.3,
 ) -> tuple[RouterAgent, dict[str, _StubSpecialist]]:
@@ -77,8 +78,10 @@ def _make_router(
         min_confidence=min_confidence,
     )
 
-    async def fake_classify(_message: str) -> tuple[str, float, str]:
-        return classifier_result
+    async def fake_classify(_message: str) -> tuple[str, float, str, float]:
+        # KC9: _invoke_classifier now returns a 4-tuple
+        # (name, confidence, reasoning, cost_usd).
+        return (*classifier_result, classifier_cost_usd)
 
     # Bypass the LLM call.
     router._invoke_classifier = fake_classify  # ty: ignore[invalid-assignment]
@@ -159,6 +162,7 @@ class TestRouterDispatch:
     def test_routes_to_classified_specialist(self) -> None:
         router, stubs = _make_router(
             classifier_result=("legal", 0.92, "case-law question"),
+            classifier_cost_usd=0.00012,
         )
         response = asyncio.run(router.turn("Marbury v. Madison?", "s1"))
         # Specialist saw the message
@@ -167,13 +171,14 @@ class TestRouterDispatch:
         assert stubs["chat"].calls == []
         # Specialist's response is what bubbles up
         assert response.text == "[legal] Marbury v. Madison?"
-        # Routing trace attached
+        # Routing trace attached, with KC9 cost surface
         trace = _trace_from_metadata(response)
         assert trace is not None
         assert trace.decision.specialist_name == "legal"
         assert trace.decision.confidence == pytest.approx(0.92)
         assert trace.decision.fallback_used is False
         assert trace.available_specialists == ("legal", "corpus", "chat")
+        assert trace.classifier_cost_usd == pytest.approx(0.00012)
 
     def test_routes_a_second_specialist(self) -> None:
         router, stubs = _make_router(
