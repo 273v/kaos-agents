@@ -8,13 +8,28 @@ dynamic = ["version"]
 description = "Agentic runtime with persistent memory for KAOS"
 readme = "README.md"
 requires-python = ">=3.13"
-license = { text = "LicenseRef-Proprietary" }
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 authors = [
   { name = "273 Ventures LLC", email = "it@273ventures.com" },
+]
+maintainers = [
+  { name = "Michael Bommarito", email = "mike@273ventures.com" },
+]
+keywords = [
+  "agentic",
+  "mcp",
+  "model-context-protocol",
+  "kaos",
+  "agent",
+  "ReAct",
+  "legal-tech",
+  "audit-trail",
 ]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
@@ -23,34 +38,48 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  "kaos-core>=0.1.0",
-  "kaos-content[markdown,html]>=0.1.0",
-  "kaos-graph>=0.1.0",
-  "kaos-nlp-core>=0.1.0",
+  "kaos-core>=0.1.0a5,<0.2",
+  "kaos-content[markdown,html]>=0.1.0a6,<0.2",
+  "kaos-graph>=0.1.0a3,<0.2",
+  "kaos-nlp-core>=0.1.0a3,<0.2",
   "pydantic>=2.11.0",
   "pydantic-settings>=2.8.1",
 ]
 
 [project.optional-dependencies]
 # LLM transport + typed Programs (Call, ReAct, RAG, Refine, BestOfN, ...)
-llm = ["kaos-llm-client>=0.1.0", "kaos-llm-core>=0.1.0"]
+# kaos-llm-core>=0.1.0a6 pulls in the gpt-5.5 pricing entry parity fix
+# from KC16-2 / per-module kaos-llm-core 0.1.0a6 — required so the
+# Sprint-3 #9 cost-cap contract is enforceable on every published
+# provider, not just Anthropic.
+llm = ["kaos-llm-client>=0.1.0a3,<0.2", "kaos-llm-core>=0.1.0a6,<0.2"]
 # MCP server bridge (kaos-agents-serve --http and --stdio)
-mcp = ["kaos-mcp>=0.1.0"]
+mcp = ["kaos-mcp>=0.1.0a3,<0.2"]
 # FastAPI HTTP API surface (kaos-agents-serve --api)
 api = ["fastapi[standard]>=0.115"]
 # OpenTelemetry export hook
 otel = ["opentelemetry-api>=1.20"]
 # Cross-encoder rerank + dense embeddings
-rerank = ["kaos-nlp-transformers[torch]>=0.1.0"]
+rerank = ["kaos-nlp-transformers[torch]>=0.1.0a1"]
 
 # Per-tool-module extras — each maps 1:1 to a `--with-X` CLI flag.
 # Users opt in via e.g. `pip install 'kaos-agents[pdf,source,web]'`.
-pdf = ["kaos-pdf>=0.1.0"]
-office = ["kaos-office[pptx]>=0.1.0"]
-source = ["kaos-source>=0.1.0"]
-web = ["kaos-web>=0.1.0"]
-citations = ["kaos-citations>=0.1.0"]
-tabular = ["kaos-tabular>=0.1.0"]
+pdf = ["kaos-pdf>=0.1.0a2,<0.2"]
+office = ["kaos-office[pptx]>=0.1.0a2,<0.2"]
+source = ["kaos-source>=0.1.0a3,<0.2"]
+web = ["kaos-web>=0.1.0a2,<0.2"]
+citations = ["kaos-citations>=0.1.0a2,<0.2"]
+tabular = ["kaos-tabular>=0.1.0a1,<0.2"]
+
+# Live-tier integration tests. Installs only what the live suite imports
+# beyond the base `dev` group — `pytesseract` for `test_pdf_ocr_legal_live.py`
+# (which probes `importlib.util.find_spec("pytesseract")` and skips the
+# test cleanly when missing, so this is a recall lever, not a hard-fail
+# dependency). The dev group already carries httpx / fastapi / datasets /
+# transformers / mdit-py-plugins which the live tests also import.
+live-tests = [
+  "pytesseract>=0.3.10",
+]
 
 # Convenience meta-extra: every tool module + every runtime extra.
 # Use `pip install 'kaos-agents[full]'` for a one-shot install of
@@ -62,20 +91,20 @@ full = [
 
 [dependency-groups]
 dev = [
-  "kaos-llm-client>=0.1.0",
-  "kaos-llm-core>=0.1.0",
-  "kaos-mcp>=0.1.0",
-  "kaos-pdf>=0.1.0",
-  "kaos-office[pptx]>=0.1.0",
-  "kaos-source>=0.1.0",
-  "kaos-web>=0.1.0",
-  "kaos-citations>=0.1.0",
-  "kaos-tabular>=0.1.0",
+  "kaos-llm-client>=0.1.0a3,<0.2",
+  "kaos-llm-core>=0.1.0a6,<0.2",
+  "kaos-mcp>=0.1.0a3,<0.2",
+  "kaos-pdf>=0.1.0a2,<0.2",
+  "kaos-office[pptx]>=0.1.0a2,<0.2",
+  "kaos-source>=0.1.0a3,<0.2",
+  "kaos-web>=0.1.0a2,<0.2",
+  "kaos-citations>=0.1.0a2,<0.2",
+  "kaos-tabular>=0.1.0a1,<0.2",
   # kaos-ml-core is unused in production code but referenced by two
   # research-corpus tests (soft-imported via importlib.util.find_spec).
   # Keeping it in `dev` so those tests RUN rather than silently skip.
-  "kaos-ml-core>=0.1.0",
-  "kaos-nlp-transformers[torch]>=0.1.0",
+  "kaos-ml-core>=0.1.0a2,<0.2",
+  "kaos-nlp-transformers[torch]>=0.1.0a1",
   "pytest>=8.3.5",
   "pytest-asyncio>=0.26.0",
   "pytest-cov>=6.0.0",
@@ -101,9 +130,11 @@ kaos-extract = "kaos_agents.cli.extract:main"
 kaos-agents-serve = "kaos_agents.api.serve:main"
 
 [project.urls]
-Homepage = "https://273ventures.com"
-Documentation = "https://docs.273ventures.com"
-Repository = "https://github.com/273v/kaos-modules"
+Homepage = "https://kelvin.legal"
+Documentation = "https://docs.kelvin.legal"
+Repository = "https://github.com/273v/kaos-agents"
+Issues = "https://github.com/273v/kaos-agents/issues"
+Changelog = "https://github.com/273v/kaos-agents/blob/main/CHANGELOG.md"
 
 [tool.hatch.version]
 path = "kaos_agents/_version.py"
@@ -112,6 +143,9 @@ path = "kaos_agents/_version.py"
 include = [
   "/kaos_agents",
   "/README.md",
+  "/CHANGELOG.md",
+  "/LICENSE",
+  "/NOTICE",
   "/CLAUDE.md",
   "/docs",
   "/tests",
@@ -136,8 +170,9 @@ addopts = [
 markers = [
   "integration: end-to-end behavior checks",
   "unit: focused unit checks",
-  "live: requires live API keys",
+  "live: requires live API keys (real provider calls; cost-incurring)",
   "network: requires outbound network access (HTTP APIs, etc.)",
+  "slow: long-running tests (>10s wall-clock)",
   "benchmark: performance benchmarks",
 ]
 
