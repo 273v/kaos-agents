@@ -37,6 +37,12 @@ class MemoryType(StrEnum):
     PLAN_HISTORY = "plan_history"
     REFLECTION = "reflection"
     LAST_INTENT = "last_intent"
+    # Distilled cross-session lessons. Where REFLECTION is per-turn
+    # (what did this turn observe?), LESSONS is the persistent
+    # compound — write-once, recalled in future sessions when the
+    # situation matches. Populated by the ReflexionHook (or manually
+    # via write_lesson). Persistent across sessions via streaming JSONL.
+    LESSONS = "lessons"
 
     # Ephemeral (cleared between turns)
     WORKING = "working"
@@ -263,6 +269,20 @@ DEFAULT_SECTIONS: tuple[SectionConfig, ...] = (
         eviction_policy=EvictionPolicy.FIFO,
         summarization_policy=SummarizationPolicy.ON_TURN,
         persistence_mode=PersistenceMode.STREAMING,
+    ),
+    SectionConfig(
+        # Distilled cross-session lessons. Larger budget than REFLECTION
+        # because lessons compound across sessions and the value is
+        # exactly in being able to recall many of them via BM25.
+        # FIFO eviction so the oldest lessons drop when full —
+        # callers who care about specific lessons can pin them via
+        # priority.
+        memory_type=MemoryType.LESSONS,
+        budget_tokens=16_000,
+        eviction_policy=EvictionPolicy.FIFO,
+        summarization_policy=SummarizationPolicy.MANUAL,
+        persistence_mode=PersistenceMode.STREAMING,
+        searchable=True,
     ),
     SectionConfig(
         memory_type=MemoryType.LAST_INTENT,
