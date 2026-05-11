@@ -25,6 +25,24 @@ The record is *additive*: tests still pass/fail the same way; the
 recorder runs as a passive observer. No test logic changes are
 needed when the recorder is enabled.
 
+Crash-safe contract (schema_version=3):
+
+* The JSONL is **streamed**: the header is written + flushed +
+  ``fsync()``ed immediately when the recorder starts. Each
+  completed Invocation is appended + flushed + ``fsync()``ed as it
+  finishes, **before** the call returns to the test.
+* The trailer line (``kind="trailer"``) carries the final outcome,
+  elapsed time, total cost, and stitched subprocess records. It is
+  written at exit. It is **optional** — readers MUST tolerate a
+  JSONL that ends after N invocation lines with no trailer.
+* A reader walking a JSONL captured under SIGTERM may also see the
+  last line truncated mid-write (Linux's ``fsync`` does not give a
+  hard guarantee under hard-kill / pod-eviction / OOM-kill). The
+  reader MUST swallow ``json.JSONDecodeError`` on the final line
+  and use the lines it has.
+* The header field ``streaming=true`` documents this for consumers
+  so they can branch on it cleanly.
+
 Usage (auto-installed by ``conftest.py``):
 
     @pytest.mark.live
@@ -42,6 +60,7 @@ Manual usage:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime
 import json
 import os
@@ -184,15 +203,34 @@ class _Capture:
             stitched into the main JSONL on exit.
         subprocess_records: Stitched records from the subprocess_dir,
             populated at exit by ``_collect_subprocess_records()``.
+        out_path: Resolved JSONL output path. Created at
+            ``__aenter__`` time so per-invocation streaming has a
+            target.
+        file_handle: Open text-mode file handle for incremental
+            writes. ``None`` once the trailer has been written and
+            the handle closed.
+        write_lock: ``asyncio.Lock`` serializing writes from
+            concurrent Calls running inside the same test. The
+            patched ``_execute`` may be invoked from many awaitables;
+            without this, two writes can interleave and produce a
+            mangled JSONL line.
+        call_seq_counter: Monotonic call sequence assigned at write
+            time. Pre-streaming the recorder assigned seq at exit;
+            now we hand each Invocation a seq the moment it
+            completes so the on-disk order matches reality.
     """
 
     __slots__ = (
+        "call_seq_counter",
         "error_override",
+        "file_handle",
         "invocations",
         "lock_count",
+        "out_path",
         "outcome_override",
         "subprocess_dir",
         "subprocess_records",
+        "write_lock",
     )
 
     def __init__(self) -> None:
@@ -202,6 +240,53 @@ class _Capture:
         self.error_override: str | None = None
         self.subprocess_dir: Path | None = None
         self.subprocess_records: list[dict[str, Any]] = []
+        self.out_path: Path | None = None
+        self.file_handle: Any = None
+        self.write_lock: asyncio.Lock = asyncio.Lock()
+        self.call_seq_counter: int = 0
+
+
+def _write_jsonl_line_crashsafe(fh: Any, record: dict[str, Any]) -> None:
+    """Append one JSONL line and flush both Python + OS buffers.
+
+    Schema-v3 streaming contract — every per-invocation line is
+    written + ``flush()``ed + ``os.fsync()``ed before control
+    returns. This bounds the audit-trail loss window to "the line
+    currently being written" rather than "every line since
+    process start".
+
+    On Linux a successful ``fsync()`` is the strongest portable
+    durability guarantee Python gives us, but it is **not** a hard
+    real-time guarantee:
+
+    * ``TextIOWrapper`` keeps a write buffer above the OS layer;
+      we must call ``fh.flush()`` first so the Python-level buffer
+      drains into the underlying ``BufferedWriter`` / file descriptor.
+    * ``fileno()`` is what ``os.fsync`` wants — not the Python file
+      object. Passing the wrong thing silently is a common gotcha.
+    * Some filesystems (tmpfs, certain network mounts) treat fsync
+      as a no-op or only sync data without the directory entry; for
+      the recorder's purposes this is acceptable because the
+      directory is created + written to up front, and the same
+      caveat applies to every other durability strategy in the
+      KAOS stack.
+
+    Silent on failure by intent: telemetry must never break a
+    test. If we can't write to the JSONL, the test outcome is
+    still authoritative.
+    """
+    try:
+        fh.write(json.dumps(record, separators=(",", ":")) + "\n")
+        fh.flush()
+        # OSError: fsync not supported on this fd (e.g. some tmpfs).
+        # ValueError: fileno() is closed (race during shutdown).
+        # In both cases we've already flushed the Python buffer,
+        # which is the best we can do.
+        with contextlib.suppress(OSError, ValueError):
+            os.fsync(fh.fileno())
+    except Exception:
+        # Recorder must never break a test. Drop the write silently.
+        pass
 
 
 @asynccontextmanager
@@ -239,6 +324,43 @@ async def record_live_test(
     capture = _Capture()
     original_execute = Call._execute  # bound method ref
 
+    # ------------------------------------------------------------------
+    # __aenter__ work: open the JSONL, write the header, start streaming.
+    # ------------------------------------------------------------------
+    start_ts = datetime.datetime.now(datetime.UTC).isoformat()
+    start_perf = time.perf_counter()
+    repo_root = _find_repo_root(out_dir)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    fname = _sanitize_nodeid(test_nodeid) + ".jsonl"
+    out_path = out_dir / fname
+    capture.out_path = out_path
+
+    streaming_header = {
+        "kind": "header",
+        "test_nodeid": test_nodeid,
+        "start_ts_utc": start_ts,
+        "git": git_context(repo_root) if repo_root else {},
+        "python_version": _python_version(),
+        "schema_version": 3,
+        "streaming": True,
+        # Audit-trail discipline: declare the durability contract so a
+        # reader can branch on it without having to know the recorder
+        # version. See module docstring for the full contract.
+        "trailer_optional": True,
+        "partial_last_line_tolerated": True,
+        **(extra_metadata or {}),
+    }
+
+    try:
+        capture.file_handle = out_path.open("w", encoding="utf-8")
+        _write_jsonl_line_crashsafe(capture.file_handle, streaming_header)
+    except Exception:
+        # If we can't even open the file, fall back to a None handle;
+        # the rest of the recorder will silently no-op writes. Tests
+        # remain authoritative.
+        capture.file_handle = None
+
     async def patched_execute(self_call, inputs: dict[str, Any]) -> Any:  # type: ignore[no-untyped-def]
         try:
             invocation = await original_execute(self_call, inputs)
@@ -249,8 +371,12 @@ async def record_live_test(
             partial = getattr(exc, "invocation", None)
             if partial is not None:
                 capture.invocations.append(partial)
+                # Stream the partial so the audit trail survives the
+                # outer test failure / SIGTERM / OOM-kill window.
+                await _stream_invocation(capture, partial)
             raise
         capture.invocations.append(invocation)
+        await _stream_invocation(capture, invocation)
         return invocation
 
     # Patch only once even with nested record_live_test calls.
@@ -262,10 +388,6 @@ async def record_live_test(
     # LLM calls inside spawned children land in our JSONL stitch.
     capture.subprocess_dir = Path(tempfile.mkdtemp(prefix="kaos-recorder-sub-"))
     _subprocess_patches = _install_subprocess_env_patches(capture.subprocess_dir)
-
-    start_ts = datetime.datetime.now(datetime.UTC).isoformat()
-    start_perf = time.perf_counter()
-    repo_root = _find_repo_root(out_dir)
 
     outcome = "passed"
     error_repr: str | None = None
@@ -284,8 +406,8 @@ async def record_live_test(
 
         # KC6: roll back the subprocess.Popen / asyncio patches and
         # stitch any subprocess-written JSONL records into the
-        # capture. Done before the file write so the main JSONL
-        # carries both in-process and subprocess records.
+        # capture. Done before the trailer write so the trailer
+        # carries both in-process and subprocess totals.
         _restore_subprocess_env_patches(_subprocess_patches)
         try:
             capture.subprocess_records = _collect_subprocess_records(capture.subprocess_dir)
@@ -321,7 +443,7 @@ async def record_live_test(
                 continue
 
         # KC6: roll subprocess records into the same totals so the
-        # header reflects total spend across both surfaces.
+        # trailer reflects total spend across both surfaces.
         for sub_record in capture.subprocess_records:
             usage_dict = sub_record.get("usage") or {}
             if not isinstance(usage_dict, dict):
@@ -333,15 +455,14 @@ async def record_live_test(
             except (TypeError, ValueError):
                 continue
 
-        out_dir.mkdir(parents=True, exist_ok=True)
-        fname = _sanitize_nodeid(test_nodeid) + ".jsonl"
-        out_path = out_dir / fname
-
         total_subprocess_calls = len(capture.subprocess_records)
         total_calls = len(capture.invocations) + total_subprocess_calls
 
-        header = {
-            "kind": "header",
+        # Schema-v3 trailer: the post-hoc "what actually happened"
+        # line. Optional by contract — readers MUST tolerate runs
+        # without it (process killed before exit).
+        trailer = {
+            "kind": "trailer",
             "test_nodeid": test_nodeid,
             "start_ts_utc": start_ts,
             "end_ts_utc": end_ts,
@@ -355,48 +476,36 @@ async def record_live_test(
             "total_cost_usd": round(total_cost, 6),
             "total_input_tokens": total_input_tokens,
             "total_output_tokens": total_output_tokens,
-            "git": git_context(repo_root) if repo_root else {},
-            "python_version": _python_version(),
-            "schema_version": 2,
-            **(extra_metadata or {}),
+            "schema_version": 3,
         }
 
-        try:
-            with out_path.open("w", encoding="utf-8") as fh:
-                fh.write(json.dumps(header, separators=(",", ":")) + "\n")
-                for i, inv in enumerate(capture.invocations, start=1):
-                    record = serialize_invocation(inv, call_seq=i)
-                    fh.write(json.dumps(record, separators=(",", ":")) + "\n")
-                # KC6: stitched subprocess records, tagged so consumers
-                # can distinguish their origin from in-process records.
-                for j, sub_record in enumerate(
-                    capture.subprocess_records, start=len(capture.invocations) + 1
-                ):
-                    stitched = {**sub_record, "call_seq": j, "source": "subprocess"}
-                    fh.write(json.dumps(stitched, separators=(",", ":")) + "\n")
-        except Exception as exc:
-            # The recorder must never break tests. If we can't write
-            # the JSONL, write a tiny error stub and move on.
-            try:
-                with out_path.open("w", encoding="utf-8") as fh:
-                    fh.write(
-                        json.dumps(
-                            {
-                                "kind": "header",
-                                "test_nodeid": test_nodeid,
-                                "recorder_error": repr(exc),
-                            }
-                        )
-                        + "\n"
-                    )
-            except Exception:
-                pass
+        fh = capture.file_handle
+        if fh is not None:
+            # Append the stitched subprocess records as their own
+            # streamed lines BEFORE the trailer — keeps the per-line
+            # JSONL discipline (one record per line, trailer last).
+            for sub_record in capture.subprocess_records:
+                capture.call_seq_counter += 1
+                stitched = {
+                    **sub_record,
+                    "call_seq": capture.call_seq_counter,
+                    "source": "subprocess",
+                }
+                _write_jsonl_line_crashsafe(fh, stitched)
+
+            _write_jsonl_line_crashsafe(fh, trailer)
+
+            with contextlib.suppress(Exception):
+                fh.close()
+            capture.file_handle = None
 
         # Append to the rolling index (one line per recorded run).
         try:
             index_path = out_dir.parent / "INDEX.jsonl"
-            with index_path.open("a", encoding="utf-8") as fh:
-                fh.write(
+            git_info = streaming_header.get("git", {}) or {}
+            git_short_sha = git_info.get("short_sha", "") if isinstance(git_info, dict) else ""
+            with index_path.open("a", encoding="utf-8") as ifh:
+                ifh.write(
                     json.dumps(
                         {
                             "test_nodeid": test_nodeid,
@@ -406,16 +515,42 @@ async def record_live_test(
                             "call_count": total_calls,
                             "end_ts_utc": end_ts,
                             "file": str(out_path.relative_to(out_dir.parent.parent)),
-                            "git_short_sha": header["git"].get("short_sha", "")
-                            if header["git"]
-                            else "",
+                            "git_short_sha": git_short_sha,
                         },
                         separators=(",", ":"),
                     )
                     + "\n"
                 )
+                ifh.flush()
+                with contextlib.suppress(OSError, ValueError):
+                    os.fsync(ifh.fileno())
         except Exception:
             pass
+
+
+async def _stream_invocation(capture: _Capture, invocation: Any) -> None:
+    """Serialize + write one Invocation under the capture's write lock.
+
+    Called from the patched ``Call._execute`` for every completed
+    Invocation (successful or partial). Holds the write lock so
+    concurrent Calls running inside the same test don't interleave
+    JSONL lines. Silent on failure — telemetry must never break
+    the test.
+    """
+    fh = capture.file_handle
+    if fh is None:
+        return
+    async with capture.write_lock:
+        capture.call_seq_counter += 1
+        try:
+            record = serialize_invocation(invocation, call_seq=capture.call_seq_counter)
+        except Exception as exc:
+            record = {
+                "kind": "invocation",
+                "call_seq": capture.call_seq_counter,
+                "serialize_error": repr(exc),
+            }
+        _write_jsonl_line_crashsafe(fh, record)
 
 
 # ---------------------------------------------------------------------------
@@ -519,9 +654,14 @@ def _restore_subprocess_env_patches(originals: dict[str, Any]) -> None:
 def _collect_subprocess_records(recorder_dir: Path | None) -> list[dict[str, Any]]:
     """Read every ``subprocess-<pid>-<hex>.jsonl`` under ``recorder_dir``.
 
-    Returns the parsed records as a flat list, sorted by PID + line
-    order so deterministic across runs. Missing dir or unreadable
-    files contribute zero records.
+    Returns the parsed invocation records as a flat list, sorted by
+    PID + line order so deterministic across runs. Missing dir or
+    unreadable files contribute zero records.
+
+    Filters to ``kind == "invocation"`` so the schema_version=3 header
+    lines (written by ``env_recorder.install_from_env``) are not
+    stitched as if they were invocations. A truncated final line is
+    swallowed, matching the schema-v3 crash-safety contract.
     """
     if recorder_dir is None or not recorder_dir.exists():
         return []
@@ -534,10 +674,14 @@ def _collect_subprocess_records(recorder_dir: Path | None) -> list[dict[str, Any
                     if not stripped:
                         continue
                     try:
-                        records.append(json.loads(stripped))
+                        obj = json.loads(stripped)
                     except json.JSONDecodeError:
-                        # Corrupt line — skip but keep the rest.
+                        # Corrupt / truncated line — skip but keep the rest.
                         continue
+                    # Schema-v3: skip the header line; only invocations
+                    # are stitched into the parent JSONL.
+                    if obj.get("kind") == "invocation":
+                        records.append(obj)
         except OSError:
             continue
     return records

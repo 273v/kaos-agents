@@ -232,13 +232,20 @@ print(result.answer)
         main_jsonl = out_dir / "kc6_subprocess_e2e.jsonl"
         assert main_jsonl.exists()
         lines = [json.loads(line) for line in main_jsonl.read_text().splitlines()]
+
+        # Schema-v3 streaming: first line is the at-start header,
+        # last line is the at-exit trailer with the final counts.
         header = lines[0]
+        trailer = lines[-1]
         assert header["kind"] == "header"
-        assert header["subprocess_call_count"] >= 1, (
-            f"expected >=1 subprocess record, got header={header}"
+        assert header["streaming"] is True
+        assert header["schema_version"] == 3
+        assert trailer["kind"] == "trailer"
+        assert trailer["subprocess_call_count"] >= 1, (
+            f"expected >=1 subprocess record, got trailer={trailer}"
         )
 
-        subproc_lines = [line for line in lines[1:] if line.get("source") == "subprocess"]
+        subproc_lines = [line for line in lines[1:-1] if line.get("source") == "subprocess"]
         assert len(subproc_lines) >= 1
         # The subprocess record should carry the model + usage from
         # the FunctionClient handler.

@@ -101,23 +101,54 @@ def load_index(runs_dir: Path) -> list[IndexEntry]:
 
 
 def load_run(path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Read one captured-run JSONL: returns ``(header, [calls...])``."""
+    """Read one captured-run JSONL: returns ``(merged_header, [calls...])``.
+
+    Schema-v3 (streaming) tolerance:
+
+    * The file starts with a ``kind="header"`` line written at
+      ``__aenter__``; the merged dict returned here is initialized
+      from that line so callers see ``start_ts_utc`` / ``git`` /
+      ``streaming`` etc. even if the test died mid-execution.
+    * If a ``kind="trailer"`` line exists at the end, its fields
+      (``outcome``, ``end_ts_utc``, ``elapsed_s``, ``call_count``,
+      ``total_cost_usd``, etc.) overlay the header in the returned
+      dict so callers keep the historical "fat header" view.
+    * If a ``kind="trailer"`` line is missing OR the last line is
+      truncated mid-write (Linux fsync isn't a hard guarantee under
+      hard kill — see the schema_version=3 docstring in
+      ``tests/integration/_recorder.py``), the loader skips the
+      bad line and returns whatever was salvageable. Callers can
+      detect this state via ``header.get("outcome") is None``.
+    """
     header: dict[str, Any] = {}
     calls: list[dict[str, Any]] = []
     with path.open("r", encoding="utf-8") as fh:
-        for raw in fh:
-            raw = raw.strip()
-            if not raw:
+        lines = fh.readlines()
+    n = len(lines)
+    for idx, raw in enumerate(lines):
+        raw = raw.rstrip("\n")
+        if not raw:
+            continue
+        try:
+            obj = json.loads(raw)
+        except ValueError:
+            # Crash-tolerance: a SIGTERM mid-write can leave the
+            # last line truncated. Skip it (and only it — any
+            # earlier corrupt line is a real bug worth surfacing,
+            # but we still skip to load the rest).
+            if idx == n - 1:
                 continue
-            try:
-                obj = json.loads(raw)
-            except ValueError:
-                continue
-            kind = obj.get("kind", "")
-            if kind == "header" and not header:
-                header = obj
-            elif kind == "invocation":
-                calls.append(obj)
+            continue
+        kind = obj.get("kind", "")
+        if kind == "header" and not header:
+            header = dict(obj)
+        elif kind == "trailer":
+            # Trailer overlays header so legacy consumers see one fat dict.
+            for k, v in obj.items():
+                if k != "kind":
+                    header[k] = v
+        elif kind == "invocation":
+            calls.append(obj)
     return header, calls
 
 
