@@ -24,6 +24,16 @@ from kaos_core.logging import get_logger
 
 logger = get_logger(__name__)
 
+__all__ = [
+    "extraction_recipe_names",
+    "format_recipe_for_memory",
+    "load_builtin_recipes",
+    "load_extraction_recipe",
+    "load_extraction_recipes",
+    "load_recipe",
+    "recipe_names",
+]
+
 
 def load_builtin_recipes() -> list[dict[str, Any]]:
     """Load all built-in recipe JSON files.
