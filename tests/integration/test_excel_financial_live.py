@@ -111,9 +111,43 @@ def pnl_workbook(tmp_path: Path) -> tuple[Path, str]:
 
 @pytest.fixture
 def runtime() -> Any:
+    """Per-test runtime with an in-memory VFS.
+
+    The default ``KaosRuntime()`` uses a disk-backed VFS at
+    ``.kaos-vfs``, which means session memory persists across pytest
+    invocations. That cross-run leakage causes the agent to "answer
+    from memory" on the second-and-later runs without ever calling
+    ``kaos-tabular-query`` — false-green on the composition contract.
+    An in-memory VFS scoped to this fixture forces every run to
+    rediscover the data via the tool.
+    """
+    from kaos_core.artifacts.store import ArtifactStore
     from kaos_core.registry.container import KaosRuntime
+    from kaos_core.types.enums import IsolationMode, StorageBackend
+    from kaos_core.vfs.core import VirtualFileSystem
+    from kaos_core.vfs.models import VFSConfig
 
     rt = KaosRuntime()
+    # Override the default disk-backed VFS with an in-memory one.
+    # KaosRuntime doesn't accept ``vfs=`` in its constructor (would be
+    # the cleaner API), so we replace the attribute post-init and
+    # rebuild the ArtifactStore to point at the new VFS too — every
+    # downstream consumer reads ``runtime.vfs`` lazily, but
+    # ``runtime.artifacts`` captured the original at construction.
+    vfs_config = VFSConfig(
+        default_backend=StorageBackend.MEMORY,
+        isolation_mode=IsolationMode.GLOBAL,
+    )
+    rt.vfs = VirtualFileSystem(config=vfs_config)
+    rt.artifacts = ArtifactStore(
+        rt.vfs,
+        manifest_context_id=rt.settings.artifact_manifest_context_id,
+        manifest_prefix=rt.settings.artifact_manifest_prefix,
+        max_inline_read_bytes=rt.settings.artifact_inline_read_max_bytes,
+        default_chunk_size=rt.settings.artifact_chunk_size_bytes,
+        temporary_ttl_seconds=rt.settings.artifact_temporary_ttl_seconds,
+    )
+
     # Register the tabular MCP tools onto this runtime so the agent
     # can discover + dispatch them via ReAct.
     from kaos_tabular.tools import register_tabular_tools
@@ -124,7 +158,11 @@ def runtime() -> Any:
 
 @pytest.fixture
 def session_id() -> str:
-    return "excel-fin-live"
+    # Random-ish session id per test so even shared SESSION_REGISTRY
+    # state from a previous run can't leak the table in.
+    import uuid
+
+    return f"excel-fin-live-{uuid.uuid4().hex[:8]}"
 
 
 @pytest.fixture
@@ -236,17 +274,24 @@ class TestExcelFinancialComposition:
         # doesn't have to guess (this test exercises the agent's
         # SQL-writing + tool-dispatch ability, not its schema-discovery
         # ability — that's a separate test).
+        #
+        # The prompt is deliberately blunt about tool use: Haiku
+        # occasionally tries to answer from "training data" or just
+        # guesses when the question feels analytically simple. The
+        # explicit "you do NOT know the row values" sentence forces
+        # the only legal path through kaos-tabular-query.
         question = (
-            "I have a DuckDB table called "
-            f'"{table_name}" with columns product, q1_revenue, '
-            "q1_cogs, q4_revenue, q4_cogs (one row per product line). "
-            "Use the kaos-tabular-query tool to compute the YoY "
-            "margin change ((q4_revenue - q4_cogs)/q4_revenue minus "
-            "(q1_revenue - q1_cogs)/q1_revenue) for each product, "
-            "then tell me which single product line saw the LARGEST "
-            "Q4-vs-Q1 margin compression (i.e. most negative change). "
-            "Reply with the product name and cite the table name "
-            f'(it is "{table_name}"). Be concise.'
+            f'There is a DuckDB table in the current session called "{table_name}" '
+            "with columns product (text), q1_revenue, q1_cogs, "
+            "q4_revenue, q4_cogs (all float, one row per product line). "
+            "You do NOT know the row values — you must read them by "
+            "calling the kaos-tabular-query tool. "
+            f"Run this SQL via that tool: SELECT product, "
+            "((q4_revenue - q4_cogs)/q4_revenue) "
+            "- ((q1_revenue - q1_cogs)/q1_revenue) AS yoy_margin_change "
+            f'FROM "{table_name}" ORDER BY yoy_margin_change ASC LIMIT 1. '
+            "Then reply with the product name from the first row and "
+            f'cite the table "{table_name}". Be concise (one sentence).'
         )
 
         from kaos_agents.tools.registry import AgentChatTool
@@ -309,7 +354,8 @@ class TestExcelFinancialComposition:
         assert any("kaos-tabular-query" in n for n in tool_names_called), (
             f"agent answered without calling kaos-tabular-query. "
             f"Tool calls: {tool_names_called}. "
-            f"This means it either hallucinated SQL output or guessed."
+            f"This means it either hallucinated SQL output or guessed. "
+            f"Answer was: {answer!r}"
         )
 
         # None of the tabular tool calls should have errored.
