@@ -1067,6 +1067,8 @@ def register_agent_tools(runtime: KaosRuntime) -> int:
     for group in _builtin_groups:
         default_tool_group_registry.register(group, force=True)
 
+    from kaos_agents.tools.findings import AgentFindingsTool
+
     tools: list[KaosTool] = [
         AgentChatTool(),
         AgentPlanTool(),
@@ -1082,6 +1084,8 @@ def register_agent_tools(runtime: KaosRuntime) -> int:
         AgentGraphWalkTool(),
         AgentGraphSparqlTool(),
         AgentGraphProjectionTool(),
+        # K7 — recall-first FindingsAgent wrapper.
+        AgentFindingsTool(),
     ]
     for tool in tools:
         runtime.tools.register_tool(tool)
