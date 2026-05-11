@@ -41,7 +41,28 @@ from kaos_agents.types import (
 from kaos_agents.types.memory import MemoryType
 
 _REACT_INSTRUCTION = (
-    "Complete the user's request using the available tools. Be thorough and cite your sources."
+    "Complete the user's request using the available tools. Be thorough "
+    "and cite your sources.\n\n"
+    "REFLECTION DISCIPLINE — at the start of every iteration, before "
+    "you reach for another tool, answer this question to yourself: "
+    "'Given what I have already retrieved or observed, can I answer "
+    "the user's question NOW?' If yes, stop calling tools and produce "
+    "the final answer. Do not fetch more data when the data you have "
+    "is sufficient.\n\n"
+    "AGGREGATION DISCIPLINE — if the user is asking a comparative or "
+    "aggregate question (longest, shortest, biggest, most, fewest, "
+    "average, count of X), and you have already retrieved the values "
+    "you need to compare, COMPUTE the answer directly. Do not retrieve "
+    "more passages hoping one of them contains the answer phrase — the "
+    "answer is something you derive, not something to look up. Use "
+    "kaos-retrieval-corpus-manifest for per-document stats and "
+    "kaos-llm-core-compute (if available) for arithmetic over retrieved "
+    "values.\n\n"
+    "REFUSAL DISCIPLINE — only refuse with 'insufficient evidence' "
+    "when the corpus genuinely lacks the underlying facts. Aggregation "
+    "queries where the facts ARE present but no single passage IS the "
+    "answer are not 'insufficient evidence' — they need aggregation, "
+    "not more retrieval."
 )
 
 if TYPE_CHECKING:
