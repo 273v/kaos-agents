@@ -35,6 +35,14 @@ from kaos_agents.core import (
 )
 from kaos_agents.decorators import FunctionHook, hook
 from kaos_agents.errors import (
+    ERROR_KIND_AUTH,
+    ERROR_KIND_CONTEXT_TOO_LARGE,
+    ERROR_KIND_PROVIDER,
+    ERROR_KIND_RATE_LIMIT,
+    ERROR_KIND_SERVICE_UNAVAILABLE,
+    ERROR_KIND_TRANSPORT,
+    SURFACING_FAILURE_KINDS,
+    AgentFailureClassification,
     EventDeserializationError,
     EventSerializationError,
     EvictionError,
@@ -43,6 +51,7 @@ from kaos_agents.errors import (
     SectionNotConfiguredError,
     SessionCorruptedError,
     SessionNotFoundError,
+    classify_agent_failure,
 )
 from kaos_agents.escalation import (
     EscalationContext,
@@ -256,8 +265,15 @@ from kaos_agents.types.providers import BALANCED, FAST, STRONG, ModelRole, Provi
 
 __all__ = [
     "BALANCED",
+    "ERROR_KIND_AUTH",
+    "ERROR_KIND_CONTEXT_TOO_LARGE",
+    "ERROR_KIND_PROVIDER",
+    "ERROR_KIND_RATE_LIMIT",
+    "ERROR_KIND_SERVICE_UNAVAILABLE",
+    "ERROR_KIND_TRANSPORT",
     "FAST",
     "STRONG",
+    "SURFACING_FAILURE_KINDS",
     "ActionPlan",
     "ActionRefusal",
     "ActionResult",
@@ -266,6 +282,7 @@ __all__ = [
     "AgentEnvelope",
     "AgentEvalResult",
     "AgentExample",
+    "AgentFailureClassification",
     "AgentLoop",
     "AgentMetadata",
     "AgentMetricFn",
@@ -448,6 +465,7 @@ __all__ = [
     "agent_hash",
     "agent_iri",
     "assemble_context",
+    "classify_agent_failure",
     "current_delegation_depth",
     "current_turn",
     "default_event_registry",

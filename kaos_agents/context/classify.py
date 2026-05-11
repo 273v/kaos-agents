@@ -101,12 +101,45 @@ async def classify_intent(
 
     Returns:
         IntentResult with intent type, confidence, and reasoning.
+
+    Raises:
+        Exception: When the LLM raised an auth-failure, rate-limit,
+            service-unavailable, transport, or context-too-large error.
+            These are **actionable infrastructure failures** that the
+            runtime must surface as :class:`~kaos_agents.events.RunError`
+            rather than silently fall back to the heuristic — otherwise
+            the agent would claim "successful" classification when no
+            LLM is reachable, producing a ``ToolResult(isError=False,
+            text="")`` that breaks SOC2 alerting. The runtime's
+            ``_run_inner`` catches this and emits a structured RunError.
+
+    For non-actionable LLM failures (e.g. a transient codec decode
+    failure, an unexpected provider response shape, or an output
+    validation retry exhaustion), this function falls back to the
+    heuristic classifier — those are recoverable from a UX perspective.
     """
+    from kaos_agents.errors import classify_agent_failure
+
     try:
         return await _classify_with_llm(
             user_message, memory, model=model, context_text=context_text
         )
     except Exception as exc:
+        failure = classify_agent_failure(exc)
+        if failure is not None and failure.is_surfacing:
+            # Auth / rate-limit / service-unavailable / transport /
+            # context-too-large: do NOT silently fall back. The whole
+            # point of probe 4b's fix is that a missing API key MUST
+            # surface as an error, not as a heuristic-classified
+            # "successful" turn that produces an empty response.
+            logger.warning(
+                "classify_intent: actionable LLM failure (%s, kind=%s, provider=%s); "
+                "re-raising for RunError surfacing",
+                type(exc).__name__,
+                failure.kind,
+                failure.provider or "unknown",
+            )
+            raise
         logger.warning(
             "classify_intent: LLM classification failed (%s: %s), using heuristic fallback",
             type(exc).__name__,

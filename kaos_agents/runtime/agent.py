@@ -273,8 +273,64 @@ class BaseAgent(KaosAgent):
             context_total_items,
         )
 
-        # Step 5: Classify intent
-        intent = await self._classify(message, memory, context_items)
+        # Step 5: Classify intent. Auth / rate-limit / service-unavailable /
+        # transport / context-too-large failures from the classifier must
+        # NOT silently drop through to the heuristic fallback or to an
+        # empty dispatch — they need to surface as a structured RunError
+        # so downstream tool wrappers can convert to ToolResult.create_error.
+        # See ``classify_intent`` in ``kaos_agents/context/classify.py`` for
+        # the "which exceptions re-raise" contract and probe 4b in
+        # ``docs/design/skeptic-prod-ops-findings.md`` for the why.
+        try:
+            intent = await self._classify(message, memory, context_items)
+        except Exception as exc:
+            from kaos_agents.errors import classify_agent_failure
+
+            failure = classify_agent_failure(exc)
+            error_type = failure.kind if failure is not None else type(exc).__name__
+            recovery_hint = (
+                failure.recovery_hint
+                if failure is not None
+                else "Check logs for details. Try a simpler query."
+            )
+            logger.warning(
+                "agent.run: intent classification failed (%s): %s; "
+                "emitting RunError(error_type=%s)",
+                type(exc).__name__,
+                exc,
+                error_type,
+            )
+            yield emitter.emit(
+                RunError,
+                error_type=error_type,
+                message=str(exc),
+                recovery_hint=recovery_hint,
+            )
+            # End the turn span before returning — otherwise the span
+            # collector ends with a dangling parent and downstream OTel
+            # traces show an unterminated turn.
+            turn_duration_ms = (time.monotonic() - turn_t0) * 1000.0
+            yield emitter.span_complete(
+                SpanSubject.TURN,
+                span_id=turn_span_id,
+                name=turn_name,
+                duration_ms=turn_duration_ms,
+                attributes={"turn_number": turn_number, "error": error_type},
+            )
+            # Emit a TurnSummary so consumers that pattern-match on
+            # ``TurnSummary`` (Runner.turn(), CLI, MCP tool wrapper) still
+            # see a terminal frame instead of an unbounded stream.
+            yield emitter.emit(
+                TurnSummary,
+                text="",
+                intent="",
+                tool_calls=(),
+                tokens_used=0,
+                cost_usd=0.0,
+                input_tokens=0,
+                output_tokens=0,
+            )
+            return
 
         yield emitter.emit(
             IntentClassified,
@@ -359,12 +415,26 @@ class BaseAgent(KaosAgent):
                         usage = InvocationUsage.from_llm_usage(event)
                         per_tool_usage[src] = per_tool_usage.get(src, ZERO_USAGE) + usage
         except Exception as exc:
-            logger.warning("agent.run: dispatch failed: %s", exc)
+            from kaos_agents.errors import classify_agent_failure
+
+            failure = classify_agent_failure(exc)
+            error_type = failure.kind if failure is not None else type(exc).__name__
+            recovery_hint = (
+                failure.recovery_hint
+                if failure is not None
+                else "Check logs for details. Try a simpler query."
+            )
+            logger.warning(
+                "agent.run: dispatch failed (%s, error_type=%s): %s",
+                type(exc).__name__,
+                error_type,
+                exc,
+            )
             yield emitter.emit(
                 RunError,
-                error_type=type(exc).__name__,
+                error_type=error_type,
                 message=str(exc),
-                recovery_hint="Check logs for details. Try a simpler query.",
+                recovery_hint=recovery_hint,
             )
 
         # If no TextDelta events were yielded, get response from the non-streaming path.

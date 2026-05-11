@@ -59,6 +59,43 @@ def _get_vfs(runtime: KaosRuntime | None) -> VirtualFileSystem:
     return VirtualFileSystem(config=config)
 
 
+def _surfacing_error_from_status(status: dict[str, Any]) -> str | None:
+    """Return a ToolResult.create_error message when the run hit an
+    actionable infrastructure failure, else ``None``.
+
+    Implements the contract from probe 4b in
+    ``docs/design/skeptic-prod-ops-findings.md``: auth-failure,
+    rate-limit, service-unavailable, transport, and context-too-large
+    errors MUST surface as ``isError=True`` rather than the historic
+    silent ``text=""`` empty success that broke SOC2 alerting.
+
+    The message follows the agent-friendly error contract (see
+    ``CLAUDE.md``): (1) what went wrong, (2) how to fix it, (3)
+    alternative tool. The runtime emits ``error_type`` on the
+    :class:`RunError` event as the structured kind (e.g.
+    ``"auth_failure"``); we cross-check against the surfacing set so
+    a non-surfacing RunError (e.g. one we couldn't classify and
+    emitted as ``error_type=type(exc).__name__``) still falls through
+    to the normal success envelope.
+    """
+    from kaos_agents.errors import SURFACING_FAILURE_KINDS
+
+    event = status.get("run_error_event")
+    if event is None:
+        return None
+    error_type = getattr(event, "error_type", "") or ""
+    if error_type not in SURFACING_FAILURE_KINDS:
+        return None
+    message = getattr(event, "message", "") or ""
+    recovery_hint = getattr(event, "recovery_hint", "") or ""
+    summary = f"Agent run failed: {error_type}."
+    if message:
+        summary = f"{summary} {message}"
+    if recovery_hint:
+        summary = f"{summary} {recovery_hint}"
+    return summary
+
+
 async def _run_turn_with_status(runner: Any, message: str, session_id: str) -> tuple[Any, dict]:
     """Drain ``runner.run()`` once, building both an AgentResponse and a
     status dict that surfaces budget / pause events at the tool boundary.
@@ -93,12 +130,17 @@ async def _run_turn_with_status(runner: Any, message: str, session_id: str) -> t
     turn_summary: TurnSummary | None = None
     turn_start_number = 0
     run_error: RunError | None = None
-    status = {
+    status: dict[str, Any] = {
         "budget_exceeded": False,
         "budget_kind": None,
         "paused_for_approval": False,
         "pending_tool_name": None,
         "run_state_ref": None,
+        # Probe 4b: a RunError observed during the run that the tool
+        # wrapper must surface as ToolResult.isError=True. Stored as the
+        # raw event so the surfacing helper can read error_type +
+        # message + recovery_hint without re-walking the stream.
+        "run_error_event": None,
     }
 
     async for event in runner.run(message, session_id):
@@ -134,6 +176,7 @@ async def _run_turn_with_status(runner: Any, message: str, session_id: str) -> t
             turn_summary = event
         elif isinstance(event, RunError):
             run_error = event
+            status["run_error_event"] = event
         elif isinstance(event, BudgetExceeded):
             status["budget_exceeded"] = True
             status["budget_kind"] = event.kind
@@ -340,6 +383,15 @@ class AgentChatTool(KaosTool):
                 permission_policy=permission_policy,
             )
             response, status = await _run_turn_with_status(runner, message, session_id)
+
+            # Surface an actionable RunError as ToolResult.isError=True.
+            # See skeptic probe 4b: an auth/rate-limit/transport failure
+            # silently producing ``text=""`` + ``isError=False`` breaks
+            # SOC2 alerting. Each surfacing kind names the credential or
+            # provider and the recovery path.
+            surfacing = _surfacing_error_from_status(status)
+            if surfacing is not None:
+                return ToolResult.create_error(surfacing)
 
             result_data = {
                 "text": response.text,
@@ -558,6 +610,13 @@ class AgentPlanTool(KaosTool):
                 permission_policy=permission_policy,
             )
             response, status = await _run_turn_with_status(runner, message, session_id)
+
+            # Auth / rate-limit / transport failures during plan exec must
+            # surface as ToolResult.isError=True (probe 4b). See
+            # AgentChatTool.execute above for the rationale.
+            surfacing = _surfacing_error_from_status(status)
+            if surfacing is not None:
+                return ToolResult.create_error(surfacing)
 
             result_data = {
                 "text": response.text,
