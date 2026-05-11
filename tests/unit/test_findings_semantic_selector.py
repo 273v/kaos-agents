@@ -449,7 +449,12 @@ class TestExpandQuestionToTerms:
         ]
         _StubCall.next_cost = 0.0008
 
-        terms, cost = asyncio.run(expand_question_to_terms("What is the cyber risk mitigation?"))
+        # Sprint-3 #10: expand_question_to_terms now returns
+        # (terms, cost, total_tokens). Drop the token count here —
+        # the cost-surface tests cover the new field directly.
+        terms, cost, _tokens = asyncio.run(
+            expand_question_to_terms("What is the cyber risk mitigation?")
+        )
         assert terms == (
             "cyber",
             "multi-factor",
@@ -472,7 +477,7 @@ class TestExpandQuestionToTerms:
             "real-term",
         ]
 
-        terms, _ = asyncio.run(expand_question_to_terms("any question here please"))
+        terms, _, _tokens = asyncio.run(expand_question_to_terms("any question here please"))
         assert terms == ("cyber", "real-term")
 
     def test_empty_llm_output_returns_empty_tuple(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -484,7 +489,9 @@ class TestExpandQuestionToTerms:
         _patch_call(monkeypatch)
         _StubCall.next_terms = []
 
-        terms, _cost = asyncio.run(expand_question_to_terms("any 6 word question here please"))
+        terms, _cost, _tokens = asyncio.run(
+            expand_question_to_terms("any 6 word question here please")
+        )
         assert terms == ()
         # And feeding empty terms into the selector + agent produces
         # the canonical refusal.

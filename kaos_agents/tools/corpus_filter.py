@@ -74,7 +74,12 @@ class AgentCorpusFilterTool(KaosTool):
                 "receives only each artifact's summary "
                 "(head_tokens + top_ngrams + entity_counts), not the "
                 "full body — keeps the prompt under a few thousand "
-                "tokens even for hundreds of artifacts."
+                "tokens even for hundreds of artifacts. "
+                "TRANSPARENCY (Sprint-3 #10): structuredContent "
+                "carries ``cost_usd: float`` and ``total_tokens: int`` "
+                "as top-level fields. K8 is a single LLM call, so the "
+                "two figures are the call's spend; no per-stage "
+                "breakdown."
             ),
             category=ToolCategory.DOCUMENT,
             capability=ToolCapability.ANALYZE,
@@ -206,13 +211,14 @@ class AgentCorpusFilterTool(KaosTool):
                     "total_input": len(raw_ids),
                     "total_loadable": 0,
                     "cost_usd": 0.0,
+                    "total_tokens": 0,
                     "budget_exceeded": False,
                 },
                 summary="No artifacts loadable; nothing to filter.",
             )
 
         try:
-            kept, dropped, cost = await _run_corpus_filter_llm(
+            filter_result = await _run_corpus_filter_llm(
                 intent=str(intent),
                 artifacts=rendered_artifacts,
                 max_keep=max_keep,
@@ -224,6 +230,15 @@ class AgentCorpusFilterTool(KaosTool):
                 f"Filter LLM call failed: {exc}. Fall back to "
                 "kaos-content-corpus-narrow which is BM25-only."
             )
+        # Sprint-3 #10 — accept either the new 4-tuple
+        # (kept, dropped, cost, tokens) or the legacy 3-tuple
+        # (kept, dropped, cost) so tests / consumers patching the
+        # private helper aren't forced to update on this minor.
+        if len(filter_result) == 4:
+            kept, dropped, cost, tokens = filter_result
+        else:
+            kept, dropped, cost = filter_result
+            tokens = 0
 
         # Sprint-3 #9 — the K8 path is one LLM call. We cannot abort
         # mid-call, so the cap is checked AFTER the call returns:
@@ -248,6 +263,11 @@ class AgentCorpusFilterTool(KaosTool):
             "total_input": len(raw_ids),
             "total_loadable": len(rendered_artifacts),
             "cost_usd": cost,
+            # Sprint-3 #10 (transparency lens) — headline token figure
+            # from the single underlying LLM call. K8 is one call so
+            # there's no per-stage breakdown; ``total_tokens`` is
+            # the one number callers need.
+            "total_tokens": int(tokens),
             "budget_exceeded": budget_exceeded,
         }
         summary_text = (
@@ -265,8 +285,13 @@ async def _run_corpus_filter_llm(
     artifacts: list[dict[str, Any]],
     max_keep: int,
     model: str,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], float]:
-    """Run the single LLM filter call. Returns (kept, dropped, cost_usd).
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], float, int]:
+    """Run the single LLM filter call. Returns ``(kept, dropped, cost_usd, total_tokens)``.
+
+    Sprint-3 #10 widened the return tuple from ``(kept, dropped, cost)`` to
+    include the LLM call's token count for the transparency-lens surface.
+    The caller normalizes 3-tuple legacy returns to the 4-tuple shape so
+    monkey-patched stubs keep working.
 
     Defensive about LLM output: validates artifact_id round-trip,
     clamps relevance to [0, 1], enforces max_keep as a soft cap
@@ -320,6 +345,8 @@ async def _run_corpus_filter_llm(
     invocation = await call.invoke(intent=intent, max_keep=max_keep, artifacts=rendered)
     output = invocation.output
     cost = float(getattr(invocation.usage, "cost_usd", 0.0) or 0.0)
+    # Sprint-3 #10 — total_tokens for the transparency-lens surface.
+    tokens = int(getattr(invocation.usage, "total_tokens", 0) or 0)
 
     valid_ids = {a["id"] for a in artifacts}
     kept_clean: list[dict[str, Any]] = []
@@ -369,7 +396,7 @@ async def _run_corpus_filter_llm(
                 }
             )
 
-    return kept_clean, dropped_clean, cost
+    return kept_clean, dropped_clean, cost, tokens
 
 
 __all__ = ["AgentCorpusFilterTool"]

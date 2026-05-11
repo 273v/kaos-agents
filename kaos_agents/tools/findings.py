@@ -147,6 +147,18 @@ class AgentFindingsTool(KaosTool):
                 "``cost_usd`` reports actual spend. Worst-case "
                 "overshoot is one wave's in-flight cost — typically "
                 "within 5% of the cap. "
+                "TRANSPARENCY (Sprint-3 #10): structuredContent "
+                "carries a per-stage cost + token breakdown — "
+                "``filter_cost_usd`` / ``synthesis_cost_usd`` / "
+                "``semantic_rewrite_cost_usd`` (USD); "
+                "``filter_tokens`` / ``synthesis_tokens`` / "
+                "``semantic_rewrite_tokens`` (int) — plus the "
+                "headline ``total_cost_usd`` / ``cost_usd`` (USD) and "
+                "``total_tokens`` (int) summing every LLM call. "
+                "Multi-stage pipelines name BOTH ``cost_usd`` (the "
+                "platform-wide canonical headline) AND "
+                "``total_cost_usd`` (the pipeline-specific aggregate); "
+                "the two numbers are identical. "
                 "WARNINGS CONTRACT: structuredContent['warnings'] "
                 "may include a 'low_recall_token_selector' entry "
                 "when select_by='token' enumerated < 5 candidates "
@@ -391,6 +403,10 @@ class AgentFindingsTool(KaosTool):
         # path is unchanged.
         semantic_terms: tuple[str, ...] = ()
         semantic_cost: float = 0.0
+        # Sprint-3 #10 — token count from the semantic-rewrite Call.
+        # Plumbs into the headline ``total_tokens`` figure on the
+        # tool wrapper alongside filter + synthesis tokens.
+        semantic_tokens: int = 0
         low_recall_arg: str | None = None
         if select_by == "semantic":
             from kaos_agents.patterns.findings import (
@@ -399,7 +415,7 @@ class AgentFindingsTool(KaosTool):
             )
 
             try:
-                semantic_terms, semantic_cost = await expand_question_to_terms(
+                semantic_terms, semantic_cost, semantic_tokens = await expand_question_to_terms(
                     str(question),
                     model=semantic_rewrite_model,
                 )
@@ -467,6 +483,17 @@ class AgentFindingsTool(KaosTool):
                         "synthesis_cost_usd": 0.0,
                         "semantic_rewrite_cost_usd": semantic_cost,
                         "total_cost_usd": semantic_cost,
+                        # Sprint-3 #10 — canonical headline cost +
+                        # tokens. ``cost_usd`` mirrors
+                        # ``total_cost_usd``; ``total_tokens`` is the
+                        # sum of every stage. On this budget-refusal
+                        # path only the semantic rewrite ran, so the
+                        # totals equal the rewrite figures.
+                        "cost_usd": semantic_cost,
+                        "filter_tokens": 0,
+                        "synthesis_tokens": 0,
+                        "semantic_rewrite_tokens": semantic_tokens,
+                        "total_tokens": semantic_tokens,
                         "total_llm_calls": 1 if select_by == "semantic" else 0,
                         "semantic_terms": list(semantic_terms),
                         "warnings": [],
@@ -534,6 +561,11 @@ class AgentFindingsTool(KaosTool):
         # sees in summary == real spend. Per-stage costs stay
         # separated for accounting purposes.
         total_cost_with_rewrite = result.total_cost_usd + semantic_cost
+        # Sprint-3 #10 — same composition for tokens: per-stage
+        # figures stay separated, but the headline ``total_tokens``
+        # sums every LLM call (filter + synthesis + optional rewrite)
+        # so a transparency-aware consumer can read one number.
+        total_tokens_with_rewrite = result.total_tokens + semantic_tokens
         output: dict[str, Any] = {
             "artifact_id": artifact_id,
             "question": question,
@@ -550,6 +582,15 @@ class AgentFindingsTool(KaosTool):
             "synthesis_cost_usd": result.synthesis_cost_usd,
             "semantic_rewrite_cost_usd": semantic_cost,
             "total_cost_usd": total_cost_with_rewrite,
+            # Sprint-3 #10 — token surface mirrors the cost surface.
+            # ``total_tokens`` is the headline; per-stage figures
+            # (``filter_tokens`` / ``synthesis_tokens`` /
+            # ``semantic_rewrite_tokens``) stay separated for
+            # accounting.
+            "filter_tokens": result.filter_tokens,
+            "synthesis_tokens": result.synthesis_tokens,
+            "semantic_rewrite_tokens": semantic_tokens,
+            "total_tokens": total_tokens_with_rewrite,
             "total_llm_calls": (result.total_llm_calls + (1 if select_by == "semantic" else 0)),
             # Sprint-2 #6 — semantic-mode terms for audit / debug.
             # Empty list for non-semantic modes so the wire shape

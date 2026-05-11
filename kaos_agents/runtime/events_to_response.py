@@ -82,12 +82,21 @@ def events_to_response(events: list[KaosEvent], session_id: str) -> AgentRespons
     # Response text + token totals from TurnSummary (the canonical
     # end-of-turn aggregate). Fall back to concatenated TextDelta
     # content when the turn errored before TurnSummary fired.
+    #
+    # Sprint-3 #10 (transparency lens): also pull cost_usd off the
+    # TurnSummary so the AgentResponse carries it as a first-class
+    # attribute. tokens_used and total_tokens are the same number at
+    # the turn level (TurnSummary.tokens_used is the aggregate across
+    # every UsageObserved event for the turn); we surface it under
+    # both names for ergonomic API consistency.
     if turn_summary is not None:
         text = turn_summary.text
         tokens_used = turn_summary.tokens_used
+        cost_usd = float(turn_summary.cost_usd or 0.0)
     else:
         text = "".join(event.content for event in events if isinstance(event, TextDelta))
         tokens_used = 0
+        cost_usd = 0.0
 
     return AgentResponse.create(
         text=text,
@@ -95,6 +104,8 @@ def events_to_response(events: list[KaosEvent], session_id: str) -> AgentRespons
         tool_calls=tuple(tool_call_records),
         turn_number=turn_number,
         tokens_used=tokens_used,
+        cost_usd=cost_usd,
+        total_tokens=tokens_used,
         metadata={"session_id": session_id},
     )
 

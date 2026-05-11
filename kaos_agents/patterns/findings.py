@@ -424,6 +424,16 @@ class FindingsResult:
     filter_calls: int
     refusal: FindingsRefusal | None = None
     budget_exceeded: bool = False
+    filter_tokens: int = 0
+    """Sprint-3 #10 — total tokens consumed by Phase-2 filter calls.
+    Aggregated from every ``Invocation.usage.total_tokens`` produced
+    by ``_filter_chunk``. Sums to the headline ``total_tokens``
+    surfaced on the tool wrapper alongside ``synthesis_tokens``.
+    Default 0 so older tests / stubs that don't surface tokens keep
+    constructing valid results."""
+    synthesis_tokens: int = 0
+    """Sprint-3 #10 — total tokens consumed by the Phase-3 synthesis
+    call. Same shape as :attr:`filter_tokens`."""
     """Sprint-3 #9 — True when ``FindingsAgent(max_cost_usd=...)``
     was set and the accumulated LLM spend hit the cap. The run
     completed gracefully (no exception, no isError) but ``answer``
@@ -451,6 +461,52 @@ class FindingsResult:
     @property
     def total_llm_calls(self) -> int:
         return self.filter_calls + 1  # +1 for synthesis
+
+    @property
+    def total_tokens(self) -> int:
+        """Sprint-3 #10 — aggregate of filter + synthesis tokens. The
+        K7 tool wrapper adds semantic-rewrite tokens on top for the
+        headline ``total_tokens`` figure exposed via
+        ``ToolResult.structuredContent``."""
+        return self.filter_tokens + self.synthesis_tokens
+
+
+# ---------------------------------------------------------------------------
+# Sprint-3 #10 — usage extraction helper
+# ---------------------------------------------------------------------------
+
+
+def _invocation_usage(invocation: Any) -> tuple[float, int]:
+    """Return ``(cost_usd, total_tokens)`` from an ``Invocation``.
+
+    Single chokepoint so the helper functions below (``_filter_chunk``,
+    ``_synthesize``, ``expand_question_to_terms``) all extract usage
+    via the same duck-typed path. Returns zeros when ``invocation.usage``
+    is missing or partial — keeps tests / stubs with a bare ``usage``
+    namespace working without surfacing ``None`` to the agent loop.
+    """
+    usage = getattr(invocation, "usage", None)
+    cost = float(getattr(usage, "cost_usd", 0.0) or 0.0)
+    tokens = int(getattr(usage, "total_tokens", 0) or 0)
+    return cost, tokens
+
+
+def _unpack_helper_result(result: Any) -> tuple[Any, float, int]:
+    """Normalize ``(value, cost)`` or ``(value, cost, tokens)`` returns.
+
+    Sprint-3 #10: the internal helpers (``_filter_chunk``, ``_synthesize``,
+    ``expand_question_to_terms``) now return 3-tuples carrying total
+    tokens alongside cost. Existing unit-test stubs (test_findings,
+    test_findings_tool, test_findings_refusal, test_cost_cap_enforcement)
+    return the historical 2-tuple ``(value, cost)`` shape. This helper
+    accepts both so the agent loop tolerates either contract — old
+    stubs continue passing without surfacing fake token numbers.
+    """
+    if len(result) == 3:
+        value, cost, tokens = result
+        return value, float(cost), int(tokens)
+    value, cost = result
+    return value, float(cost), 0
 
 
 # ---------------------------------------------------------------------------
@@ -725,8 +781,8 @@ async def expand_question_to_terms(
     *,
     model: str = _DEFAULT_SEMANTIC_REWRITE_MODEL,
     max_terms: int = _MAX_SEMANTIC_TERMS,
-) -> tuple[tuple[str, ...], float]:
-    """Run the semantic-rewrite Call. Returns ``(terms, cost_usd)``.
+) -> tuple[tuple[str, ...], float, int]:
+    """Run the semantic-rewrite Call. Returns ``(terms, cost_usd, tokens)``.
 
     Single cheap LLM call that rewrites the user's intent into the
     literal vocabulary the document would actually use. The output
@@ -750,10 +806,10 @@ async def expand_question_to_terms(
             model and enforced server-side after sanitization.
 
     Returns:
-        Tuple of ``(sanitized_terms, cost_usd)``. ``cost_usd`` is
-        the real LLM spend from the Invocation usage. Plumbs into
+        Tuple of ``(sanitized_terms, cost_usd, total_tokens)``. Both
+        figures come from the real ``Invocation.usage``. Plumbs into
         the agent's filter-cost accounting so the total reported
-        cost includes the rewrite.
+        cost AND token count include the rewrite.
     """
     from kaos_agents._llm_imports import require_llm_core
 
@@ -825,16 +881,17 @@ async def expand_question_to_terms(
     call = Call(_RewriteSignature, model=model, temperature=0.0)
     invocation = await call.invoke(question=question, max_terms=max_terms)
     raw_terms = getattr(invocation.output, "search_terms", []) or []
-    cost = float(getattr(invocation.usage, "cost_usd", 0.0) or 0.0)
+    cost, tokens = _invocation_usage(invocation)
     sanitized = sanitize_semantic_terms(raw_terms)
     logger.debug(
-        "findings.semantic.rewrite: question=%r raw=%d sanitized=%d cost=$%.4f",
+        "findings.semantic.rewrite: question=%r raw=%d sanitized=%d cost=$%.4f tokens=%d",
         question[:80],
         len(raw_terms),
         len(sanitized),
         cost,
+        tokens,
     )
-    return sanitized, cost
+    return sanitized, cost, tokens
 
 
 # ---------------------------------------------------------------------------
@@ -1397,17 +1454,25 @@ class FindingsAgent:
 
         async def _run_chunk(
             chunk: tuple[FindingCandidate, ...],
-        ) -> tuple[tuple[FilteredFinding, ...], float]:
-            return await _filter_chunk(
+        ) -> tuple[tuple[FilteredFinding, ...], float, int]:
+            # Sprint-3 #10 — accept both the new 3-tuple
+            # (survivors, cost, tokens) and the historical
+            # 2-tuple (survivors, cost) so unit-test stubs that
+            # patch _filter_chunk with the old signature keep
+            # passing. _unpack_helper_result normalizes either.
+            raw = await _filter_chunk(
                 chunk,
                 question=question,
                 model=self.filter_model,
                 threshold=self.relevance_threshold,
                 temperature=self.temperature,
             )
+            value, cost, tokens = _unpack_helper_result(raw)
+            return value, cost, tokens
 
         survivors_by_id: dict[str, FilteredFinding] = {}
         filter_cost = 0.0
+        filter_tokens_total = 0
         total_filter_calls = 0
         budget_exceeded_during_filter = False
         cap = self.max_cost_usd
@@ -1435,20 +1500,24 @@ class FindingsAgent:
             wave_end = min(idx + self.num_parallel, len(work_units))
             wave = work_units[idx:wave_end]
             wave_results = await asyncio.gather(*(_run_chunk(c) for _, _, c in wave))
-            for (_run_idx, _chunk_idx, _chunk_item), (chunk_survivors, chunk_cost) in zip(
-                wave, wave_results, strict=True
-            ):
+            for (_run_idx, _chunk_idx, _chunk_item), (
+                chunk_survivors,
+                chunk_cost,
+                chunk_tokens,
+            ) in zip(wave, wave_results, strict=True):
                 filter_cost += chunk_cost
+                filter_tokens_total += chunk_tokens
                 total_filter_calls += 1
                 for finding in chunk_survivors:
                     existing = survivors_by_id.get(finding.candidate.finding_id)
                     if existing is None or finding.relevance > existing.relevance:
                         survivors_by_id[finding.candidate.finding_id] = finding
             logger.debug(
-                "findings.phase2.wave: end=%d/%d filter_cost=$%.4f survivors=%d",
+                "findings.phase2.wave: end=%d/%d filter_cost=$%.4f tokens=%d survivors=%d",
                 wave_end,
                 len(work_units),
                 filter_cost,
+                filter_tokens_total,
                 len(survivors_by_id),
             )
             idx = wave_end
@@ -1530,6 +1599,8 @@ class FindingsAgent:
                 refusal=refusal,
                 budget_exceeded=budget_exceeded_during_filter,
                 warnings=tuple(warnings_collected),
+                filter_tokens=filter_tokens_total,
+                synthesis_tokens=0,
             )
 
         # Pre-synthesis budget check: if we don't have headroom to
@@ -1577,17 +1648,24 @@ class FindingsAgent:
                 refusal=refusal,
                 budget_exceeded=True,
                 warnings=tuple(warnings_collected),
+                filter_tokens=filter_tokens_total,
+                synthesis_tokens=0,
             )
 
-        answer, synthesis_cost = await _synthesize(
+        # Sprint-3 #10 — accept either the new 3-tuple (Sprint-3 #10
+        # contract) or the legacy 2-tuple from stubs.
+        synth_raw = await _synthesize(
             question=question,
             findings=tuple(survivors),
             model=self.synthesis_model,
             temperature=self.temperature,
         )
+        answer_value, synthesis_cost, synthesis_tokens = _unpack_helper_result(synth_raw)
+        answer = str(answer_value)
         logger.debug(
-            "findings.phase3: synthesised answer (cost=$%.4f, %d chars)",
+            "findings.phase3: synthesised answer (cost=$%.4f, tokens=%d, %d chars)",
             synthesis_cost,
+            synthesis_tokens,
             len(answer),
         )
 
@@ -1608,6 +1686,8 @@ class FindingsAgent:
             filter_calls=total_filter_calls,
             budget_exceeded=budget_exceeded_during_filter,
             warnings=tuple(warnings_collected),
+            filter_tokens=filter_tokens_total,
+            synthesis_tokens=synthesis_tokens,
         )
 
 
@@ -1630,14 +1710,16 @@ async def _filter_chunk(
     model: str,
     threshold: float,
     temperature: float = _DEFAULT_TEMPERATURE,
-) -> tuple[tuple[FilteredFinding, ...], float]:
+) -> tuple[tuple[FilteredFinding, ...], float, int]:
     """Run one Phase-2 LLM filter call over ``chunk``.
 
-    Returns ``(survivors, cost_usd)``. Survivors are those whose
+    Returns ``(survivors, cost_usd, total_tokens)``. Survivors are those whose
     relevance score >= ``threshold``. The LLM is given just the
     candidate text + finding_id; metadata (block_ref, section,
     page) is preserved by the caller via the original
-    :class:`FindingCandidate` lookup.
+    :class:`FindingCandidate` lookup. ``total_tokens`` aggregates the
+    Invocation's input+output token count (Sprint-3 #10 — feeds the
+    transparency-lens token surface on the tool wrapper).
 
     ``temperature`` is plumbed straight to the underlying ``Call`` —
     defaults to :data:`_DEFAULT_TEMPERATURE` (``0.0``) so this helper
@@ -1705,7 +1787,7 @@ async def _filter_chunk(
     call = Call(_FilterSignature, model=model, temperature=temperature)
     invocation = await call.invoke(question=question, candidates=rendered)
     result = invocation.output
-    cost = float(getattr(invocation.usage, "cost_usd", 0.0) or 0.0)
+    cost, tokens = _invocation_usage(invocation)
 
     # Build a finding_id → FindingCandidate index for the chunk.
     by_id = {c.finding_id: c for c in chunk}
@@ -1727,7 +1809,7 @@ async def _filter_chunk(
             continue
         reasoning = str(raw.get("reasoning") or "").strip()
         survivors.append(FilteredFinding(candidate=cand, relevance=relevance, reasoning=reasoning))
-    return tuple(survivors), cost
+    return tuple(survivors), cost, tokens
 
 
 async def _synthesize(
@@ -1736,13 +1818,14 @@ async def _synthesize(
     findings: tuple[FilteredFinding, ...],
     model: str,
     temperature: float = _DEFAULT_TEMPERATURE,
-) -> tuple[str, float]:
+) -> tuple[str, float, int]:
     """Run the Phase-3 synthesis call.
 
-    Returns ``(answer, cost_usd)``. The synthesis LLM gets the
+    Returns ``(answer, cost_usd, total_tokens)``. The synthesis LLM gets the
     surviving findings (ordered by descending relevance) plus the
     original question, and is asked to answer the question with
-    inline ``[finding_id]`` references.
+    inline ``[finding_id]`` references. ``total_tokens`` is the
+    Invocation's aggregate input+output token count (Sprint-3 #10).
 
     ``temperature`` defaults to :data:`_DEFAULT_TEMPERATURE`
     (``0.0``) so that synthesis is deterministic by default —
@@ -1809,8 +1892,8 @@ async def _synthesize(
     call = Call(_SynthesizeSignature, model=model, temperature=temperature)
     invocation = await call.invoke(question=question, findings=rendered)
     answer = str(invocation.output.answer)
-    cost = float(getattr(invocation.usage, "cost_usd", 0.0) or 0.0)
-    return answer, cost
+    cost, tokens = _invocation_usage(invocation)
+    return answer, cost, tokens
 
 
 # ---------------------------------------------------------------------------

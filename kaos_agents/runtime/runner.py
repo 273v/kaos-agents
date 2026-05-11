@@ -632,12 +632,20 @@ class Runner:
             metadata["error_message"] = run_error.message
 
         tokens_used = turn_summary.tokens_used if turn_summary is not None else 0
+        # Sprint-3 #10 (transparency lens) — pull cost_usd off the
+        # TurnSummary aggregate so the AgentResponse carries the
+        # headline figure as a first-class attribute. Same path that
+        # events_to_response.events_to_response uses; the two
+        # implementations must agree.
+        cost_usd = float(turn_summary.cost_usd or 0.0) if turn_summary is not None else 0.0
         return AgentResponse.create(
             text=text,
             intent=intent_result,
             tool_calls=tuple(tool_calls),
             turn_number=turn_start_number,
             tokens_used=tokens_used,
+            cost_usd=cost_usd,
+            total_tokens=tokens_used,
             metadata=metadata,
         )
 

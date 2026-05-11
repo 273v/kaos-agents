@@ -209,12 +209,19 @@ async def _run_turn_with_status(runner: Any, message: str, session_id: str) -> t
         metadata["error_type"] = run_error.error_type
         metadata["error_message"] = run_error.message
     tokens_used = turn_summary.tokens_used if turn_summary is not None else 0
+    cost_usd = float(turn_summary.cost_usd or 0.0) if turn_summary is not None else 0.0
+    # Sprint-3 #10 — also push total_tokens into the side-channel
+    # status dict so the tool surface can include it in
+    # structuredContent without re-reading the events stream.
+    status["total_tokens"] = tokens_used
     response = AgentResponse.create(
         text=text,
         intent=intent_result,
         tool_calls=tuple(tool_calls),
         turn_number=turn_start_number,
         tokens_used=tokens_used,
+        cost_usd=cost_usd,
+        total_tokens=tokens_used,
         metadata=metadata,
     )
     return response, status
@@ -237,7 +244,14 @@ class AgentChatTool(KaosTool):
                 "Run a single conversational turn with a KAOS agent. "
                 "Supports tool calling via ReAct when tools are registered on the runtime. "
                 "Session memory persists across turns — use the same session_id for multi-turn. "
-                "For multi-step planning tasks, use kaos-agent-plan instead."
+                "For multi-step planning tasks, use kaos-agent-plan instead. "
+                "TRANSPARENCY (Sprint-3 #10): structuredContent carries "
+                "``cost_usd: float`` (USD spent on this turn) and "
+                "``total_tokens: int`` (aggregate input+output tokens) "
+                "as top-level fields. Both numbers come from the same "
+                "TurnSummary aggregate that feeds AgentResponse.cost_usd "
+                "and AgentResponse.total_tokens — the MCP surface and "
+                "the in-process surface return identical numbers."
             ),
             category=ToolCategory.TEXT,
             capability=ToolCapability.TRANSFORM,
@@ -488,6 +502,11 @@ class AgentChatTool(KaosTool):
                 # source of truth; ``budget_exceeded`` is derived
                 # from this vs. the configured cap.
                 "cost_usd": actual_cost,
+                # Sprint-3 #10 (transparency lens) — total tokens for
+                # this turn, aggregated from every UsageObserved event
+                # via TurnSummary.tokens_used. Matches the value on
+                # AgentResponse.total_tokens for in-process callers.
+                "total_tokens": int(status.get("total_tokens") or 0),
             }
             if max_cost_usd is not None:
                 result_data["max_cost_usd"] = max_cost_usd
@@ -536,7 +555,13 @@ class AgentPlanTool(KaosTool):
                 "and synthesizes results. For simple conversational queries, "
                 "use kaos-agent-chat. "
                 "Session memory persists — prior plan failures inform "
-                "future attempts via Reflexion."
+                "future attempts via Reflexion. "
+                "TRANSPARENCY (Sprint-3 #10): structuredContent carries "
+                "``cost_usd: float`` (USD spent across all plan steps) "
+                "and ``total_tokens: int`` (aggregate input+output "
+                "tokens). Numbers match AgentResponse.cost_usd / "
+                "AgentResponse.total_tokens — the in-process and MCP "
+                "surfaces are aligned."
             ),
             category=ToolCategory.TEXT,
             capability=ToolCapability.TRANSFORM,
@@ -743,6 +768,9 @@ class AgentPlanTool(KaosTool):
                 "budget_exceeded": status["budget_exceeded"],
                 "paused_for_approval": status["paused_for_approval"],
                 "cost_usd": actual_cost,
+                # Sprint-3 #10 (transparency lens) — see AgentChatTool
+                # for the rationale. Same shape across both tools.
+                "total_tokens": int(status.get("total_tokens") or 0),
             }
             if max_cost_usd is not None:
                 result_data["max_cost_usd"] = max_cost_usd
