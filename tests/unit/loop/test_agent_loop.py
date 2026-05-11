@@ -34,6 +34,7 @@ Covers:
 from __future__ import annotations
 
 import asyncio
+import os
 from types import SimpleNamespace
 from typing import Any
 
@@ -467,6 +468,18 @@ class TestUsageRollup:
 
 
 class TestInvoke:
+    @pytest.mark.skipif(
+        not os.environ.get("ANTHROPIC_API_KEY"),
+        reason=(
+            "AgentLoop.invoke runs the full 8-step turn; with only the "
+            "IntentExtractor stubbed, the 'respond' step still issues a "
+            "real RespondSignature call against Anthropic. Passes locally "
+            "where ANTHROPIC_API_KEY is exported; skipped in unit-only "
+            "CI. Misclassified live test — tracked as a Phase D follow-up "
+            "to either move the test to tests/integration/ or stub the "
+            "respond step too."
+        ),
+    )
     async def test_invoke_returns_turn_invocation(self) -> None:
         intent = _intent()
         loop = AgentLoop(intent_extractor=_stub_extractor(intent))
