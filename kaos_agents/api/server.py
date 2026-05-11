@@ -14,7 +14,7 @@ Endpoints:
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Body, FastAPI, Header, HTTPException, Path, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -72,6 +72,16 @@ class MessageRequest(BaseModel):
             "non-streaming JSON path will return an empty text response "
             "(approval not yet implemented over JSON). Use the SSE path "
             "or /v1/runs/{run_id}/approve to resume."
+        ),
+    )
+    instructions: str | None = Field(
+        default=None,
+        description=(
+            "System-prompt override for the agent (persona, rubric, "
+            "refusal policy). Mirrors the CLI's --instructions flag and "
+            "the MCP tool's instructions parameter. Example: 'You are "
+            "senior counsel; flag every deviation by exact filename "
+            "and section.'"
         ),
     )
 
@@ -212,12 +222,15 @@ def _register_routes(app: FastAPI) -> None:
 
             agent_settings = KaosAgentSettings(plan_max_cost_usd=body.max_cost_usd)
 
-        agent_config = Agent(
-            pattern=AgentPattern(body.pattern),
-            model=body.model or DEFAULT_MODEL,
-            tools=tuple(body.tools),
-            settings=agent_settings,
-        )
+        agent_kwargs: dict[str, Any] = {
+            "pattern": AgentPattern(body.pattern),
+            "model": body.model or DEFAULT_MODEL,
+            "tools": tuple(body.tools),
+            "settings": agent_settings,
+        }
+        if body.instructions:
+            agent_kwargs["instructions"] = body.instructions
+        agent_config = Agent(**agent_kwargs)
 
         # Optional per-request permission policy — ASK rules for the
         # listed glob patterns. Combined with the auto-rules built into

@@ -250,6 +250,19 @@ class AgentChatTool(KaosTool):
                     ),
                     required=False,
                 ),
+                ParameterSchema(
+                    name="instructions",
+                    type="string",
+                    description=(
+                        "System-prompt override for the agent (persona, "
+                        "rubric, refusal policy). Mirrors the CLI's "
+                        "--instructions flag. Use for legal-review, "
+                        "senior-counsel, or domain-specific personas. "
+                        "Example: 'You are senior counsel; flag every "
+                        "deviation by exact filename and section.'"
+                    ),
+                    required=False,
+                ),
             ],
         )
 
@@ -262,6 +275,7 @@ class AgentChatTool(KaosTool):
         tool_filter_str = inputs.get("tool_filter")
         max_cost_usd = inputs.get("max_cost_usd")
         approval_patterns_str = inputs.get("require_approval_for_tools")
+        instructions = inputs.get("instructions") or None
 
         if not message:
             return ToolResult.create_error(
@@ -310,12 +324,15 @@ class AgentChatTool(KaosTool):
                     )
                 )
 
-            agent_config = Agent(
-                pattern=AgentPattern.CHAT,
-                model=model or DEFAULT_MODEL,
-                tools=tool_filter,
-                settings=agent_settings,
-            )
+            agent_kwargs: dict[str, Any] = {
+                "pattern": AgentPattern.CHAT,
+                "model": model or DEFAULT_MODEL,
+                "tools": tool_filter,
+                "settings": agent_settings,
+            }
+            if instructions:
+                agent_kwargs["instructions"] = instructions
+            agent_config = Agent(**agent_kwargs)
             runner = Runner(
                 agent_config,
                 runtime=runtime,
@@ -452,6 +469,15 @@ class AgentPlanTool(KaosTool):
                     ),
                     required=False,
                 ),
+                ParameterSchema(
+                    name="instructions",
+                    type="string",
+                    description=(
+                        "System-prompt override (persona, rubric, refusal "
+                        "policy). Mirrors the CLI --instructions flag."
+                    ),
+                    required=False,
+                ),
             ],
         )
 
@@ -460,6 +486,7 @@ class AgentPlanTool(KaosTool):
     ) -> ToolResult:
         message = inputs.get("message", "")
         session_id = inputs.get("session_id", "")
+        instructions = inputs.get("instructions") or None
         model = inputs.get("model")
         tool_filter_str = inputs.get("tool_filter")
         max_steps = inputs.get("max_steps")
@@ -514,13 +541,16 @@ class AgentPlanTool(KaosTool):
                     )
                 )
 
-            agent_config = Agent(
-                pattern=AgentPattern.PLAN,
-                model=model or DEFAULT_MODEL,
-                tools=tool_filter,
-                max_plan_steps=int(max_steps) if max_steps is not None else None,
-                settings=agent_settings,
-            )
+            agent_kwargs: dict[str, Any] = {
+                "pattern": AgentPattern.PLAN,
+                "model": model or DEFAULT_MODEL,
+                "tools": tool_filter,
+                "max_plan_steps": int(max_steps) if max_steps is not None else None,
+                "settings": agent_settings,
+            }
+            if instructions:
+                agent_kwargs["instructions"] = instructions
+            agent_config = Agent(**agent_kwargs)
             runner = Runner(
                 agent_config,
                 runtime=runtime,
