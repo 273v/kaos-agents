@@ -338,6 +338,57 @@ ty check kaos_agents/ tests/
 pytest tests/ -v
 ```
 
+## Isolation patterns for live tests
+
+> **The hazard.** The default ``KaosRuntime()`` uses a disk-backed
+> VFS rooted at ``.kaos-vfs`` (`StorageBackend.DISK` + per-context
+> isolation). Session memory persists across pytest invocations.
+> A live composition test that asks the agent "what's the largest
+> Q4-Q1 margin compression in PnL2024?" will record the right answer
+> in session memory on the first run, and on the second run the
+> agent will happily answer from memory **without ever calling
+> `kaos-tabular-query`** — the composition contract silently
+> false-greens. The Excel sub-agent saw a 25-40% flake rate that
+> collapsed to 8/8 stable after switching to an in-memory VFS.
+
+The canonical pytest fixture is one line:
+
+```python
+@pytest.fixture
+def runtime() -> KaosRuntime:
+    # In-memory + GLOBAL isolation — no cross-run leakage.
+    rt = KaosRuntime.test_mode()
+    register_my_tools(rt)
+    return rt
+```
+
+`KaosRuntime.test_mode()` (kaos-core ≥ 0.1.0a5):
+
+- installs a fresh in-memory `VirtualFileSystem` with
+  `IsolationMode.GLOBAL`
+- keeps `runtime.artifacts` lazily bound to the new VFS (the
+  `cached_property` invalidates when `runtime.vfs` is reassigned),
+  so the historical "rebuild ArtifactStore with all 5 keyword
+  args" boilerplate is no longer needed
+
+Use `KaosRuntime.test_mode()` for **every** integration test that:
+
+1. Hard-codes a `session_id` (it will collide with a prior run), or
+2. Persists anything into `SessionMemory`, or
+3. Has the agent dispatch tool calls and asserts that those tool
+   calls actually happened (memory of a previous run's answer
+   defeats the assertion).
+
+Tests that pass `vfs=VirtualFileSystem(config=VFSConfig(default_backend=StorageBackend.MEMORY))`
+directly to `Runner(..., vfs=...)` are already isolated — the
+`Runner`-supplied VFS is what `SessionMemory` persists to, and the
+`runtime.vfs` is just the artifact-store anchor. You can leave
+those alone; `test_mode()` is a stricter, simpler default.
+
+For tests that need a disk backend (e.g. exercising the disk-only
+artifact persistence path) but still want to drop the per-context
+isolation, use `KaosRuntime.test_mode(in_memory=False)`.
+
 ## Rules
 
 - **Never add AGPL/GPL dependencies.** This is a proprietary codebase.

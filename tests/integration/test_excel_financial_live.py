@@ -118,35 +118,14 @@ def runtime() -> Any:
     invocations. That cross-run leakage causes the agent to "answer
     from memory" on the second-and-later runs without ever calling
     ``kaos-tabular-query`` — false-green on the composition contract.
-    An in-memory VFS scoped to this fixture forces every run to
-    rediscover the data via the tool.
+    ``KaosRuntime.test_mode()`` (kaos-core ≥ 0.1.0a5) installs an
+    in-memory, globally-scoped VFS in one line and keeps
+    ``runtime.artifacts`` lazy-bound to that VFS, so we don't have
+    to rebuild the ArtifactStore by hand any more.
     """
-    from kaos_core.artifacts.store import ArtifactStore
     from kaos_core.registry.container import KaosRuntime
-    from kaos_core.types.enums import IsolationMode, StorageBackend
-    from kaos_core.vfs.core import VirtualFileSystem
-    from kaos_core.vfs.models import VFSConfig
 
-    rt = KaosRuntime()
-    # Override the default disk-backed VFS with an in-memory one.
-    # KaosRuntime doesn't accept ``vfs=`` in its constructor (would be
-    # the cleaner API), so we replace the attribute post-init and
-    # rebuild the ArtifactStore to point at the new VFS too — every
-    # downstream consumer reads ``runtime.vfs`` lazily, but
-    # ``runtime.artifacts`` captured the original at construction.
-    vfs_config = VFSConfig(
-        default_backend=StorageBackend.MEMORY,
-        isolation_mode=IsolationMode.GLOBAL,
-    )
-    rt.vfs = VirtualFileSystem(config=vfs_config)
-    rt.artifacts = ArtifactStore(
-        rt.vfs,
-        manifest_context_id=rt.settings.artifact_manifest_context_id,
-        manifest_prefix=rt.settings.artifact_manifest_prefix,
-        max_inline_read_bytes=rt.settings.artifact_inline_read_max_bytes,
-        default_chunk_size=rt.settings.artifact_chunk_size_bytes,
-        temporary_ttl_seconds=rt.settings.artifact_temporary_ttl_seconds,
-    )
+    rt = KaosRuntime.test_mode()
 
     # Register the tabular MCP tools onto this runtime so the agent
     # can discover + dispatch them via ReAct.

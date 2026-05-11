@@ -234,9 +234,13 @@ def _build_deck(path: Path) -> None:
 
 @pytest.fixture
 def runtime() -> Any:
+    # ``test_mode()`` installs an in-memory, globally-scoped VFS to
+    # prevent session-memory leakage across pytest invocations (the
+    # session_id below is hard-coded, which would let the default
+    # disk VFS at ``.kaos-vfs`` false-green this test on re-run).
     from kaos_core.registry.container import KaosRuntime
 
-    return KaosRuntime()
+    return KaosRuntime.test_mode()
 
 
 @pytest.fixture

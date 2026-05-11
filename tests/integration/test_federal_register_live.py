@@ -126,9 +126,14 @@ requires_fr_reachable = pytest.mark.skipif(
 
 @pytest.fixture
 def runtime() -> Any:
+    # ``test_mode()`` installs an in-memory, globally-scoped VFS so
+    # session memory does not leak across pytest invocations. The
+    # session_id below is hard-coded ("fr-k3-chat-live") — without
+    # isolation the default disk VFS at ``.kaos-vfs`` would let the
+    # agent answer from a prior run's memory and false-green the test.
     from kaos_core.registry.container import KaosRuntime
 
-    return KaosRuntime()
+    return KaosRuntime.test_mode()
 
 
 @pytest.fixture
