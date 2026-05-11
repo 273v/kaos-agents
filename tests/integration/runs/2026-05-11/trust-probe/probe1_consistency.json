@@ -1,0 +1,1254 @@
+{
+  "question": "What are the obligations of the receiving party?",
+  "runs": [
+    {
+      "question": "What are the obligations of the receiving party?",
+      "answer": "The receiving party has the following obligations:\n\n1. **Protect Confidential Information**: The Receiving Party must protect all Confidential Information disclosed by the Disclosing Party [77e0d23a].\n\n2. **Hold Information in Confidence / No Disclosure**: The Recipient must hold the Confidential Information in confidence and not disclose it to any person or entity without prior written consent of the Disclosing Party [7cfbcb01].\n\n3. **Limited Internal Disclosure**: The Recipient shall not disclose Confidential Information to any personnel except those who need it to perform duties in connection with the limited purposes of the Agreement [d29f80f4]. Permitted personnel must be individually bound by a similar non-disclosure agreement upon request [f0724ecf].\n\n4. **Report Unauthorized Disclosure**: The Recipient must promptly advise the Disclosing Party if it becomes aware of any possible unauthorized disclosure or use of the Confidential Information [55320975].\n\n5. **Return of Materials**: Upon written request, the Recipient must return all written materials containing Confidential Information [9a452fe8] and deliver written statements certifying that all materials have been returned within five (5) days of receipt of the request [10ac952b].\n\n6. **No Acquisition of IP Rights**: The Recipient shall not acquire any intellectual property rights under the Agreement except the limited right to use as set forth [c092b409].\n\n7. **Survival of Obligations**: The Recipient's obligations survive expiration or termination of the Agreement unless the Disclosing Party sends written notice releasing the Recipient [aecf39e5].\n\n8. **Indemnification**: Each party, including the Receiving Party, agrees to defend, indemnify, and hold harmless the other party from third-party claims resulting from a material breach of any duty, representation, or warranty under the Agreement [b17a0c03].",
+      "total_enumerated": 90,
+      "total_filtered": 22,
+      "filter_cost_usd": 0.0095928,
+      "synthesis_cost_usd": 0.011865,
+      "total_cost_usd": 0.0214578,
+      "filter_calls": 5,
+      "findings": [
+        {
+          "finding_id": "77e0d23a",
+          "text": "In consideration of the Parties\u2019 discussions and access the Receiving Party may have to Confidential Information of the Disclosing Party, the Parties agree that the Receiving Party will protect the Confidential Information and material which may be disclosed between the Disclosing Party and the Recipient.",
+          "block_ref": "#/body/2",
+          "section_title": null,
+          "page": null,
+          "relevance": 1.0,
+          "reasoning": "Explicitly states the Receiving Party's primary obligation to protect the Confidential Information and material disclosed by the Disclosing Party."
+        },
+        {
+          "finding_id": "7cfbcb01",
+          "text": "The Recipient will hold the Confidential Information in confidence and will not disclose the Confidential Information to any person or entity without the prior written consent of the Disclosing Party.",
+          "block_ref": "#/body/6/children/1/children/1/children/0/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 1.0,
+          "reasoning": "This directly articulates a core obligation of the receiving party to hold information in confidence and not disclose it without consent."
+        },
+        {
+          "finding_id": "55320975",
+          "text": "The Recipient shall promptly advise the Disclosing Party if the Recipient becomes aware of any possible unauthorized disclosure or use of the Confidential Information.",
+          "block_ref": "#/body/6/children/1/children/1/children/1/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.95,
+          "reasoning": "Directly states the Recipient's obligation to promptly advise the Disclosing Party of any unauthorized disclosure or use of Confidential Information."
+        },
+        {
+          "finding_id": "9a452fe8",
+          "text": "Upon the written request of the Disclosing Party, the Recipient shall return to the Disclosing Party all written materials containing the Confidential Information.",
+          "block_ref": "#/body/7/children/0/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.95,
+          "reasoning": "Directly states the Recipient's obligation to return all written materials containing Confidential Information upon request."
+        },
+        {
+          "finding_id": "aecf39e5",
+          "text": "The Recipient's obligations under this Agreement shall survive expiration or termination of this Agreement unless the Disclosing Party sends the Recipient written notice releasing the Recipient from this Agreement.",
+          "block_ref": "#/body/7/children/5/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.95,
+          "reasoning": "Directly states that the receiving party's obligations survive expiration or termination of the agreement unless released in writing."
+        },
+        {
+          "finding_id": "c7a5168b",
+          "text": "PROTECTION OF CONFIDENTIAL INFORMATION.",
+          "block_ref": "#/body/6/children/1/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.95,
+          "reasoning": "This section heading directly introduces the obligations of the receiving party regarding protection of confidential information."
+        },
+        {
+          "finding_id": "d29f80f4",
+          "text": "The Recipient shall not disclose any Confidential Information to any personnel, including, but not limited to, employees and contractors of the Recipient, except those personnel who are required to have the Confidential Information in order to perform their duties in connection with the limited purposes of this Agreement.",
+          "block_ref": "#/body/6/children/1/children/1/children/2/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.95,
+          "reasoning": "Directly specifies the Recipient's obligation to restrict disclosure of Confidential Information only to personnel who need it for the limited purposes of the Agreement."
+        },
+        {
+          "finding_id": "10ac952b",
+          "text": "The Recipient shall also deliver to the Disclosing Party written statements signed by the Recipient certifying that all materials have been returned within five (5) days of receipt of the request.",
+          "block_ref": "#/body/7/children/0/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "Directly specifies the Recipient's obligation to deliver written certification of return within five days of request."
+        },
+        {
+          "finding_id": "2d4c165c",
+          "text": "In connection with the disclosure of the Company\u2019s Confidential Information to the Counterparty, the Party furnishing Confidential information is the \u201cDiscloser\u201d or \u201cDisclosing Party\u201d and the Party receiving the Confidential Information is the \u201cRecipient\u201d or \u201cReceiving Party.\u201d",
+          "block_ref": "#/body/1",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "Defines the 'Receiving Party' as the party receiving Confidential Information, which is essential context for understanding their obligations."
+        },
+        {
+          "finding_id": "ad10d3ed",
+          "text": "No Disclosure.",
+          "block_ref": "#/body/6/children/1/children/1/children/0/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "This is a specific obligation heading for the receiving party regarding non-disclosure duties."
+        },
+        {
+          "finding_id": "b17a0c03",
+          "text": "Each party agrees to defend, indemnify, and hold harmless the other party and its officers, directors, agents, affiliates, distributors, representatives, and employees from any and all third party claims, demands, liabilities, costs and expenses, including reasonable attorneys fees, costs and expenses resulting from the indemnifying party's material breach of any duty, representation, or warranty under this Agreement.",
+          "block_ref": "#/body/7/children/4/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "Outlines the receiving party's indemnification obligation to defend and hold harmless the disclosing party from third-party claims and breaches."
+        },
+        {
+          "finding_id": "c092b409",
+          "text": "The Recipient shall not acquire any intellectual property rights under this Agreement except the limited right to use as set forth above.",
+          "block_ref": "#/body/7/children/3/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "Directly states a key obligation of the receiving party\u2014limitation on intellectual property rights acquisition and use restrictions."
+        },
+        {
+          "finding_id": "f1586076",
+          "text": "In consideration for the receipt by the Recipient of the Confidential Information, the Recipient agrees as follows:",
+          "block_ref": "#/body/6/children/1/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "This clause explicitly states that the Recipient agrees to obligations in consideration for receiving Confidential Information."
+        },
+        {
+          "finding_id": "6262732f",
+          "text": "The Recipient acknowledges that, as between the Disclosing Party and the Recipient, the Confidential Information and all related copyrights and other intellectual property rights, are (and at all times will be) the property of the Disclosing Party, even if suggestions, comments, and/or ideas made by the Recipient are incorporated into the Confidential Information or related materials during the period of this Agreement.",
+          "block_ref": "#/body/7/children/3/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.85,
+          "reasoning": "Establishes the receiving party's obligation to acknowledge that the disclosing party retains all intellectual property rights in the confidential information."
+        },
+        {
+          "finding_id": "f0724ecf",
+          "text": "Permitted personnel to whom Confidential Information is disclosed shall be individually bound to a non-disclosure agreement substantially similar to this Agreement at the request of the Disclosing Party.",
+          "block_ref": "#/body/6/children/1/children/1/children/2/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.85,
+          "reasoning": "Establishes the Recipient's obligation to ensure personnel receiving Confidential Information are bound by non-disclosure agreements."
+        },
+        {
+          "finding_id": "13b12586",
+          "text": "Neither party may delegate its duties under this Agreement without the prior written consent of the other party.",
+          "block_ref": "#/body/7/children/9/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.8,
+          "reasoning": "Establishes the receiving party's obligation not to delegate its duties without prior written consent of the other party."
+        },
+        {
+          "finding_id": "29226c78",
+          "text": "This Agreement shall not be assignable by either party without prior written consent of the other party.",
+          "block_ref": "#/body/7/children/9/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.8,
+          "reasoning": "Imposes an obligation on the receiving party prohibiting assignment without prior written consent."
+        },
+        {
+          "finding_id": "0535b203",
+          "text": "The confidentiality provisions of this Agreement shall remain in full force and effect at all times after the effective date of this Agreement.",
+          "block_ref": "#/body/7/children/10/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.75,
+          "reasoning": "Confirms the receiving party's ongoing obligation to maintain confidentiality provisions in full force and effect after the effective date."
+        },
+        {
+          "finding_id": "a2661594",
+          "text": "The Recipient acknowledges and agrees that the Confidential Information is provided on an \"AS IS\" basis.",
+          "block_ref": "#/body/7/children/2/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.75,
+          "reasoning": "Describes the Recipient's acknowledgment regarding the nature of the Confidential Information, which relates to obligations around its use and treatment."
+        },
+        {
+          "finding_id": "1ac1188c",
+          "text": "The term \"Confidential Information\" means any information or material which is proprietary to the Disclosing Party, whether or not owned or developed by the Disclosing Party, which is not generally known other than by the Disclosing Party, and which the Recipient may obtain through any direct or indirect contact with the Disclosing Party.",
+          "block_ref": "#/body/3/children/0/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.7,
+          "reasoning": "Defines what constitutes Confidential Information that the Receiving Party must protect, informing the scope of their obligations."
+        },
+        {
+          "finding_id": "2b35fb6b",
+          "text": "The Recipient understands and acknowledges that the Confidential Information has been developed or obtained by the Disclosing Party by the investment of significant time, effort, and expense, and that the Confidential Information is a valuable, special, and unique asset of the Disclosing Party which provides the Disclosing Party with a significant competitive advantage, and needs to be protected from improper disclosure.",
+          "block_ref": "#/body/6/children/1/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.7,
+          "reasoning": "This provides context for why the receiving party has obligations by explaining the value and protection needs of the confidential information."
+        },
+        {
+          "finding_id": "4fca2850",
+          "text": "Regardless of whether specifically identified as confidential or proprietary, Confidential Information shall include any information provided by the Disclosing Party concerning the legal, business, or technology and information of the Disclosing Party and of any third party with which the Disclosing Party deals.",
+          "block_ref": "#/body/4",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.6,
+          "reasoning": "Further clarifies the scope of Confidential Information the Receiving Party is obligated to protect, including third-party information."
+        }
+      ],
+      "cited_finding_ids": [
+        "77e0d23a",
+        "7cfbcb01",
+        "d29f80f4",
+        "f0724ecf",
+        "55320975",
+        "9a452fe8",
+        "10ac952b",
+        "c092b409",
+        "aecf39e5",
+        "b17a0c03"
+      ],
+      "wall_seconds": 11.55146598815918,
+      "run_index": 1
+    },
+    {
+      "question": "What are the obligations of the receiving party?",
+      "answer": "The receiving party has the following obligations:\n\n1. **Protect Confidential Information**: The Receiving Party must protect all Confidential Information disclosed by the Disclosing Party [08c5ab90].\n\n2. **Hold information in confidence**: The Recipient must hold the Confidential Information in confidence and not disclose it to any person or entity without prior written consent from the Disclosing Party [b0e2d142].\n\n3. **Limit internal disclosure**: The Recipient shall not disclose Confidential Information to any personnel except those who need it to perform their duties in connection with the limited purposes of the Agreement [dc651305].\n\n4. **Bind permitted personnel**: Personnel to whom Confidential Information is disclosed shall be individually bound to a non-disclosure agreement substantially similar to the Agreement at the request of the Disclosing Party [3ff158c8].\n\n5. **Report unauthorized disclosure**: The Recipient must promptly advise the Disclosing Party if it becomes aware of any possible unauthorized disclosure or use of the Confidential Information [f9899486].\n\n6. **Return materials upon request**: Upon written request, the Recipient must return all written materials containing the Confidential Information [6e21058d], and deliver written statements certifying that all materials have been returned within five (5) days [32d0df43].\n\n7. **No acquisition of intellectual property rights**: The Recipient shall not acquire any intellectual property rights under the Agreement except the limited right to use as specified [9d4d8530].\n\n8. **Ongoing obligations**: The Recipient's obligations survive expiration or termination of the Agreement unless released in writing by the Disclosing Party [4c9ddeb4], and confidentiality provisions remain in full force after the effective date [b83d7b2b].\n\n9. **Indemnification**: The Recipient agrees to defend, indemnify, and hold harmless the other party from any third-party claims resulting from a material breach of any duty, representation, or warranty under the Agreement [750045e6].\n\n10. **No delegation or assignment**: The Recipient may not delegate its duties or assign the Agreement without prior written consent of the other party [20fe7c75][dbc49e32].",
+      "total_enumerated": 90,
+      "total_filtered": 24,
+      "filter_cost_usd": 0.009932799999999999,
+      "synthesis_cost_usd": 0.013284,
+      "total_cost_usd": 0.0232168,
+      "filter_calls": 5,
+      "findings": [
+        {
+          "finding_id": "08c5ab90",
+          "text": "In consideration of the Parties\u2019 discussions and access the Receiving Party may have to Confidential Information of the Disclosing Party, the Parties agree that the Receiving Party will protect the Confidential Information and material which may be disclosed between the Disclosing Party and the Recipient.",
+          "block_ref": "#/body/2",
+          "section_title": null,
+          "page": null,
+          "relevance": 1.0,
+          "reasoning": "Explicitly states the Receiving Party's primary obligation to protect the Confidential Information disclosed by the Disclosing Party."
+        },
+        {
+          "finding_id": "0c935501",
+          "text": "In connection with the disclosure of the Company\u2019s Confidential Information to the Counterparty, the Party furnishing Confidential information is the \u201cDiscloser\u201d or \u201cDisclosing Party\u201d and the Party receiving the Confidential Information is the \u201cRecipient\u201d or \u201cReceiving Party.\u201d",
+          "block_ref": "#/body/1",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.95,
+          "reasoning": "Directly defines the 'Receiving Party' role, which is essential for understanding what obligations apply to them."
+        },
+        {
+          "finding_id": "1049f768",
+          "text": "In consideration for the receipt by the Recipient of the Confidential Information, the Recipient agrees as follows:",
+          "block_ref": "#/body/6/children/1/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.95,
+          "reasoning": "Directly introduces the receiving party's obligations by stating 'the Recipient agrees as follows,' setting up the framework for obligations."
+        },
+        {
+          "finding_id": "b0e2d142",
+          "text": "The Recipient will hold the Confidential Information in confidence and will not disclose the Confidential Information to any person or entity without the prior written consent of the Disclosing Party.",
+          "block_ref": "#/body/6/children/1/children/1/children/0/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.95,
+          "reasoning": "Explicitly states a core obligation of the receiving party regarding confidentiality and non-disclosure of information."
+        },
+        {
+          "finding_id": "dc651305",
+          "text": "The Recipient shall not disclose any Confidential Information to any personnel, including, but not limited to, employees and contractors of the Recipient, except those personnel who are required to have the Confidential Information in order to perform their duties in connection with the limited purposes of this Agreement.",
+          "block_ref": "#/body/6/children/1/children/1/children/2/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.95,
+          "reasoning": "Directly specifies the receiving party's obligation to limit disclosure of confidential information only to personnel who need it for the agreement's purposes."
+        },
+        {
+          "finding_id": "f9899486",
+          "text": "The Recipient shall promptly advise the Disclosing Party if the Recipient becomes aware of any possible unauthorized disclosure or use of the Confidential Information.",
+          "block_ref": "#/body/6/children/1/children/1/children/1/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.95,
+          "reasoning": "Directly states the receiving party's obligation to promptly advise the disclosing party of any unauthorized disclosure or use of confidential information."
+        },
+        {
+          "finding_id": "32d0df43",
+          "text": "The Recipient shall also deliver to the Disclosing Party written statements signed by the Recipient certifying that all materials have been returned within five (5) days of receipt of the request.",
+          "block_ref": "#/body/7/children/0/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "Specifies the receiving party's obligation to deliver signed written certifications confirming return of materials within five days."
+        },
+        {
+          "finding_id": "4c9ddeb4",
+          "text": "The Recipient's obligations under this Agreement shall survive expiration or termination of this Agreement unless the Disclosing Party sends the Recipient written notice releasing the Recipient from this Agreement.",
+          "block_ref": "#/body/7/children/5/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "Directly addresses that the Recipient's obligations survive expiration or termination unless released in writing."
+        },
+        {
+          "finding_id": "6e21058d",
+          "text": "Upon the written request of the Disclosing Party, the Recipient shall return to the Disclosing Party all written materials containing the Confidential Information.",
+          "block_ref": "#/body/7/children/0/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "Directly states the receiving party's obligation to return all written materials containing confidential information upon written request."
+        },
+        {
+          "finding_id": "9d4d8530",
+          "text": "The Recipient shall not acquire any intellectual property rights under this Agreement except the limited right to use as set forth above.",
+          "block_ref": "#/body/7/children/3/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "Directly states a key obligation of the Recipient regarding intellectual property rights limitations."
+        },
+        {
+          "finding_id": "fbd32a7e",
+          "text": "PROTECTION OF CONFIDENTIAL INFORMATION.",
+          "block_ref": "#/body/6/children/1/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "Section title indicating that it covers the receiving party's protection obligations regarding confidential information."
+        },
+        {
+          "finding_id": "3ff158c8",
+          "text": "Permitted personnel to whom Confidential Information is disclosed shall be individually bound to a non-disclosure agreement substantially similar to this Agreement at the request of the Disclosing Party.",
+          "block_ref": "#/body/6/children/1/children/1/children/2/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.85,
+          "reasoning": "Establishes the receiving party's obligation to ensure permitted personnel are bound by similar non-disclosure agreements."
+        },
+        {
+          "finding_id": "48dc3272",
+          "text": "The Recipient acknowledges that, as between the Disclosing Party and the Recipient, the Confidential Information and all related copyrights and other intellectual property rights, are (and at all times will be) the property of the Disclosing Party, even if suggestions, comments, and/or ideas made by the Recipient are incorporated into the Confidential Information or related materials during the period of this Agreement.",
+          "block_ref": "#/body/7/children/3/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.85,
+          "reasoning": "Establishes the Recipient's obligation to acknowledge the Disclosing Party's ownership of intellectual property rights."
+        },
+        {
+          "finding_id": "77dcf335",
+          "text": "The Recipient understands and acknowledges that the Confidential Information has been developed or obtained by the Disclosing Party by the investment of significant time, effort, and expense, and that the Confidential Information is a valuable, special, and unique asset of the Disclosing Party which provides the Disclosing Party with a significant competitive advantage, and needs to be protected from improper disclosure.",
+          "block_ref": "#/body/6/children/1/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.85,
+          "reasoning": "Provides context for the receiving party's obligations by explaining why protection of confidential information is necessary and what the receiving party acknowledges."
+        },
+        {
+          "finding_id": "750045e6",
+          "text": "Each party agrees to defend, indemnify, and hold harmless the other party and its officers, directors, agents, affiliates, distributors, representatives, and employees from any and all third party claims, demands, liabilities, costs and expenses, including reasonable attorneys fees, costs and expenses resulting from the indemnifying party's material breach of any duty, representation, or warranty under this Agreement.",
+          "block_ref": "#/body/7/children/4/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.8,
+          "reasoning": "Describes the Recipient's indemnification obligations in case of material breach of duties or warranties."
+        },
+        {
+          "finding_id": "b83d7b2b",
+          "text": "The confidentiality provisions of this Agreement shall remain in full force and effect at all times after the effective date of this Agreement.",
+          "block_ref": "#/body/7/children/10/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.8,
+          "reasoning": "Establishes the Recipient's obligation to maintain confidentiality provisions in perpetuity after the effective date."
+        },
+        {
+          "finding_id": "20fe7c75",
+          "text": "Neither party may delegate its duties under this Agreement without the prior written consent of the other party.",
+          "block_ref": "#/body/7/children/9/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.75,
+          "reasoning": "States the Recipient's obligation not to delegate duties under the Agreement without prior written consent."
+        },
+        {
+          "finding_id": "dbc49e32",
+          "text": "This Agreement shall not be assignable by either party without prior written consent of the other party.",
+          "block_ref": "#/body/7/children/9/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.75,
+          "reasoning": "Establishes the Recipient's obligation not to assign the Agreement without prior written consent."
+        },
+        {
+          "finding_id": "68782e26",
+          "text": "The term \"Confidential Information\" means any information or material which is proprietary to the Disclosing Party, whether or not owned or developed by the Disclosing Party, which is not generally known other than by the Disclosing Party, and which the Recipient may obtain through any direct or indirect contact with the Disclosing Party.",
+          "block_ref": "#/body/3/children/0/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.7,
+          "reasoning": "Defines what constitutes Confidential Information that the Receiving Party must handle, providing context for their obligations."
+        },
+        {
+          "finding_id": "a0065dad",
+          "text": "Regardless of whether specifically identified as confidential or proprietary, Confidential Information shall include any information provided by the Disclosing Party concerning the legal, business, or technology and information of the Disclosing Party and of any third party with which the Disclosing Party deals.",
+          "block_ref": "#/body/4",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.7,
+          "reasoning": "Further clarifies the scope of Confidential Information the Receiving Party must protect, including third-party information."
+        },
+        {
+          "finding_id": "ad214520",
+          "text": "Confidential Information does not include:",
+          "block_ref": "#/body/6/children/0/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.7,
+          "reasoning": "Relevant as it defines exceptions to what the receiving party must protect, which clarifies the scope of their obligations."
+        },
+        {
+          "finding_id": "3ec26b7f",
+          "text": "The Disclosing Party does not represent or warrant that any product or business plans disclosed to the Recipient will be marketed or carried out as disclosed, or at all. Any actions taken by the Recipient in response to the disclosure of the Confidential Information shall be solely at the risk of the Recipient.",
+          "block_ref": "#/body/7/children/2/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.65,
+          "reasoning": "Establishes that the receiving party bears the risk for any actions taken in response to the confidential information disclosure."
+        },
+        {
+          "finding_id": "9d86ba13",
+          "text": "The Recipient acknowledges and agrees that the Confidential Information is provided on an \"AS IS\" basis.",
+          "block_ref": "#/body/7/children/2/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.6,
+          "reasoning": "Acknowledges the receiving party's understanding that confidential information is provided on an 'AS IS' basis, which is an implicit obligation of acceptance."
+        },
+        {
+          "finding_id": "b1efbb24",
+          "text": "contracts",
+          "block_ref": "#/body/5/children/11/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.45,
+          "reasoning": "May be relevant if contracts detail specific receiving party obligations, though the text itself is generic."
+        }
+      ],
+      "cited_finding_ids": [
+        "08c5ab90",
+        "b0e2d142",
+        "dc651305",
+        "3ff158c8",
+        "f9899486",
+        "6e21058d",
+        "32d0df43",
+        "9d4d8530",
+        "4c9ddeb4",
+        "b83d7b2b",
+        "750045e6",
+        "20fe7c75",
+        "dbc49e32"
+      ],
+      "wall_seconds": 11.651793003082275,
+      "run_index": 2
+    },
+    {
+      "question": "What are the obligations of the receiving party?",
+      "answer": "The receiving party has the following obligations:\n\n1. **Protect Confidential Information**: The Receiving Party must protect all Confidential Information disclosed by the Disclosing Party [2ee5d295].\n\n2. **Non-Disclosure**: The Recipient will not disclose Confidential Information to any person or entity without prior written consent of the Disclosing Party [ae8d83b7], and shall not disclose it to personnel except those who need it to perform duties under the Agreement [50583c92].\n\n3. **Report Unauthorized Disclosure**: The Recipient must promptly advise the Disclosing Party if they become aware of any possible unauthorized disclosure or use of Confidential Information [4e3c73aa].\n\n4. **Return of Materials**: Upon written request, the Recipient must return all written materials containing Confidential Information [07ea2b6e] and deliver written statements certifying all materials have been returned within five (5) days of receipt of the request [345e517f].\n\n5. **No Intellectual Property Rights**: The Recipient shall not acquire any intellectual property rights under the Agreement except the limited right to use as set forth [a0e2bf46], and must acknowledge that all Confidential Information and related IP rights remain the property of the Disclosing Party [64993cd9].\n\n6. **Bind Personnel**: Permitted personnel to whom Confidential Information is disclosed shall be individually bound to a non-disclosure agreement at the request of the Disclosing Party [b8907cca].\n\n7. **Indemnification**: The Recipient agrees to defend, indemnify, and hold harmless the other party from third-party claims resulting from a material breach of the Agreement [1db3a5cf].\n\n8. **Surviving Obligations**: The Recipient's obligations survive expiration or termination of the Agreement unless released in writing by the Disclosing Party [aca9d56b].",
+      "total_enumerated": 90,
+      "total_filtered": 22,
+      "filter_cost_usd": 0.0094424,
+      "synthesis_cost_usd": 0.012039,
+      "total_cost_usd": 0.021481399999999998,
+      "filter_calls": 5,
+      "findings": [
+        {
+          "finding_id": "2ee5d295",
+          "text": "In consideration of the Parties\u2019 discussions and access the Receiving Party may have to Confidential Information of the Disclosing Party, the Parties agree that the Receiving Party will protect the Confidential Information and material which may be disclosed between the Disclosing Party and the Recipient.",
+          "block_ref": "#/body/2",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.95,
+          "reasoning": "Explicitly states the primary obligation of the Receiving Party to protect the Confidential Information disclosed by the Disclosing Party."
+        },
+        {
+          "finding_id": "4e3c73aa",
+          "text": "The Recipient shall promptly advise the Disclosing Party if the Recipient becomes aware of any possible unauthorized disclosure or use of the Confidential Information.",
+          "block_ref": "#/body/6/children/1/children/1/children/1/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.95,
+          "reasoning": "Directly states a key obligation of the receiving party to promptly advise the disclosing party of unauthorized disclosure or use."
+        },
+        {
+          "finding_id": "50583c92",
+          "text": "The Recipient shall not disclose any Confidential Information to any personnel, including, but not limited to, employees and contractors of the Recipient, except those personnel who are required to have the Confidential Information in order to perform their duties in connection with the limited purposes of this Agreement.",
+          "block_ref": "#/body/6/children/1/children/1/children/2/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.95,
+          "reasoning": "Directly specifies the receiving party's obligation to restrict disclosure of confidential information to only necessary personnel."
+        },
+        {
+          "finding_id": "54cbe1e9",
+          "text": "In connection with the disclosure of the Company\u2019s Confidential Information to the Counterparty, the Party furnishing Confidential information is the \u201cDiscloser\u201d or \u201cDisclosing Party\u201d and the Party receiving the Confidential Information is the \u201cRecipient\u201d or \u201cReceiving Party.\u201d",
+          "block_ref": "#/body/1",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.95,
+          "reasoning": "Directly defines the Receiving Party as the party receiving Confidential Information, which is essential context for understanding their obligations."
+        },
+        {
+          "finding_id": "ae8d83b7",
+          "text": "The Recipient will hold the Confidential Information in confidence and will not disclose the Confidential Information to any person or entity without the prior written consent of the Disclosing Party.",
+          "block_ref": "#/body/6/children/1/children/1/children/0/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.95,
+          "reasoning": "Explicitly states a primary obligation of the Recipient to hold information in confidence and not disclose it without consent."
+        },
+        {
+          "finding_id": "b0e46136",
+          "text": "In consideration for the receipt by the Recipient of the Confidential Information, the Recipient agrees as follows:",
+          "block_ref": "#/body/6/children/1/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.95,
+          "reasoning": "Directly introduces the receiving party's agreement to obligations regarding the Confidential Information received."
+        },
+        {
+          "finding_id": "07ea2b6e",
+          "text": "Upon the written request of the Disclosing Party, the Recipient shall return to the Disclosing Party all written materials containing the Confidential Information.",
+          "block_ref": "#/body/7/children/0/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "Directly states the receiving party's obligation to return confidential information upon written request."
+        },
+        {
+          "finding_id": "345e517f",
+          "text": "The Recipient shall also deliver to the Disclosing Party written statements signed by the Recipient certifying that all materials have been returned within five (5) days of receipt of the request.",
+          "block_ref": "#/body/7/children/0/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "Directly specifies the receiving party's obligation to deliver written certification of return of materials within five days."
+        },
+        {
+          "finding_id": "a0e2bf46",
+          "text": "The Recipient shall not acquire any intellectual property rights under this Agreement except the limited right to use as set forth above.",
+          "block_ref": "#/body/7/children/3/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "Directly states a key obligation of the Recipient regarding limitation of intellectual property rights acquisition."
+        },
+        {
+          "finding_id": "64993cd9",
+          "text": "The Recipient acknowledges that, as between the Disclosing Party and the Recipient, the Confidential Information and all related copyrights and other intellectual property rights, are (and at all times will be) the property of the Disclosing Party, even if suggestions, comments, and/or ideas made by the Recipient are incorporated into the Confidential Information or related materials during the period of this Agreement.",
+          "block_ref": "#/body/7/children/3/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.85,
+          "reasoning": "Describes the Recipient's obligation to acknowledge the Disclosing Party's ownership of intellectual property and confidential information."
+        },
+        {
+          "finding_id": "7ad0c7c0",
+          "text": "No Disclosure.",
+          "block_ref": "#/body/6/children/1/children/1/children/0/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.85,
+          "reasoning": "Marks the beginning of specific obligations section for the Recipient regarding non-disclosure."
+        },
+        {
+          "finding_id": "aca9d56b",
+          "text": "The Recipient's obligations under this Agreement shall survive expiration or termination of this Agreement unless the Disclosing Party sends the Recipient written notice releasing the Recipient from this Agreement.",
+          "block_ref": "#/body/7/children/5/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.85,
+          "reasoning": "Clarifies that the Recipient's obligations survive expiration or termination of the Agreement unless released in writing."
+        },
+        {
+          "finding_id": "b8907cca",
+          "text": "Permitted personnel to whom Confidential Information is disclosed shall be individually bound to a non-disclosure agreement substantially similar to this Agreement at the request of the Disclosing Party.",
+          "block_ref": "#/body/6/children/1/children/1/children/2/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.85,
+          "reasoning": "Establishes the receiving party's obligation to ensure permitted personnel are bound by non-disclosure agreements."
+        },
+        {
+          "finding_id": "f53a997b",
+          "text": "PROTECTION OF CONFIDENTIAL INFORMATION.",
+          "block_ref": "#/body/6/children/1/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.85,
+          "reasoning": "Introduces a section on protection of confidential information, which relates to the receiving party's obligations."
+        },
+        {
+          "finding_id": "1db3a5cf",
+          "text": "Each party agrees to defend, indemnify, and hold harmless the other party and its officers, directors, agents, affiliates, distributors, representatives, and employees from any and all third party claims, demands, liabilities, costs and expenses, including reasonable attorneys fees, costs and expenses resulting from the indemnifying party's material breach of any duty, representation, or warranty under this Agreement.",
+          "block_ref": "#/body/7/children/4/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.8,
+          "reasoning": "Establishes the receiving party's indemnification obligations to defend and hold harmless the other party from breaches."
+        },
+        {
+          "finding_id": "3aae9eba",
+          "text": "Neither party may delegate its duties under this Agreement without the prior written consent of the other party.",
+          "block_ref": "#/body/7/children/9/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.75,
+          "reasoning": "Imposes an obligation on the receiving party not to delegate its duties without prior written consent."
+        },
+        {
+          "finding_id": "3ded6f81",
+          "text": "This Agreement shall not be assignable by either party without prior written consent of the other party.",
+          "block_ref": "#/body/7/children/9/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.75,
+          "reasoning": "Imposes an obligation on the receiving party not to assign the Agreement without prior written consent."
+        },
+        {
+          "finding_id": "3edaaee3",
+          "text": "The Recipient understands and acknowledges that the Confidential Information has been developed or obtained by the Disclosing Party by the investment of significant time, effort, and expense, and that the Confidential Information is a valuable, special, and unique asset of the Disclosing Party which provides the Disclosing Party with a significant competitive advantage, and needs to be protected from improper disclosure.",
+          "block_ref": "#/body/6/children/1/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.75,
+          "reasoning": "Provides context for why the Recipient must acknowledge the value of the information and the need for protection."
+        },
+        {
+          "finding_id": "77bef25f",
+          "text": "The term \"Confidential Information\" means any information or material which is proprietary to the Disclosing Party, whether or not owned or developed by the Disclosing Party, which is not generally known other than by the Disclosing Party, and which the Recipient may obtain through any direct or indirect contact with the Disclosing Party.",
+          "block_ref": "#/body/3/children/0/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.7,
+          "reasoning": "Defines what constitutes Confidential Information that the Receiving Party must protect, which informs the scope of their obligations."
+        },
+        {
+          "finding_id": "2078b2a4",
+          "text": "Regardless of whether specifically identified as confidential or proprietary, Confidential Information shall include any information provided by the Disclosing Party concerning the legal, business, or technology and information of the Disclosing Party and of any third party with which the Disclosing Party deals.",
+          "block_ref": "#/body/4",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.65,
+          "reasoning": "Further clarifies the scope of Confidential Information the Receiving Party must protect, including third-party information."
+        },
+        {
+          "finding_id": "abfa07ca",
+          "text": "The Disclosing Party does not represent or warrant that any product or business plans disclosed to the Recipient will be marketed or carried out as disclosed, or at all. Any actions taken by the Recipient in response to the disclosure of the Confidential Information shall be solely at the risk of the Recipient.",
+          "block_ref": "#/body/7/children/2/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.65,
+          "reasoning": "Establishes that the receiving party bears the risk of any actions taken based on the confidential information disclosed."
+        },
+        {
+          "finding_id": "ccbdf88f",
+          "text": "The Recipient acknowledges and agrees that the Confidential Information is provided on an \"AS IS\" basis.",
+          "block_ref": "#/body/7/children/2/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.6,
+          "reasoning": "Indicates the receiving party's acknowledgment that confidential information is provided as-is, establishing an implicit obligation regarding acceptance."
+        }
+      ],
+      "cited_finding_ids": [
+        "2ee5d295",
+        "ae8d83b7",
+        "50583c92",
+        "4e3c73aa",
+        "07ea2b6e",
+        "345e517f",
+        "a0e2bf46",
+        "64993cd9",
+        "b8907cca",
+        "1db3a5cf",
+        "aca9d56b"
+      ],
+      "wall_seconds": 13.644900560379028,
+      "run_index": 3
+    },
+    {
+      "question": "What are the obligations of the receiving party?",
+      "answer": "Based on the findings, the receiving party (Recipient) has the following obligations:\n\n1. **Protect Confidential Information**: The Recipient must protect all Confidential Information disclosed by the Disclosing Party [22517978].\n\n2. **Maintain Confidentiality**: The Recipient must hold the Confidential Information in confidence and not disclose it to any person or entity without prior written consent of the Disclosing Party [2fb8012b].\n\n3. **Report Unauthorized Disclosure**: The Recipient must promptly advise the Disclosing Party if it becomes aware of any possible unauthorized disclosure or use of the Confidential Information [4a7a10aa].\n\n4. **Return Materials**: Upon written request, the Recipient must return all written materials containing the Confidential Information to the Disclosing Party [935405a2], and deliver written statements certifying that all materials have been returned within five (5) days of receipt of the request [c5d81d61].\n\n5. **Limit Internal Disclosure**: The Recipient shall not disclose Confidential Information to any personnel except those who need it to perform their duties in connection with the limited purposes of the Agreement [f1b604d5]. Such permitted personnel may be required to be individually bound to a non-disclosure agreement [a2e59dc6].\n\n6. **No Acquisition of IP Rights**: The Recipient shall not acquire any intellectual property rights under the Agreement except the limited right to use as set forth [240c255e], and acknowledges that the Confidential Information remains the property of the Disclosing Party [55f644f2].\n\n7. **Surviving Obligations**: The Recipient's obligations survive expiration or termination of the Agreement unless released in writing by the Disclosing Party [ab302305], and the confidentiality provisions remain in full force and effect at all times after the effective date [ff9fa5f6].",
+      "total_enumerated": 90,
+      "total_filtered": 24,
+      "filter_cost_usd": 0.010048000000000001,
+      "synthesis_cost_usd": 0.011949,
+      "total_cost_usd": 0.021997000000000003,
+      "filter_calls": 5,
+      "findings": [
+        {
+          "finding_id": "22517978",
+          "text": "In consideration of the Parties\u2019 discussions and access the Receiving Party may have to Confidential Information of the Disclosing Party, the Parties agree that the Receiving Party will protect the Confidential Information and material which may be disclosed between the Disclosing Party and the Recipient.",
+          "block_ref": "#/body/2",
+          "section_title": null,
+          "page": null,
+          "relevance": 1.0,
+          "reasoning": "Directly states the primary obligation of the Receiving Party to protect the Confidential Information disclosed by the Disclosing Party."
+        },
+        {
+          "finding_id": "2fb8012b",
+          "text": "The Recipient will hold the Confidential Information in confidence and will not disclose the Confidential Information to any person or entity without the prior written consent of the Disclosing Party.",
+          "block_ref": "#/body/6/children/1/children/1/children/0/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 1.0,
+          "reasoning": "Explicitly states the recipient's obligation to hold Confidential Information in confidence and not disclose it without consent, directly answering the question."
+        },
+        {
+          "finding_id": "4a7a10aa",
+          "text": "The Recipient shall promptly advise the Disclosing Party if the Recipient becomes aware of any possible unauthorized disclosure or use of the Confidential Information.",
+          "block_ref": "#/body/6/children/1/children/1/children/1/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 1.0,
+          "reasoning": "Directly states the receiving party's obligation to promptly advise the disclosing party of any unauthorized disclosure or use."
+        },
+        {
+          "finding_id": "935405a2",
+          "text": "Upon the written request of the Disclosing Party, the Recipient shall return to the Disclosing Party all written materials containing the Confidential Information.",
+          "block_ref": "#/body/7/children/0/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 1.0,
+          "reasoning": "Directly states the receiving party's obligation to return all written materials containing confidential information upon written request."
+        },
+        {
+          "finding_id": "c5d81d61",
+          "text": "The Recipient shall also deliver to the Disclosing Party written statements signed by the Recipient certifying that all materials have been returned within five (5) days of receipt of the request.",
+          "block_ref": "#/body/7/children/0/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 1.0,
+          "reasoning": "Directly specifies the receiving party's obligation to deliver written certification of return within five days."
+        },
+        {
+          "finding_id": "f1b604d5",
+          "text": "The Recipient shall not disclose any Confidential Information to any personnel, including, but not limited to, employees and contractors of the Recipient, except those personnel who are required to have the Confidential Information in order to perform their duties in connection with the limited purposes of this Agreement.",
+          "block_ref": "#/body/6/children/1/children/1/children/2/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 1.0,
+          "reasoning": "Directly specifies the receiving party's obligation not to disclose confidential information except to authorized personnel with a legitimate need."
+        },
+        {
+          "finding_id": "68f2fe5b",
+          "text": "In consideration for the receipt by the Recipient of the Confidential Information, the Recipient agrees as follows:",
+          "block_ref": "#/body/6/children/1/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.95,
+          "reasoning": "Directly introduces the recipient's obligations by stating 'the Recipient agrees as follows,' setting up the framework for receiving party duties."
+        },
+        {
+          "finding_id": "240c255e",
+          "text": "The Recipient shall not acquire any intellectual property rights under this Agreement except the limited right to use as set forth above.",
+          "block_ref": "#/body/7/children/3/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "Directly states a key obligation of the receiving party: limiting intellectual property rights to only the permitted use."
+        },
+        {
+          "finding_id": "55f644f2",
+          "text": "The Recipient acknowledges that, as between the Disclosing Party and the Recipient, the Confidential Information and all related copyrights and other intellectual property rights, are (and at all times will be) the property of the Disclosing Party, even if suggestions, comments, and/or ideas made by the Recipient are incorporated into the Confidential Information or related materials during the period of this Agreement.",
+          "block_ref": "#/body/7/children/3/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "Establishes the recipient's obligation to acknowledge that confidential information and related IP rights belong to the disclosing party."
+        },
+        {
+          "finding_id": "750c0f98",
+          "text": "In connection with the disclosure of the Company\u2019s Confidential Information to the Counterparty, the Party furnishing Confidential information is the \u201cDiscloser\u201d or \u201cDisclosing Party\u201d and the Party receiving the Confidential Information is the \u201cRecipient\u201d or \u201cReceiving Party.\u201d",
+          "block_ref": "#/body/1",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "Defines the 'Receiving Party' and their role in relation to the Discloser, which is essential context for understanding what obligations apply to them."
+        },
+        {
+          "finding_id": "a2e59dc6",
+          "text": "Permitted personnel to whom Confidential Information is disclosed shall be individually bound to a non-disclosure agreement substantially similar to this Agreement at the request of the Disclosing Party.",
+          "block_ref": "#/body/6/children/1/children/1/children/2/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "Describes the receiving party's obligation to ensure permitted personnel are bound by non-disclosure agreements."
+        },
+        {
+          "finding_id": "ab302305",
+          "text": "The Recipient's obligations under this Agreement shall survive expiration or termination of this Agreement unless the Disclosing Party sends the Recipient written notice releasing the Recipient from this Agreement.",
+          "block_ref": "#/body/7/children/5/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "Directly addresses that the recipient's obligations survive expiration or termination unless released in writing."
+        },
+        {
+          "finding_id": "bed7546b",
+          "text": "No Disclosure.",
+          "block_ref": "#/body/6/children/1/children/1/children/0/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "Section header 'No Disclosure' introduces a key obligation category for the receiving party."
+        },
+        {
+          "finding_id": "fb878b6a",
+          "text": "PROTECTION OF CONFIDENTIAL INFORMATION.",
+          "block_ref": "#/body/6/children/1/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "Section titled 'PROTECTION OF CONFIDENTIAL INFORMATION' that frames the receiving party's obligations regarding confidential information protection."
+        },
+        {
+          "finding_id": "dd6e24ac",
+          "text": "The Recipient understands and acknowledges that the Confidential Information has been developed or obtained by the Disclosing Party by the investment of significant time, effort, and expense, and that the Confidential Information is a valuable, special, and unique asset of the Disclosing Party which provides the Disclosing Party with a significant competitive advantage, and needs to be protected from improper disclosure.",
+          "block_ref": "#/body/6/children/1/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.85,
+          "reasoning": "Explains the context and value of the Confidential Information, which informs why the recipient has obligations to protect it."
+        },
+        {
+          "finding_id": "4f4605f6",
+          "text": "Each party agrees to defend, indemnify, and hold harmless the other party and its officers, directors, agents, affiliates, distributors, representatives, and employees from any and all third party claims, demands, liabilities, costs and expenses, including reasonable attorneys fees, costs and expenses resulting from the indemnifying party's material breach of any duty, representation, or warranty under this Agreement.",
+          "block_ref": "#/body/7/children/4/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.8,
+          "reasoning": "Describes the obligation of each party (including the receiving party) to indemnify and hold harmless the other party from third-party claims."
+        },
+        {
+          "finding_id": "ff9fa5f6",
+          "text": "The confidentiality provisions of this Agreement shall remain in full force and effect at all times after the effective date of this Agreement.",
+          "block_ref": "#/body/7/children/10/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.8,
+          "reasoning": "Indicates that the confidentiality provisions (which establish recipient obligations) remain in full force and effect."
+        },
+        {
+          "finding_id": "3839dda0",
+          "text": "Regardless of whether specifically identified as confidential or proprietary, Confidential Information shall include any information provided by the Disclosing Party concerning the legal, business, or technology and information of the Disclosing Party and of any third party with which the Disclosing Party deals.",
+          "block_ref": "#/body/4",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.7,
+          "reasoning": "Provides additional clarity on what information falls under the Receiving Party's obligation to protect."
+        },
+        {
+          "finding_id": "4713dbc4",
+          "text": "This Agreement shall not be assignable by either party without prior written consent of the other party.",
+          "block_ref": "#/body/7/children/9/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.7,
+          "reasoning": "Establishes an obligation for the receiving party not to assign the agreement without prior written consent."
+        },
+        {
+          "finding_id": "7ecb7483",
+          "text": "The term \"Confidential Information\" means any information or material which is proprietary to the Disclosing Party, whether or not owned or developed by the Disclosing Party, which is not generally known other than by the Disclosing Party, and which the Recipient may obtain through any direct or indirect contact with the Disclosing Party.",
+          "block_ref": "#/body/3/children/0/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.7,
+          "reasoning": "Defines what constitutes 'Confidential Information' that the Receiving Party must protect, which contextualizes their obligations."
+        },
+        {
+          "finding_id": "7f913d7e",
+          "text": "Counterparty:",
+          "block_ref": "#/body/8",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.7,
+          "reasoning": "Identifies the counterparty role which is essential context for understanding receiving party obligations in a contract."
+        },
+        {
+          "finding_id": "9acadd8d",
+          "text": "Neither party may delegate its duties under this Agreement without the prior written consent of the other party.",
+          "block_ref": "#/body/7/children/9/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.7,
+          "reasoning": "States the receiving party's obligation not to delegate its duties without prior written consent of the other party."
+        },
+        {
+          "finding_id": "c1ce8745",
+          "text": "Confidential Information does not include:",
+          "block_ref": "#/body/6/children/0/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.7,
+          "reasoning": "Defines what is excluded from Confidential Information, which clarifies the scope of the receiving party's obligations."
+        },
+        {
+          "finding_id": "f8549da1",
+          "text": "The Recipient acknowledges and agrees that the Confidential Information is provided on an \"AS IS\" basis.",
+          "block_ref": "#/body/7/children/2/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.7,
+          "reasoning": "The receiving party's acknowledgment that confidential information is provided 'AS IS' reflects an obligation to accept information in its current condition."
+        }
+      ],
+      "cited_finding_ids": [
+        "22517978",
+        "2fb8012b",
+        "4a7a10aa",
+        "935405a2",
+        "c5d81d61",
+        "f1b604d5",
+        "a2e59dc6",
+        "240c255e",
+        "55f644f2",
+        "ab302305",
+        "ff9fa5f6"
+      ],
+      "wall_seconds": 11.65636920928955,
+      "run_index": 4
+    },
+    {
+      "question": "What are the obligations of the receiving party?",
+      "answer": "The receiving party has the following obligations:\n\n1. **Confidentiality**: The Recipient must hold Confidential Information in confidence and not disclose it to any person or entity without the prior written consent of the Disclosing Party [36d7a2f3].\n\n2. **Protection of Information**: The Receiving Party must protect the Confidential Information and material disclosed by the Disclosing Party [688a2777].\n\n3. **Report Unauthorized Disclosure**: The Recipient must promptly advise the Disclosing Party if they become aware of any possible unauthorized disclosure or use of the Confidential Information [0b1d8c28].\n\n4. **Limited Internal Disclosure**: The Recipient shall not disclose Confidential Information to any personnel except those who need it to perform their duties in connection with the limited purposes of the Agreement [11ce71d1].\n\n5. **Personnel Bound by NDA**: Permitted personnel to whom Confidential Information is disclosed must be individually bound to a substantially similar non-disclosure agreement at the request of the Disclosing Party [4787d94a].\n\n6. **Return of Materials**: Upon written request, the Recipient must return all written materials containing the Confidential Information [f7313d73] and deliver written certification that all materials have been returned within five (5) days [63bc50b8].\n\n7. **No Intellectual Property Rights**: The Recipient shall not acquire any intellectual property rights under the Agreement except the limited right to use as set forth [70a9c014].\n\n8. **Survival of Obligations**: The Recipient's obligations survive the expiration or termination of the Agreement unless released in writing by the Disclosing Party [beb481ab].\n\n9. **Indemnification**: The Recipient agrees to defend, indemnify, and hold harmless the other party from any third-party claims resulting from a material breach of any duty, representation, or warranty under the Agreement [50d4daa8].",
+      "total_enumerated": 90,
+      "total_filtered": 24,
+      "filter_cost_usd": 0.0098792,
+      "synthesis_cost_usd": 0.012230999999999999,
+      "total_cost_usd": 0.022110199999999997,
+      "filter_calls": 5,
+      "findings": [
+        {
+          "finding_id": "36d7a2f3",
+          "text": "The Recipient will hold the Confidential Information in confidence and will not disclose the Confidential Information to any person or entity without the prior written consent of the Disclosing Party.",
+          "block_ref": "#/body/6/children/1/children/1/children/0/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 1.0,
+          "reasoning": "This directly states the receiving party's obligations to hold information in confidence and restrict disclosure."
+        },
+        {
+          "finding_id": "688a2777",
+          "text": "In consideration of the Parties\u2019 discussions and access the Receiving Party may have to Confidential Information of the Disclosing Party, the Parties agree that the Receiving Party will protect the Confidential Information and material which may be disclosed between the Disclosing Party and the Recipient.",
+          "block_ref": "#/body/2",
+          "section_title": null,
+          "page": null,
+          "relevance": 1.0,
+          "reasoning": "Explicitly states the Receiving Party's obligation to protect the Confidential Information and material disclosed by the Disclosing Party."
+        },
+        {
+          "finding_id": "0b1d8c28",
+          "text": "The Recipient shall promptly advise the Disclosing Party if the Recipient becomes aware of any possible unauthorized disclosure or use of the Confidential Information.",
+          "block_ref": "#/body/6/children/1/children/1/children/1/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.95,
+          "reasoning": "Directly states a key obligation of the Recipient to promptly advise the Disclosing Party of any unauthorized disclosure or use."
+        },
+        {
+          "finding_id": "11ce71d1",
+          "text": "The Recipient shall not disclose any Confidential Information to any personnel, including, but not limited to, employees and contractors of the Recipient, except those personnel who are required to have the Confidential Information in order to perform their duties in connection with the limited purposes of this Agreement.",
+          "block_ref": "#/body/6/children/1/children/1/children/2/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.95,
+          "reasoning": "Directly specifies the Recipient's obligation to restrict disclosure of Confidential Information to only necessary personnel."
+        },
+        {
+          "finding_id": "4e186649",
+          "text": "No Disclosure.",
+          "block_ref": "#/body/6/children/1/children/1/children/0/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.95,
+          "reasoning": "This section specifies a key obligation of the receiving party: not to disclose confidential information without written consent."
+        },
+        {
+          "finding_id": "9ab30d98",
+          "text": "PROTECTION OF CONFIDENTIAL INFORMATION.",
+          "block_ref": "#/body/6/children/1/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.95,
+          "reasoning": "This section explicitly addresses the protection obligations that the receiving party must fulfill regarding confidential information."
+        },
+        {
+          "finding_id": "e9c1b04d",
+          "text": "In connection with the disclosure of the Company\u2019s Confidential Information to the Counterparty, the Party furnishing Confidential information is the \u201cDiscloser\u201d or \u201cDisclosing Party\u201d and the Party receiving the Confidential Information is the \u201cRecipient\u201d or \u201cReceiving Party.\u201d",
+          "block_ref": "#/body/1",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.95,
+          "reasoning": "Defines the 'Receiving Party' as the party receiving Confidential Information, which is directly relevant to understanding what obligations apply to them."
+        },
+        {
+          "finding_id": "45fdabcb",
+          "text": "In consideration for the receipt by the Recipient of the Confidential Information, the Recipient agrees as follows:",
+          "block_ref": "#/body/6/children/1/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "This clause directly introduces the receiving party's obligations and agreements in exchange for receiving confidential information."
+        },
+        {
+          "finding_id": "63bc50b8",
+          "text": "The Recipient shall also deliver to the Disclosing Party written statements signed by the Recipient certifying that all materials have been returned within five (5) days of receipt of the request.",
+          "block_ref": "#/body/7/children/0/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "Specifies the Recipient's obligation to deliver written certification of return within five days."
+        },
+        {
+          "finding_id": "70a9c014",
+          "text": "The Recipient shall not acquire any intellectual property rights under this Agreement except the limited right to use as set forth above.",
+          "block_ref": "#/body/7/children/3/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "Directly states a key obligation of the receiving party regarding intellectual property rights limitations."
+        },
+        {
+          "finding_id": "beb481ab",
+          "text": "The Recipient's obligations under this Agreement shall survive expiration or termination of this Agreement unless the Disclosing Party sends the Recipient written notice releasing the Recipient from this Agreement.",
+          "block_ref": "#/body/7/children/5/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "Directly addresses that the receiving party's obligations survive termination of the agreement unless released in writing."
+        },
+        {
+          "finding_id": "f7313d73",
+          "text": "Upon the written request of the Disclosing Party, the Recipient shall return to the Disclosing Party all written materials containing the Confidential Information.",
+          "block_ref": "#/body/7/children/0/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "Directly states the Recipient's obligation to return all written materials containing Confidential Information upon request."
+        },
+        {
+          "finding_id": "4787d94a",
+          "text": "Permitted personnel to whom Confidential Information is disclosed shall be individually bound to a non-disclosure agreement substantially similar to this Agreement at the request of the Disclosing Party.",
+          "block_ref": "#/body/6/children/1/children/1/children/2/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.85,
+          "reasoning": "Establishes the Recipient's obligation to ensure permitted personnel are bound by non-disclosure agreements."
+        },
+        {
+          "finding_id": "e2c3a7e7",
+          "text": "The Recipient acknowledges that, as between the Disclosing Party and the Recipient, the Confidential Information and all related copyrights and other intellectual property rights, are (and at all times will be) the property of the Disclosing Party, even if suggestions, comments, and/or ideas made by the Recipient are incorporated into the Confidential Information or related materials during the period of this Agreement.",
+          "block_ref": "#/body/7/children/3/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.85,
+          "reasoning": "Defines the receiving party's acknowledgment obligation regarding intellectual property ownership of confidential information."
+        },
+        {
+          "finding_id": "50d4daa8",
+          "text": "Each party agrees to defend, indemnify, and hold harmless the other party and its officers, directors, agents, affiliates, distributors, representatives, and employees from any and all third party claims, demands, liabilities, costs and expenses, including reasonable attorneys fees, costs and expenses resulting from the indemnifying party's material breach of any duty, representation, or warranty under this Agreement.",
+          "block_ref": "#/body/7/children/4/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.8,
+          "reasoning": "Establishes the receiving party's indemnification obligation to defend and hold harmless the other party from breaches."
+        },
+        {
+          "finding_id": "05d19ba4",
+          "text": "This Agreement shall not be assignable by either party without prior written consent of the other party.",
+          "block_ref": "#/body/7/children/9/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.75,
+          "reasoning": "Establishes the receiving party's obligation not to assign the agreement without prior written consent."
+        },
+        {
+          "finding_id": "0d3ff9e7",
+          "text": "Neither party may delegate its duties under this Agreement without the prior written consent of the other party.",
+          "block_ref": "#/body/7/children/9/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.75,
+          "reasoning": "Specifies the receiving party's obligation not to delegate duties without prior written consent of the other party."
+        },
+        {
+          "finding_id": "2c264dae",
+          "text": "The Recipient understands and acknowledges that the Confidential Information has been developed or obtained by the Disclosing Party by the investment of significant time, effort, and expense, and that the Confidential Information is a valuable, special, and unique asset of the Disclosing Party which provides the Disclosing Party with a significant competitive advantage, and needs to be protected from improper disclosure.",
+          "block_ref": "#/body/6/children/1/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.75,
+          "reasoning": "This provides context for why the receiving party has obligations by explaining the value and nature of confidential information."
+        },
+        {
+          "finding_id": "608c474b",
+          "text": "Confidential Information does not include:",
+          "block_ref": "#/body/6/children/0/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.7,
+          "reasoning": "This clarifies exceptions to what constitutes confidential information, which is relevant to understanding the scope of receiving party obligations."
+        },
+        {
+          "finding_id": "8ae6508c",
+          "text": "The Recipient acknowledges and agrees that the Confidential Information is provided on an \"AS IS\" basis.",
+          "block_ref": "#/body/7/children/2/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.7,
+          "reasoning": "References the Recipient's acknowledgment regarding the nature of Confidential Information, which relates to their acceptance of obligations."
+        },
+        {
+          "finding_id": "c7d2260e",
+          "text": "The term \"Confidential Information\" means any information or material which is proprietary to the Disclosing Party, whether or not owned or developed by the Disclosing Party, which is not generally known other than by the Disclosing Party, and which the Recipient may obtain through any direct or indirect contact with the Disclosing Party.",
+          "block_ref": "#/body/3/children/0/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.7,
+          "reasoning": "Defines what constitutes Confidential Information that the Receiving Party must protect under their obligations."
+        },
+        {
+          "finding_id": "f9ad966e",
+          "text": "The confidentiality provisions of this Agreement shall remain in full force and effect at all times after the effective date of this Agreement.",
+          "block_ref": "#/body/7/children/10/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.7,
+          "reasoning": "Indicates the receiving party's ongoing obligation to maintain confidentiality provisions in full force and effect."
+        },
+        {
+          "finding_id": "fa043bdf",
+          "text": "Regardless of whether specifically identified as confidential or proprietary, Confidential Information shall include any information provided by the Disclosing Party concerning the legal, business, or technology and information of the Disclosing Party and of any third party with which the Disclosing Party deals.",
+          "block_ref": "#/body/4",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.65,
+          "reasoning": "Further clarifies the scope of Confidential Information that the Receiving Party is obligated to protect."
+        },
+        {
+          "finding_id": "0b1505c8",
+          "text": "contracts",
+          "block_ref": "#/body/5/children/11/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.5,
+          "reasoning": "Contracts may contain receiving party obligations, though this entry alone is too general without more context."
+        }
+      ],
+      "cited_finding_ids": [
+        "36d7a2f3",
+        "688a2777",
+        "0b1d8c28",
+        "11ce71d1",
+        "4787d94a",
+        "f7313d73",
+        "63bc50b8",
+        "70a9c014",
+        "beb481ab",
+        "50d4daa8"
+      ],
+      "wall_seconds": 16.178467273712158,
+      "run_index": 5
+    }
+  ],
+  "pairwise_jaccard_surviving_texts": [
+    {
+      "i": 1,
+      "j": 2,
+      "jaccard": 0.84
+    },
+    {
+      "i": 1,
+      "j": 3,
+      "jaccard": 0.9130434782608695
+    },
+    {
+      "i": 1,
+      "j": 4,
+      "jaccard": 0.9166666666666666
+    },
+    {
+      "i": 1,
+      "j": 5,
+      "jaccard": 0.9166666666666666
+    },
+    {
+      "i": 2,
+      "j": 3,
+      "jaccard": 0.84
+    },
+    {
+      "i": 2,
+      "j": 4,
+      "jaccard": 0.8461538461538461
+    },
+    {
+      "i": 2,
+      "j": 5,
+      "jaccard": 0.92
+    },
+    {
+      "i": 3,
+      "j": 4,
+      "jaccard": 0.84
+    },
+    {
+      "i": 3,
+      "j": 5,
+      "jaccard": 0.84
+    },
+    {
+      "i": 4,
+      "j": 5,
+      "jaccard": 0.92
+    }
+  ],
+  "cost_min": 0.0214578,
+  "cost_max": 0.0232168,
+  "cost_mean": 0.02205264,
+  "cost_variance_pct": 7.9763692691668675,
+  "answer_lengths": [
+    1896,
+    2235,
+    1845,
+    1871,
+    1927
+  ],
+  "cited_counts": [
+    10,
+    13,
+    11,
+    11,
+    10
+  ]
+}

@@ -1,0 +1,87 @@
+{
+  "spend_total_usd": 0.1459354,
+  "probe1_summary": {
+    "n_runs": 5,
+    "cost_range_usd": [
+      0.0214578,
+      0.0232168
+    ],
+    "cost_variance_pct": 7.9763692691668675,
+    "pairwise_jaccard": [
+      {
+        "i": 1,
+        "j": 2,
+        "jaccard": 0.84
+      },
+      {
+        "i": 1,
+        "j": 3,
+        "jaccard": 0.9130434782608695
+      },
+      {
+        "i": 1,
+        "j": 4,
+        "jaccard": 0.9166666666666666
+      },
+      {
+        "i": 1,
+        "j": 5,
+        "jaccard": 0.9166666666666666
+      },
+      {
+        "i": 2,
+        "j": 3,
+        "jaccard": 0.84
+      },
+      {
+        "i": 2,
+        "j": 4,
+        "jaccard": 0.8461538461538461
+      },
+      {
+        "i": 2,
+        "j": 5,
+        "jaccard": 0.92
+      },
+      {
+        "i": 3,
+        "j": 4,
+        "jaccard": 0.84
+      },
+      {
+        "i": 3,
+        "j": 5,
+        "jaccard": 0.84
+      },
+      {
+        "i": 4,
+        "j": 5,
+        "jaccard": 0.92
+      }
+    ],
+    "answer_lengths": [
+      1896,
+      2235,
+      1845,
+      1871,
+      1927
+    ],
+    "cited_counts": [
+      10,
+      13,
+      11,
+      11,
+      10
+    ]
+  },
+  "probe2_summary": {
+    "n_questions": 3,
+    "n_with_refusal_keyword": 0,
+    "n_with_dollar_in_answer": 0
+  },
+  "probe3_summary": {
+    "n_cited_ids": 7,
+    "n_cited_ids_not_in_survivors": 0,
+    "n_sentences_without_citation": 7
+  }
+}
