@@ -155,15 +155,28 @@ def serialize_invocation(invocation: Any, *, call_seq: int) -> dict[str, Any]:
 
 
 class _Capture:
-    """Holds the recorded Invocations for one test."""
+    """Holds the recorded Invocations for one test.
 
-    __slots__ = ("invocations", "lock_count")
+    Attributes:
+        invocations: Every Invocation that ran inside the context manager.
+        lock_count: Re-entrant counter so nested ``record_live_test``
+            calls share one patch site.
+        outcome_override: When set (typically by the conftest fixture
+            after reading pytest's makereport stash), takes precedence
+            over the context-manager-level pass/fail detection. Needed
+            because pytest's autouse-fixture ``yield`` doesn't see
+            test-body assertion failures — pytest catches them first.
+        error_override: Long-form failure repr from pytest's report.
+            Only consulted when ``outcome_override == "failed"``.
+    """
+
+    __slots__ = ("error_override", "invocations", "lock_count", "outcome_override")
 
     def __init__(self) -> None:
         self.invocations: list[Any] = []
-        # Re-entrant counter — nested Calls (Program-of-Programs) still
-        # all share one capture but we only patch once per outer scope.
         self.lock_count: int = 0
+        self.outcome_override: str | None = None
+        self.error_override: str | None = None
 
 
 @asynccontextmanager
@@ -238,6 +251,16 @@ async def record_live_test(
         capture.lock_count -= 1
         if capture.lock_count == 0:
             Call._execute = original_execute
+
+        # The caller (typically the pytest conftest fixture) may have
+        # stamped a definitive outcome on the capture after ``yield``
+        # returned — pytest catches test-body assertion errors itself
+        # so the BaseException branch above doesn't fire for them.
+        # Honor the override when present.
+        if capture.outcome_override is not None:
+            outcome = capture.outcome_override
+        if capture.error_override and error_repr is None:
+            error_repr = capture.error_override
 
         elapsed_s = time.perf_counter() - start_perf
         end_ts = datetime.datetime.now(datetime.UTC).isoformat()
