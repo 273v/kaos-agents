@@ -196,6 +196,35 @@ class AgentFindingsTool(KaosTool):
                     required=False,
                     default=0.5,
                 ),
+                ParameterSchema(
+                    name="temperature",
+                    type="number",
+                    description=(
+                        "Sampling temperature for filter + synthesis "
+                        "Calls. Default 0.0 (deterministic) — Sprint-2 "
+                        "#5 quality gate: two associates running the "
+                        "tool on the same NDA see the same findings. "
+                        "Set non-zero (e.g. 0.7) only for "
+                        "experimentation / optimizer search."
+                    ),
+                    required=False,
+                    default=0.0,
+                ),
+                ParameterSchema(
+                    name="runs",
+                    type="integer",
+                    description=(
+                        "Number of independent filter passes to UNION. "
+                        "Default 1 (single pass). Setting runs>1 issues "
+                        "N filter pipelines, unions surviving findings "
+                        "by deterministic finding_id, and synthesizes "
+                        "once over the union. Cost = runs*filter_cost "
+                        "+ synthesis_cost. Use 2-3 for diligence "
+                        "where missing a clause is unacceptable."
+                    ),
+                    required=False,
+                    default=1,
+                ),
             ],
         )
 
@@ -231,6 +260,10 @@ class AgentFindingsTool(KaosTool):
         relevance_threshold = (
             0.5 if relevance_threshold_raw is None else float(relevance_threshold_raw)
         )
+        temperature_raw = inputs.get("temperature")
+        temperature = 0.0 if temperature_raw is None else float(temperature_raw)
+        runs_raw = inputs.get("runs")
+        runs = 1 if runs_raw is None else int(runs_raw)
         filter_model = str(inputs.get("filter_model") or "anthropic:claude-haiku-4-5")
         synthesis_model = str(inputs.get("synthesis_model") or "anthropic:claude-sonnet-4-6")
 
@@ -265,6 +298,8 @@ class AgentFindingsTool(KaosTool):
                 chunk_size=chunk_size,
                 num_parallel=num_parallel,
                 relevance_threshold=relevance_threshold,
+                temperature=temperature,
+                runs=runs,
             )
         except ValueError as exc:
             return ToolResult.create_error(f"FindingsAgent rejected the configuration: {exc}")
@@ -287,6 +322,9 @@ class AgentFindingsTool(KaosTool):
                 "relevance": f.relevance,
                 "reasoning": f.reasoning,
                 "block_ref": f.candidate.block_ref,
+                "char_span": (
+                    list(f.candidate.char_span) if f.candidate.char_span is not None else None
+                ),
                 "section_title": f.candidate.section_title,
                 "page": f.candidate.page,
             }
@@ -297,6 +335,8 @@ class AgentFindingsTool(KaosTool):
             "question": question,
             "select_by": select_by,
             "selector_arg": selector_arg,
+            "temperature": temperature,
+            "runs": runs,
             "answer": result.answer,
             "findings": findings_payload,
             "total_enumerated": result.total_enumerated,

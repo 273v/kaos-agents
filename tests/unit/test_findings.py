@@ -82,12 +82,13 @@ def _sample_view() -> _FakeView:
 
 async def _stub_filter_indemnif_only(
     chunk: tuple[FindingCandidate, ...],
-    *,
-    question: str,
-    model: str,
-    threshold: float,
+    **_kwargs: Any,
 ) -> tuple[tuple[FilteredFinding, ...], float]:
-    """Survivors: any candidate text containing 'indemnif'."""
+    """Survivors: any candidate text containing 'indemnif'.
+
+    Accepts ``**_kwargs`` so Sprint-2 #5's new ``temperature`` plumb-
+    through doesn't break this stub.
+    """
     survivors: list[FilteredFinding] = []
     for cand in chunk:
         if "indemnif" in cand.text.lower():
@@ -105,12 +106,14 @@ async def _stub_filter_keep_nothing(
 
 
 async def _stub_synthesize_count(
-    *,
-    question: str,
-    findings: tuple[FilteredFinding, ...],
-    model: str,
+    **kwargs: Any,
 ) -> tuple[str, float]:
-    """Synthesis that lists the surviving finding_ids inline."""
+    """Synthesis that lists the surviving finding_ids inline.
+
+    Accepts ``**kwargs`` (rather than a named keyword list) so the
+    Sprint-2 #5 ``temperature`` plumb-through stays additive.
+    """
+    findings = kwargs["findings"]
     cited = " ".join(f"[{f.candidate.finding_id}]" for f in findings)
     answer = f"Found {len(findings)} relevant items: {cited}"
     return answer, 0.005
@@ -156,7 +159,9 @@ class TestSelectors:
         for c in cands:
             assert c.text
             assert c.finding_id
-            assert len(c.finding_id) == 8
+            # Sprint-2 #5: deterministic finding_id is 12 hex chars.
+            assert len(c.finding_id) == 12
+            assert all(ch in "0123456789abcdef" for ch in c.finding_id)
 
     def test_every_sentence_selector_skips_empty(self) -> None:
         view = _FakeView(

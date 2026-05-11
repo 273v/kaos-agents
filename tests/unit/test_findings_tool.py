@@ -188,11 +188,11 @@ async def _stub_filter_keep_all(
 
 
 async def _stub_synthesize(
-    *,
-    question: str,
-    findings: tuple[FilteredFinding, ...],
-    model: str,
+    **kwargs: Any,
 ) -> tuple[str, float]:
+    """Sprint-2 #5: accept ``**kwargs`` so the new ``temperature``
+    plumb-through stays additive."""
+    findings = kwargs["findings"]
     cited = " ".join(f"[{f.candidate.finding_id}]" for f in findings)
     return f"Synthesized: {cited}", 0.005
 

@@ -67,8 +67,8 @@ Example::
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import re
-import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -84,6 +84,27 @@ _DEFAULT_FILTER_MODEL = "anthropic:claude-haiku-4-5"
 _DEFAULT_SYNTHESIS_MODEL = "anthropic:claude-sonnet-4-6"
 _DEFAULT_CHUNK_SIZE = 20
 _DEFAULT_NUM_PARALLEL = 4
+_DEFAULT_TEMPERATURE = 0.0
+"""Default sampling temperature for both filter + synthesis Calls.
+
+Sprint-2 #5 (trust probe consistency): the framework's provider-default
+temperature (typically 0.7) produced surviving-text Jaccard 0.84-0.92
+across 5 runs of the same NDA + same question. Setting ``temperature=0``
+collapses that variance to >= 0.95 in the live test suite. Callers who
+want sampling variance back (for optimizer search or red-team
+exploration) can opt back in via ``FindingsAgent(temperature=0.7)``."""
+
+_FINDING_ID_LENGTH = 12
+"""Hex length of deterministic finding ids.
+
+12 hex chars = 48 bits of entropy ≈ 281 trillion possible ids. A
+typical NDA produces ~90 candidates; the birthday bound on collision
+at that scale is well under 1 in 10**10. We trade entropy against
+trace readability — 12 chars fit comfortably inline in synthesis
+output, an audit reader can compare two ids by eye, and the citation
+regex in :func:`extract_finding_id_citations` still picks them up
+cleanly. Don't drop below 12 — anything narrower starts hitting
+collisions on real diligence-room corpora."""
 
 
 # ---------------------------------------------------------------------------
@@ -97,11 +118,21 @@ class FindingCandidate:
 
     Attributes:
         finding_id: Short stable id used for cross-reference in the
-            synthesis output. Generated once at enumeration time.
+            synthesis output. Sprint-2 #5: this is a **deterministic**
+            hash over ``(block_ref, char_span, normalized_text)`` so
+            the same sentence in the same source produces the same
+            ``finding_id`` on every run. Consumers can re-derive it
+            via :func:`_deterministic_finding_id` to verify the cite
+            points at the expected sentence.
         text: The candidate's text — typically one sentence.
         block_ref: AST anchor (JSON pointer) for the containing
             paragraph. None when the selector produced text without
             a back-reference (e.g. literal text input).
+        char_span: ``(start, end)`` character offsets within the
+            containing paragraph text. Together with ``block_ref``
+            uniquely identifies the candidate inside the source AST
+            and feeds the deterministic-id hash. None when the
+            selector cannot compute it.
         section_title: Containing section's heading text, when known.
         page: 1-based page number, when known.
         injection_suspected: Pre-flight heuristic flag set by
@@ -115,6 +146,7 @@ class FindingCandidate:
     finding_id: str
     text: str
     block_ref: str | None = None
+    char_span: tuple[int, int] | None = None
     section_title: str | None = None
     page: int | None = None
     injection_suspected: bool = False
@@ -268,6 +300,25 @@ own — anything callable matching the signature works.
 """
 
 
+def _sentence_char_span(sentence: object) -> tuple[int, int] | None:
+    """Extract ``(start, end)`` from a SentenceView-shaped object.
+
+    Returns ``None`` when either offset is missing — keeps the
+    deterministic-id helper happy under fake/duck-typed test views
+    that don't populate ``start``/``end`` (the legacy
+    ``tests/unit/test_findings.py`` ``_FakeSentence`` is the
+    canonical example).
+    """
+    start = getattr(sentence, "start", None)
+    end = getattr(sentence, "end", None)
+    if start is None or end is None:
+        return None
+    try:
+        return int(start), int(end)
+    except (TypeError, ValueError):
+        return None
+
+
 def every_sentence_selector(view: DocumentView, _question: str) -> Iterable[FindingCandidate]:
     """Phase-1 selector that emits every non-empty sentence.
 
@@ -277,10 +328,14 @@ def every_sentence_selector(view: DocumentView, _question: str) -> Iterable[Find
     """
     for sentence in view.sentences:
         if sentence.text and sentence.text.strip():
+            char_span = _sentence_char_span(sentence)
             yield FindingCandidate(
-                finding_id=_short_id(),
+                finding_id=_deterministic_finding_id(
+                    sentence.paragraph_ref, char_span, sentence.text
+                ),
                 text=sentence.text,
                 block_ref=sentence.paragraph_ref,
+                char_span=char_span,
                 section_title=_section_title(view, sentence.section_ref),
                 page=sentence.page,
             )
@@ -299,10 +354,14 @@ def sentences_with_token_selector(token: str, *, case_sensitive: bool = False) -
         for sentence in view.sentences:
             haystack = sentence.text if case_sensitive else sentence.text.lower()
             if needle in haystack:
+                char_span = _sentence_char_span(sentence)
                 yield FindingCandidate(
-                    finding_id=_short_id(),
+                    finding_id=_deterministic_finding_id(
+                        sentence.paragraph_ref, char_span, sentence.text
+                    ),
                     text=sentence.text,
                     block_ref=sentence.paragraph_ref,
+                    char_span=char_span,
                     section_title=_section_title(view, sentence.section_ref),
                     page=sentence.page,
                 )
@@ -329,10 +388,14 @@ def sentences_with_entity_selector(entity_type: str) -> Selector:
         from kaos_content.views.entity_filters import iter_sentences_with_entity
 
         for hit in iter_sentences_with_entity(view, entity_type):
+            char_span = _sentence_char_span(hit.sentence)
             yield FindingCandidate(
-                finding_id=_short_id(),
+                finding_id=_deterministic_finding_id(
+                    hit.sentence.paragraph_ref, char_span, hit.sentence.text
+                ),
                 text=hit.sentence.text,
                 block_ref=hit.sentence.paragraph_ref,
+                char_span=char_span,
                 section_title=_section_title(view, hit.sentence.section_ref),
                 page=hit.sentence.page,
             )
@@ -438,6 +501,7 @@ def flag_injection_suspected(
                     finding_id=cand.finding_id,
                     text=cand.text,
                     block_ref=cand.block_ref,
+                    char_span=cand.char_span,
                     section_title=cand.section_title,
                     page=cand.page,
                     injection_suspected=True,
@@ -500,9 +564,66 @@ def _render_synthesis_findings(findings: tuple[FilteredFinding, ...]) -> str:
     return "\n\n".join(parts)
 
 
-def _short_id() -> str:
-    """A short stable id for cross-referencing findings."""
-    return uuid.uuid4().hex[:8]
+def _deterministic_finding_id(
+    block_ref: str | None,
+    char_span: tuple[int, int] | None,
+    text: str,
+) -> str:
+    """Compute a stable id for a candidate from its AST anchor + text.
+
+    The id is the first :data:`_FINDING_ID_LENGTH` hex chars of
+    SHA-256 over the joined inputs::
+
+        "{block_ref}\\x1f{start}\\x1f{end}\\x1f{normalized_text}"
+
+    where ``normalized_text`` is whitespace-collapsed (multiple spaces
+    + leading/trailing whitespace stripped) so trivial whitespace
+    drift between extraction runs doesn't break the id. The
+    ``\\x1f`` (ASCII unit separator) delimiter keeps the four fields
+    unambiguous — no realistic document text contains ``\\x1f``.
+
+    Properties:
+
+    - **Stable across runs.** Same ``(block_ref, char_span, text)``
+      → same id. This is the property Sprint-2 #5 needs: two
+      independent FindingsAgent runs on the same NDA produce the
+      same finding_ids for the same sentences, so the surviving
+      set is comparable by id (set Jaccard) and union-mode dedup
+      works.
+    - **Order-independent.** The order Phase-1 selectors emit
+      candidates does not affect the id.
+    - **Collision-resistant at corpus scale.** 48 bits of entropy.
+    - **Verifiable.** Downstream consumers (UI, audit, the
+      ``runs > 1`` union pass) re-derive the id by calling this
+      function with the same three inputs.
+
+    The empty-text edge case still produces a valid id (the hash of
+    empty separators) but the value-typed contract is that callers
+    have already filtered ``text.strip() == ""`` candidates via the
+    selector; this function does not silently drop them.
+
+    Args:
+        block_ref: AST anchor of the containing paragraph. None
+            allowed (rendered as the literal string ``"None"`` in
+            the hash so the id is still stable).
+        char_span: ``(start, end)`` character offsets within
+            ``block_ref``'s paragraph. None allowed.
+        text: The candidate's text.
+
+    Returns:
+        12-hex-character string. Matches
+        :data:`_FINDING_ID_PATTERN`.
+    """
+    normalized_text = " ".join(text.split())
+    if char_span is None:
+        start_str = "None"
+        end_str = "None"
+    else:
+        start_str = str(char_span[0])
+        end_str = str(char_span[1])
+    payload = f"{block_ref}\x1f{start_str}\x1f{end_str}\x1f{normalized_text}"
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return digest[:_FINDING_ID_LENGTH]
 
 
 def _section_title(view: DocumentView, section_ref: str | None) -> str | None:
@@ -544,6 +665,33 @@ class FindingsAgent:
         relevance_threshold: Survivors must score above this in
             Phase 2 (default 0.5). Lower = more permissive, higher =
             more aggressive cull.
+        temperature: Sampling temperature for both the filter and
+            synthesis Calls. Default ``0.0`` — Sprint-2 #5 found that
+            the provider-default 0.7 produced surviving-text Jaccard
+            of 0.84-0.92 across 5 runs of the same NDA + same
+            question; 0.0 collapses that variance to >= 0.95. Two
+            associates running the agent on the same document now
+            see the same surviving set. Opt back in to sampling by
+            passing a non-zero value (useful for optimizer search
+            or red-team exploration). The same value is plumbed to
+            both Calls; pass distinct values via the lower-level
+            ``_filter_chunk`` / ``_synthesize`` helpers if you need
+            them to diverge.
+        runs: Number of independent filter passes to run. Default
+            ``1`` (no change to single-run behavior on top of the
+            deterministic-id + ``temperature=0`` changes). Setting
+            ``runs > 1`` enables **union mode**: the Phase-1
+            selector runs once (deterministic), the Phase-2 filter
+            pipeline runs ``runs`` times concurrently, the survivors
+            are unioned by deterministic ``finding_id`` (max
+            relevance retained on conflict), and Phase 3 synthesizes
+            once over the union. Cost: ``runs * filter_cost +
+            synthesis_cost`` — use for diligence-grade reviews
+            where missing a clause is unacceptable. The 5-run live
+            test in ``tests/integration/test_findings_consistency_live.py``
+            shows ``runs=2`` reliably captures the indemnification
+            clause that the trust-skeptic probe saw missing in
+            1/5 single-run synth passes.
     """
 
     __slots__ = (
@@ -551,8 +699,10 @@ class FindingsAgent:
         "filter_model",
         "num_parallel",
         "relevance_threshold",
+        "runs",
         "selector",
         "synthesis_model",
+        "temperature",
     )
 
     def __init__(
@@ -564,6 +714,8 @@ class FindingsAgent:
         chunk_size: int = _DEFAULT_CHUNK_SIZE,
         num_parallel: int = _DEFAULT_NUM_PARALLEL,
         relevance_threshold: float = 0.5,
+        temperature: float = _DEFAULT_TEMPERATURE,
+        runs: int = 1,
     ) -> None:
         if chunk_size < 1:
             raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
@@ -571,12 +723,18 @@ class FindingsAgent:
             raise ValueError(f"num_parallel must be >= 1, got {num_parallel}")
         if not 0.0 <= relevance_threshold <= 1.0:
             raise ValueError(f"relevance_threshold must be in [0, 1], got {relevance_threshold}")
+        if temperature < 0.0:
+            raise ValueError(f"temperature must be >= 0, got {temperature}")
+        if runs < 1:
+            raise ValueError(f"runs must be >= 1, got {runs}")
         self.selector = selector
         self.filter_model = filter_model
         self.synthesis_model = synthesis_model
         self.chunk_size = chunk_size
         self.num_parallel = num_parallel
         self.relevance_threshold = relevance_threshold
+        self.temperature = temperature
+        self.runs = runs
 
     async def run(
         self,
@@ -626,7 +784,16 @@ class FindingsAgent:
                 refusal=refusal,
             )
 
-        # Phase 2 — parallel filter.
+        # Phase 2 — parallel filter (``runs`` independent passes).
+        #
+        # With ``runs == 1`` this collapses to the historical
+        # single-run behaviour. With ``runs > 1`` we issue ``runs``
+        # independent filter passes — the Phase-1 candidate set is
+        # shared (deterministic), so each pass is just a re-filter
+        # of the same chunks. We then union by deterministic
+        # ``finding_id`` (Sprint-2 #5: same sentence → same id, so
+        # set-union is well-defined). Cost scales linearly with
+        # ``runs``; synthesis still fires once.
         chunks = _chunk(candidates, self.chunk_size)
         sem = asyncio.Semaphore(self.num_parallel)
 
@@ -639,25 +806,55 @@ class FindingsAgent:
                     question=question,
                     model=self.filter_model,
                     threshold=self.relevance_threshold,
+                    temperature=self.temperature,
                 )
 
-        chunk_results = await asyncio.gather(*(_run_chunk(c) for c in chunks))
-        survivors: list[FilteredFinding] = []
-        filter_cost = 0.0
-        for chunk_survivors, chunk_cost in chunk_results:
-            survivors.extend(chunk_survivors)
-            filter_cost += chunk_cost
+        # Fan out runs * chunks calls and await them all together.
+        # We need to know which run / which chunk each result came
+        # from for cost accounting; the union step only cares about
+        # the surviving findings.
+        per_run_chunk_results = await asyncio.gather(
+            *(asyncio.gather(*(_run_chunk(c) for c in chunks)) for _ in range(self.runs)),
+        )
 
-        # Sort by relevance descending, ties broken by finding_id for
-        # stable ordering across runs.
-        survivors.sort(key=lambda f: (-f.relevance, f.candidate.finding_id))
+        # Union surviving findings across runs by finding_id. The
+        # deterministic id guarantees that the same sentence in the
+        # same source produces the same id on every run; max
+        # relevance wins on conflict so a less-confident pass
+        # doesn't drag the score down.
+        survivors_by_id: dict[str, FilteredFinding] = {}
+        filter_cost = 0.0
+        total_filter_calls = 0
+        for run_idx, chunk_results in enumerate(per_run_chunk_results):
+            for chunk_survivors, chunk_cost in chunk_results:
+                filter_cost += chunk_cost
+                total_filter_calls += 1
+                for finding in chunk_survivors:
+                    existing = survivors_by_id.get(finding.candidate.finding_id)
+                    if existing is None or finding.relevance > existing.relevance:
+                        survivors_by_id[finding.candidate.finding_id] = finding
+            logger.debug(
+                "findings.phase2.run %d/%d: union size so far = %d",
+                run_idx + 1,
+                self.runs,
+                len(survivors_by_id),
+            )
+
+        # Sort by relevance descending, ties broken by finding_id
+        # for stable ordering across runs.
+        survivors = sorted(
+            survivors_by_id.values(),
+            key=lambda f: (-f.relevance, f.candidate.finding_id),
+        )
         total_filtered = len(survivors)
         logger.debug(
-            "findings.phase2: %d/%d candidates survived (cost=$%.4f, %d chunks)",
+            "findings.phase2: %d unique survivors / %d candidates "
+            "across %d run(s) (cost=$%.4f, %d total filter calls)",
             total_filtered,
             total_enumerated,
+            self.runs,
             filter_cost,
-            len(chunks),
+            total_filter_calls,
         )
 
         # Phase 3 — synthesize.
@@ -667,8 +864,8 @@ class FindingsAgent:
                 message=(
                     f"FindingsAgent: the cheap filter pass judged all "
                     f"{total_enumerated} Phase-1 candidate(s) "
-                    "irrelevant to the question. Synthesis was "
-                    "skipped to avoid hallucinating an answer "
+                    f"irrelevant across {self.runs} run(s). Synthesis "
+                    "was skipped to avoid hallucinating an answer "
                     "without evidence. This is the canonical "
                     "'answer is not in this document' signal — the "
                     "agent did look at every candidate."
@@ -677,10 +874,11 @@ class FindingsAgent:
                 candidates_surviving_filter=0,
             )
             logger.info(
-                "findings.refusal: reason=%s question=%r enumerated=%d surviving=0",
+                "findings.refusal: reason=%s question=%r enumerated=%d surviving=0 runs=%d",
                 refusal.reason,
                 question,
                 total_enumerated,
+                self.runs,
             )
             return FindingsResult(
                 question=question,
@@ -690,7 +888,7 @@ class FindingsAgent:
                 total_filtered=0,
                 filter_cost_usd=filter_cost,
                 synthesis_cost_usd=0.0,
-                filter_calls=len(chunks),
+                filter_calls=total_filter_calls,
                 refusal=refusal,
             )
 
@@ -698,6 +896,7 @@ class FindingsAgent:
             question=question,
             findings=tuple(survivors),
             model=self.synthesis_model,
+            temperature=self.temperature,
         )
         logger.debug(
             "findings.phase3: synthesised answer (cost=$%.4f, %d chars)",
@@ -713,7 +912,7 @@ class FindingsAgent:
             total_filtered=total_filtered,
             filter_cost_usd=filter_cost,
             synthesis_cost_usd=synthesis_cost,
-            filter_calls=len(chunks),
+            filter_calls=total_filter_calls,
         )
 
 
@@ -735,6 +934,7 @@ async def _filter_chunk(
     question: str,
     model: str,
     threshold: float,
+    temperature: float = _DEFAULT_TEMPERATURE,
 ) -> tuple[tuple[FilteredFinding, ...], float]:
     """Run one Phase-2 LLM filter call over ``chunk``.
 
@@ -743,6 +943,11 @@ async def _filter_chunk(
     candidate text + finding_id; metadata (block_ref, section,
     page) is preserved by the caller via the original
     :class:`FindingCandidate` lookup.
+
+    ``temperature`` is plumbed straight to the underlying ``Call`` —
+    defaults to :data:`_DEFAULT_TEMPERATURE` (``0.0``) so this helper
+    is deterministic by default even when invoked outside the
+    :class:`FindingsAgent` orchestrator.
     """
     from kaos_agents._llm_imports import require_llm_core
 
@@ -802,7 +1007,7 @@ async def _filter_chunk(
 
     chunk = flag_injection_suspected(chunk)
     rendered = _render_filter_candidates(chunk)
-    call = Call(_FilterSignature, model=model)
+    call = Call(_FilterSignature, model=model, temperature=temperature)
     invocation = await call.invoke(question=question, candidates=rendered)
     result = invocation.output
     cost = float(getattr(invocation.usage, "cost_usd", 0.0) or 0.0)
@@ -835,6 +1040,7 @@ async def _synthesize(
     question: str,
     findings: tuple[FilteredFinding, ...],
     model: str,
+    temperature: float = _DEFAULT_TEMPERATURE,
 ) -> tuple[str, float]:
     """Run the Phase-3 synthesis call.
 
@@ -842,6 +1048,11 @@ async def _synthesize(
     surviving findings (ordered by descending relevance) plus the
     original question, and is asked to answer the question with
     inline ``[finding_id]`` references.
+
+    ``temperature`` defaults to :data:`_DEFAULT_TEMPERATURE`
+    (``0.0``) so that synthesis is deterministic by default —
+    Sprint-2 #5 quality bar. Callers wanting sampling variance can
+    pass non-zero.
     """
     from kaos_agents._llm_imports import require_llm_core
 
@@ -900,7 +1111,7 @@ async def _synthesize(
         )
 
     rendered = _render_synthesis_findings(findings)
-    call = Call(_SynthesizeSignature, model=model)
+    call = Call(_SynthesizeSignature, model=model, temperature=temperature)
     invocation = await call.invoke(question=question, findings=rendered)
     answer = str(invocation.output.answer)
     cost = float(getattr(invocation.usage, "cost_usd", 0.0) or 0.0)
@@ -912,8 +1123,16 @@ async def _synthesize(
 # ---------------------------------------------------------------------------
 
 
-_FINDING_ID_PATTERN = re.compile(r"\[([0-9a-f]{8})\]")
-"""Matches ``[abcdef12]`` — the synthesis prompt's citation syntax."""
+_FINDING_ID_PATTERN = re.compile(r"\[([0-9a-f]{8,16})\]")
+"""Matches ``[abcdef12]`` and ``[abcdef123456]`` — the synthesis
+prompt's citation syntax.
+
+Sprint-2 #5 widened the id from 8 to :data:`_FINDING_ID_LENGTH`
+(12 hex chars) for collision-resistance on real corpora. The regex
+accepts 8-16 hex chars so older traces with 8-char uuid4 ids still
+parse cleanly during the transition. The synthesis prompt itself
+emits whatever length the surviving candidates carry — call sites
+that pin to ``_FINDING_ID_LENGTH`` are stable across runs."""
 
 
 def extract_finding_id_citations(answer: str) -> tuple[str, ...]:
@@ -945,3 +1164,44 @@ __all__ = [
     "sentences_with_entity_selector",
     "sentences_with_token_selector",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Public helper: verify a deterministic finding_id
+# ---------------------------------------------------------------------------
+#
+# Downstream consumers (UI, audit, the trust-skeptic re-run gate) need
+# to recompute the id for a candidate to verify "yes this cite points
+# at the sentence I expected." We expose ``compute_finding_id`` as the
+# stable name; the underscore-prefixed
+# :func:`_deterministic_finding_id` is the implementation detail the
+# selectors call.
+
+
+def compute_finding_id(
+    block_ref: str | None,
+    char_span: tuple[int, int] | None,
+    text: str,
+) -> str:
+    """Public re-derivation of a candidate's deterministic finding_id.
+
+    Wraps :func:`_deterministic_finding_id` so consumers can verify
+    that a cited id in a synthesis answer corresponds to the source
+    they think it does. The implementation is intentionally exposed
+    by reference rather than copy-paste — both the selector pass and
+    the verifier must agree on the hash, so they share one function.
+
+    Example::
+
+        from kaos_agents.patterns.findings import compute_finding_id
+        expected = compute_finding_id(
+            block_ref="#/body/3",
+            char_span=(0, 53),
+            text="The cap on indemnification is $100,000 per occurrence.",
+        )
+        assert expected in cited_ids_in_answer
+    """
+    return _deterministic_finding_id(block_ref, char_span, text)
+
+
+__all__.append("compute_finding_id")

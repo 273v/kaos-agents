@@ -220,11 +220,11 @@ async def _stub_filter_keep_all(
 
 
 async def _stub_synthesize_real(
-    *,
-    question: str,
-    findings: tuple[FilteredFinding, ...],
-    model: str,
+    **kwargs: Any,
 ) -> tuple[str, float]:
+    """Real-shaped synthesis stub. Accepts ``**kwargs`` so Sprint-2 #5's
+    new ``temperature`` plumb-through stays additive."""
+    findings = kwargs["findings"]
     return f"Found {len(findings)} items", 0.005
 
 
