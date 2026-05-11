@@ -63,6 +63,18 @@ class KaosAgentSettings(ModuleSettings):
         description="LLM model for plan expansion. Same as default unless stronger "
         "reasoning is needed for complex decomposition.",
     )
+    research_llm_model: str = Field(
+        default="anthropic:claude-sonnet-4-6",
+        description=(
+            "LLM model for the research pattern (RAG + grounded Q&A). "
+            "Defaults to sonnet-grade because retrieval-query quality "
+            "scales materially with model strength: gpt-5.4-mini/sonnet-4-6 "
+            "write better BM25 queries than haiku-4-5 (observed: top_score "
+            "6.4 → 16.9 on identical legal-corpus queries) and aggregate "
+            "across passages more reliably. Haiku-grade is still fine for "
+            "the chat-pattern smoke-test path."
+        ),
+    )
 
     # Tool execution
     max_tools: int = Field(

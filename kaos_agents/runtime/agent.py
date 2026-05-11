@@ -156,6 +156,13 @@ class BaseAgent(KaosAgent):
         # Backward compat: planning has its own settings field
         if role == "plan":
             return self._settings.planning_llm_model
+        # Research pattern gets a sonnet-grade default — retrieval-query
+        # quality scales with model strength (observed BM25 top_score
+        # 6.4 → 16.9 between haiku-4-5 and sonnet-4-6 / gpt-5.4-mini on
+        # identical legal-corpus queries) and aggregate synthesis is
+        # materially more reliable.
+        if role == "research":
+            return self._settings.research_llm_model
         return self._model
 
     async def run(self, message: str, session_id: str) -> AsyncIterator[KaosEvent]:
