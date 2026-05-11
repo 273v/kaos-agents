@@ -34,3 +34,10 @@ Thumbs.db
 *.p12
 *.pfx
 .kaos-credentials.json
+
+# Live-test telemetry captures (KC11 retention policy).
+# Per-run JSONLs are local-only audit trails; the rolled-up `INDEX.jsonl`
+# stays tracked so historical run identifiers survive in the public repo.
+tests/integration/runs/**/*.jsonl
+!tests/integration/runs/INDEX.jsonl
+
