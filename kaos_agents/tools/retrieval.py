@@ -1208,6 +1208,148 @@ class CorpusInfoTool(KaosTool):
         )
 
 
+class CorpusManifestTool(KaosTool):
+    """Per-document manifest of the loaded corpus.
+
+    Returns one row per document with filename, character count, word count,
+    passage count, and URI. This closes the aggregation-question gap
+    (longest / shortest / biggest / total) by exposing per-doc stats the
+    agent can sort or filter directly — no further retrieval needed.
+
+    Distinct from kaos-retrieval-corpus-info, which returns *aggregate*
+    stats (top terms, total doc count) without per-document breakdown.
+    """
+
+    @property
+    def metadata(self) -> ToolMetadata:
+        return ToolMetadata(
+            name="kaos-retrieval-corpus-manifest",
+            display_name="Corpus Manifest",
+            description=(
+                "List every document in the loaded corpus with per-doc "
+                "stats: filename/URI, character count, word count, and "
+                "passage count. Use this for aggregation questions "
+                "(longest/shortest/biggest/total) instead of trying to "
+                "rank documents through retrieval. Pairs well with "
+                "kaos-retrieval-bm25 — use this tool first to see what's "
+                "loaded, then BM25-search the docs you care about."
+            ),
+            category=ToolCategory.DATA,
+            capability=ToolCapability.QUERY,
+            module_name=_MODULE,
+            version=_VERSION,
+            annotations=_READ_ANNOTATIONS,
+            input_schema=[
+                ParameterSchema(name="session_id", type="string", description="Session ID"),
+                ParameterSchema(
+                    name="sort_by",
+                    type="string",
+                    description=(
+                        "Sort key. One of: 'char_count', 'word_count', "
+                        "'passage_count', 'uri'. Default 'char_count' (descending)."
+                    ),
+                    required=False,
+                    constraints={"enum": ["char_count", "word_count", "passage_count", "uri"]},
+                ),
+                ParameterSchema(
+                    name="limit",
+                    type="integer",
+                    description="Maximum rows to return. Default 100 (all docs in most cases).",
+                    required=False,
+                    constraints={"min": 1, "max": 1000},
+                ),
+            ],
+        )
+
+    async def execute(self, inputs: dict[str, Any], context: Any = None) -> ToolResult:
+        sort_by = str(inputs.get("sort_by") or "char_count")
+        limit = int(inputs.get("limit") or 100)
+
+        # Prefer ContentDocumentCorpus from context when available — it
+        # carries native doc_uri grouping. Memory fallback below.
+        corpus = _get_corpus_from_context(context)
+        if corpus is not None:
+            return self._from_corpus(corpus, sort_by=sort_by, limit=limit)
+
+        memory, _store, err = _get_memory(inputs, context)
+        if err:
+            return ToolResult.create_error(err)
+
+        from kaos_agents.types.memory import MemoryType
+
+        if not memory.has_section(MemoryType.DOCUMENTS):
+            return ToolResult.create_success(
+                output={"document_count": 0, "documents": []},
+                summary="No documents loaded. Use /load or --files first.",
+            )
+
+        rows = []
+        for item in memory.get(MemoryType.DOCUMENTS):
+            content = item.content or ""
+            uri = (item.metadata or {}).get("uri", item.id[:8])
+            rows.append(
+                {
+                    "uri": uri,
+                    "char_count": len(content),
+                    "word_count": len(content.split()),
+                    "passage_count": 1,  # 1 doc = 1 memory item in this branch
+                }
+            )
+
+        return self._format_rows(rows, sort_by=sort_by, limit=limit)
+
+    def _from_corpus(self, corpus: Any, *, sort_by: str, limit: int) -> ToolResult:
+        """Build per-document manifest by grouping passages on doc_uri."""
+        from collections import defaultdict
+
+        by_uri: dict[str, dict[str, int]] = defaultdict(
+            lambda: {"char_count": 0, "word_count": 0, "passage_count": 0}
+        )
+        for passage in corpus.iter_passages():
+            uri = getattr(passage, "doc_uri", "") or "doc:anon"
+            text = passage.text or ""
+            entry = by_uri[uri]
+            entry["char_count"] += len(text)
+            entry["word_count"] += len(text.split())
+            entry["passage_count"] += 1
+
+        rows = [{"uri": uri, **stats} for uri, stats in by_uri.items()]
+        return self._format_rows(rows, sort_by=sort_by, limit=limit)
+
+    def _format_rows(self, rows: list[dict[str, Any]], *, sort_by: str, limit: int) -> ToolResult:
+        # Sort: numeric fields descending, uri ascending.
+        if sort_by == "uri":
+            rows.sort(key=lambda r: str(r.get("uri", "")))
+        else:
+            rows.sort(key=lambda r: int(r.get(sort_by, 0) or 0), reverse=True)
+        truncated = len(rows) > limit
+        rows = rows[:limit]
+
+        logger.info(
+            "retrieval_tools.CorpusManifestTool: manifest built, "
+            "document_count=%d sort_by=%s truncated=%s",
+            len(rows),
+            sort_by,
+            truncated,
+        )
+
+        output = {
+            "document_count": len(rows),
+            "sort_by": sort_by,
+            "truncated": truncated,
+            "documents": rows,
+        }
+        if rows:
+            top = rows[0]
+            summary = (
+                f"{len(rows)} doc(s); top by {sort_by}: "
+                f"{top.get('uri', '?')} ({top.get(sort_by, 0)})"
+            )
+        else:
+            summary = "0 documents in corpus."
+        return ToolResult.create_success(output=output, summary=summary)
+
+
 class GroundedAnswerTool(KaosTool):
     """Generate a grounded, cited answer from passages found by previous searches.
 
@@ -1392,6 +1534,7 @@ def register_retrieval_tools(runtime: Any) -> int:
         EvaluateCoverageTool(),
         RerankTool(),
         CorpusInfoTool(),
+        CorpusManifestTool(),
         GroundedAnswerTool(),
     ]
     for tool in tools:
