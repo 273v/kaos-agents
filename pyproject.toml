@@ -122,6 +122,7 @@ dev = [
   "datasets>=4.8.4",
   "transformers>=5.5.4",
   "mdit-py-plugins>=0.4",
+  "fastembed>=0.4",
 ]
 
 [project.scripts]
