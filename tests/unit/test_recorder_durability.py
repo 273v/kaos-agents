@@ -208,7 +208,8 @@ class TestStreamingHeaderOnEnter:
             header = json.loads(lines[0])
             assert header["kind"] == "header"
             assert header["streaming"] is True
-            assert header["schema_version"] == 3
+            # Schema bumped to 4 in KC16-4 alongside redaction.
+            assert header["schema_version"] == 4
             assert header["test_nodeid"] == "test_zero_calls"
             assert header["trailer_optional"] is True
             assert header["partial_last_line_tolerated"] is True
@@ -275,7 +276,8 @@ class TestStreamingInvocationOnCompletion:
             header = json.loads(lines[0])
             assert header["kind"] == "header"
             assert header["streaming"] is True
-            assert header["schema_version"] == 3
+            # Schema bumped to 4 in KC16-4 alongside redaction.
+            assert header["schema_version"] == 4
             assert header["test_nodeid"] == "test_invocation_sigterm"
 
             # All subsequent lines should be well-formed JSON.

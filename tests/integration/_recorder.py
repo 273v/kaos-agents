@@ -25,7 +25,7 @@ The record is *additive*: tests still pass/fail the same way; the
 recorder runs as a passive observer. No test logic changes are
 needed when the recorder is enabled.
 
-Crash-safe contract (schema_version=3):
+Crash-safe contract (schema_version=4):
 
 * The JSONL is **streamed**: the header is written + flushed +
   ``fsync()``ed immediately when the recorder starts. Each
@@ -42,6 +42,34 @@ Crash-safe contract (schema_version=3):
   and use the lines it has.
 * The header field ``streaming=true`` documents this for consumers
   so they can branch on it cleanly.
+
+Transparency redaction (schema_version=4 — KC16-4):
+
+The audit found that the schema-v3 recorder persisted full document
+bodies (50KB+ ``message`` fields) verbatim into JSONL captures, and
+those captures were being committed to git. For a regulated-industry
+adopter every CI-processed document becomes a secondary data plane.
+KC16-4 changes the on-disk shape WITHOUT changing what the recorder
+captures conceptually:
+
+* Every string value longer than ``redaction_threshold_chars``
+  (default 2048; configurable via ``KAOS_RECORDER_REDACTION_THRESHOLD``)
+  is replaced with ``"<first 200 chars> ... [TRUNCATED N chars;
+  sha256=<16 hex>]"``. The sha256 prefix lets you dedup captures of
+  the same document; 16 hex chars (~64 bits) is enough entropy for
+  that but not enough to reconstruct the document.
+* Metadata fields (``model``, ``invocation_id``, token counts, cost,
+  latency, error class) are untouched. Redaction only kicks in on
+  string values above the threshold.
+* The header carries ``redaction_enabled``, ``redaction_threshold_chars``;
+  the trailer carries ``redacted_count`` (total fields truncated).
+* **Opt-out for local development**: set
+  ``KAOS_RECORDER_FULL_TEXT=1`` in the env. The header records
+  ``redaction_enabled=false`` so downstream consumers can see
+  whether a capture was redacted. Do NOT do this in CI for any
+  capture that may be committed.
+* Backward compat: ``runs_cli.load_run`` still reads schema-3 files;
+  the only header/trailer field changes are additive.
 
 Usage (auto-installed by ``conftest.py``):
 
@@ -62,6 +90,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import datetime
+import hashlib
 import json
 import os
 import subprocess
@@ -78,6 +107,76 @@ from typing import Any
 # never in its own os.environ) so cross-process LLM calls land in the
 # test's run directory and can be stitched into the main JSONL on exit.
 _SUBPROCESS_ENV_VAR = "KAOS_LLM_CORE_RECORDER_DIR"
+
+# KC16-4 — redaction tunables. The threshold balances "preserve enough
+# context to be useful for debugging" against "don't commit the entire
+# document to git". 2KB ≈ 500 words ≈ "the LLM call shape was X" without
+# also exporting the document body. The hash entropy (16 hex chars =
+# 64 bits) is enough to dedup repeated captures of the same document
+# but not enough to reconstruct it.
+_REDACTION_DEFAULT_THRESHOLD_CHARS = 2048
+_REDACTION_PREFIX_CHARS = 200
+_REDACTION_HASH_HEX_LEN = 16
+_FULL_TEXT_ENV_VAR = "KAOS_RECORDER_FULL_TEXT"
+_THRESHOLD_ENV_VAR = "KAOS_RECORDER_REDACTION_THRESHOLD"
+
+
+def _redaction_config() -> tuple[bool, int]:
+    """Read redaction config from env. Returns (enabled, threshold_chars).
+
+    ``KAOS_RECORDER_FULL_TEXT=1`` disables redaction entirely.
+    ``KAOS_RECORDER_REDACTION_THRESHOLD`` overrides the threshold.
+    Invalid threshold values fall back to the default rather than
+    erroring (telemetry must not break a test).
+    """
+    full_text = os.environ.get(_FULL_TEXT_ENV_VAR, "").strip().lower()
+    enabled = full_text not in {"1", "true", "yes", "on"}
+    raw = os.environ.get(_THRESHOLD_ENV_VAR, "").strip()
+    threshold = _REDACTION_DEFAULT_THRESHOLD_CHARS
+    if raw:
+        try:
+            parsed = int(raw)
+            if parsed > 0:
+                threshold = parsed
+        except ValueError:
+            pass
+    return enabled, threshold
+
+
+def _truncate_string(value: str, threshold: int, counter: list[int]) -> str:
+    """Redact a single string. Mutates ``counter[0]`` in place.
+
+    Format: ``<first 200 chars> ... [TRUNCATED N chars; sha256=<16 hex>]``.
+    The sha256 covers the *full* original string (UTF-8 bytes) so two
+    captures of the same document collapse to the same hash. The
+    counter is a one-element list so callers can read it after a
+    recursive walk without threading return values everywhere.
+    """
+    if len(value) <= threshold:
+        return value
+    full_len = len(value)
+    digest = hashlib.sha256(value.encode("utf-8", errors="replace")).hexdigest()
+    prefix = value[:_REDACTION_PREFIX_CHARS]
+    counter[0] += 1
+    return f"{prefix} ... [TRUNCATED {full_len} chars; sha256={digest[:_REDACTION_HASH_HEX_LEN]}]"
+
+
+def _redact(value: Any, threshold: int, counter: list[int]) -> Any:
+    """Walk a JSON-ready value and redact long strings in place.
+
+    Only operates on the structure ``_safe_dump`` actually produces:
+    ``str``, ``int``, ``float``, ``bool``, ``None``, ``list``, ``dict``.
+    Anything else is returned unchanged (it has already been coerced
+    to one of those by ``_safe_dump``).
+    """
+    if isinstance(value, str):
+        return _truncate_string(value, threshold, counter)
+    if isinstance(value, list):
+        return [_redact(item, threshold, counter) for item in value]
+    if isinstance(value, dict):
+        return {k: _redact(v, threshold, counter) for k, v in value.items()}
+    return value
+
 
 # ---------------------------------------------------------------------------
 # Git context
@@ -146,29 +245,60 @@ def _safe_dump(obj: Any) -> Any:
     return repr(obj)
 
 
-def serialize_invocation(invocation: Any, *, call_seq: int) -> dict[str, Any]:
+def serialize_invocation(
+    invocation: Any,
+    *,
+    call_seq: int,
+    redaction_enabled: bool = True,
+    redaction_threshold_chars: int = _REDACTION_DEFAULT_THRESHOLD_CHARS,
+    redacted_counter: list[int] | None = None,
+) -> dict[str, Any]:
     """Convert an :class:`Invocation` to a JSON-ready dict.
 
     Pulls the full ExecutionTrace (inputs / outputs / model / tokens /
     cost / latency / retries / error). Errors during serialization
     are swallowed and recorded as ``serialize_error`` so the recorder
     never breaks a test.
+
+    KC16-4: when ``redaction_enabled`` is True, every string value
+    longer than ``redaction_threshold_chars`` is replaced with a
+    truncation marker. The ``redacted_counter`` (a one-element list)
+    is incremented in place for each truncated value so the trailer
+    can report the total. Metadata fields (model, invocation_id,
+    error class, token counts) are not subject to redaction — they
+    are short by construction.
     """
+    if redacted_counter is None:
+        redacted_counter = [0]
     try:
         trace = getattr(invocation, "trace", None)
         usage = getattr(invocation, "usage", None)
-        return {
+        # Metadata fields stay as-is — they're short and structural,
+        # not document content.
+        record: dict[str, Any] = {
             "kind": "invocation",
             "call_seq": call_seq,
             "invocation_id": getattr(invocation, "id", None),
             "model": getattr(invocation, "model", None),
-            "output": _safe_dump(getattr(invocation, "output", None)),
             "error": (
                 repr(invocation.error) if getattr(invocation, "error", None) is not None else None
             ),
-            "trace": _safe_dump(trace) if trace is not None else None,
-            "usage": _safe_dump(usage) if usage is not None else None,
         }
+        # Content-bearing fields go through _safe_dump first (to coerce
+        # to JSON-ready primitives) then through _redact (to truncate
+        # long strings). When redaction is off, _redact is a no-op
+        # at the string layer.
+        output_dump = _safe_dump(getattr(invocation, "output", None))
+        trace_dump = _safe_dump(trace) if trace is not None else None
+        usage_dump = _safe_dump(usage) if usage is not None else None
+        if redaction_enabled:
+            output_dump = _redact(output_dump, redaction_threshold_chars, redacted_counter)
+            trace_dump = _redact(trace_dump, redaction_threshold_chars, redacted_counter)
+            # usage is small typed numbers — skip the walk.
+        record["output"] = output_dump
+        record["trace"] = trace_dump
+        record["usage"] = usage_dump
+        return record
     except Exception as exc:
         return {
             "kind": "invocation",
@@ -228,6 +358,9 @@ class _Capture:
         "lock_count",
         "out_path",
         "outcome_override",
+        "redacted_counter",
+        "redaction_enabled",
+        "redaction_threshold_chars",
         "subprocess_dir",
         "subprocess_records",
         "write_lock",
@@ -244,6 +377,13 @@ class _Capture:
         self.file_handle: Any = None
         self.write_lock: asyncio.Lock = asyncio.Lock()
         self.call_seq_counter: int = 0
+        # KC16-4: redaction state — populated at __aenter__ from env vars.
+        # One-element list so the counter can be mutated from inside
+        # ``_redact`` without threading return values.
+        enabled, threshold = _redaction_config()
+        self.redaction_enabled: bool = enabled
+        self.redaction_threshold_chars: int = threshold
+        self.redacted_counter: list[int] = [0]
 
 
 def _write_jsonl_line_crashsafe(fh: Any, record: dict[str, Any]) -> None:
@@ -342,13 +482,21 @@ async def record_live_test(
         "start_ts_utc": start_ts,
         "git": git_context(repo_root) if repo_root else {},
         "python_version": _python_version(),
-        "schema_version": 3,
+        # Schema 4 (KC16-4) adds transparency-lens redaction fields.
+        # Backward compatible: schema-3 readers ignore unknown header
+        # keys, and ``runs_cli.load_run`` was already permissive.
+        "schema_version": 4,
         "streaming": True,
         # Audit-trail discipline: declare the durability contract so a
         # reader can branch on it without having to know the recorder
         # version. See module docstring for the full contract.
         "trailer_optional": True,
         "partial_last_line_tolerated": True,
+        # KC16-4: redaction policy advertised in the header so a
+        # downstream consumer can branch on whether a capture is
+        # truncated (CI default) or full-text (local dev opt-out).
+        "redaction_enabled": capture.redaction_enabled,
+        "redaction_threshold_chars": capture.redaction_threshold_chars,
         **(extra_metadata or {}),
     }
 
@@ -458,9 +606,11 @@ async def record_live_test(
         total_subprocess_calls = len(capture.subprocess_records)
         total_calls = len(capture.invocations) + total_subprocess_calls
 
-        # Schema-v3 trailer: the post-hoc "what actually happened"
+        # Schema-v4 trailer: the post-hoc "what actually happened"
         # line. Optional by contract — readers MUST tolerate runs
-        # without it (process killed before exit).
+        # without it (process killed before exit). KC16-4 adds the
+        # ``redacted_count`` total so an audit reader can verify
+        # the redaction pass actually fired.
         trailer = {
             "kind": "trailer",
             "test_nodeid": test_nodeid,
@@ -476,7 +626,8 @@ async def record_live_test(
             "total_cost_usd": round(total_cost, 6),
             "total_input_tokens": total_input_tokens,
             "total_output_tokens": total_output_tokens,
-            "schema_version": 3,
+            "redacted_count": capture.redacted_counter[0],
+            "schema_version": 4,
         }
 
         fh = capture.file_handle
@@ -543,7 +694,13 @@ async def _stream_invocation(capture: _Capture, invocation: Any) -> None:
     async with capture.write_lock:
         capture.call_seq_counter += 1
         try:
-            record = serialize_invocation(invocation, call_seq=capture.call_seq_counter)
+            record = serialize_invocation(
+                invocation,
+                call_seq=capture.call_seq_counter,
+                redaction_enabled=capture.redaction_enabled,
+                redaction_threshold_chars=capture.redaction_threshold_chars,
+                redacted_counter=capture.redacted_counter,
+            )
         except Exception as exc:
             record = {
                 "kind": "invocation",

@@ -233,13 +233,14 @@ print(result.answer)
         assert main_jsonl.exists()
         lines = [json.loads(line) for line in main_jsonl.read_text().splitlines()]
 
-        # Schema-v3 streaming: first line is the at-start header,
+        # Schema-v4 streaming: first line is the at-start header,
         # last line is the at-exit trailer with the final counts.
+        # Schema bumped from 3 to 4 in KC16-4 alongside redaction.
         header = lines[0]
         trailer = lines[-1]
         assert header["kind"] == "header"
         assert header["streaming"] is True
-        assert header["schema_version"] == 3
+        assert header["schema_version"] == 4
         assert trailer["kind"] == "trailer"
         assert trailer["subprocess_call_count"] >= 1, (
             f"expected >=1 subprocess record, got trailer={trailer}"
