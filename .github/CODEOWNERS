@@ -1,0 +1,12 @@
+# CODEOWNERS — required reviewers for kaos-agents.
+# Two owners so branch-protection 1-reviewer rule cannot be self-review.
+* @mjbommar @jillbomm
+
+# Critical paths: high-blast-radius files that MUST require non-self review.
+/.github/   @mjbommar @jillbomm
+/pyproject.toml   @mjbommar @jillbomm
+*_version.py   @mjbommar @jillbomm
+/CHANGELOG.md   @mjbommar @jillbomm
+/LICENSE   @mjbommar @jillbomm
+/NOTICE   @mjbommar @jillbomm
+/SECURITY.md   @mjbommar @jillbomm

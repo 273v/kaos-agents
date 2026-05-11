@@ -1,0 +1,26 @@
+version: 2
+updates:
+  # Python deps via PEP 621 / uv.lock — landed in pip's ecosystem
+  # by Dependabot today; will move to a dedicated uv ecosystem when
+  # GitHub ships one.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    groups:
+      deps-minor:
+        update-types: ["minor", "patch"]
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      actions-all:
+        patterns: ["*"]
