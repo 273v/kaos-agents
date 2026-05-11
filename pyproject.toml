@@ -232,20 +232,3 @@ exclude = ["tests/scratch"]
 
 [tool.uv]
 package = true
-
-[tool.uv.sources]
-kaos-core = { path = "../kaos-core", editable = true }
-kaos-graph = { path = "../kaos-graph", editable = true }
-kaos-nlp-core = { path = "../kaos-nlp-core", editable = true }
-kaos-llm-client = { path = "../kaos-llm-client", editable = true }
-kaos-llm-core = { path = "../kaos-llm-core", editable = true }
-kaos-content = { path = "../kaos-content", editable = true }
-kaos-ml-core = { path = "../kaos-ml-core", editable = true }
-kaos-mcp = { path = "../kaos-mcp", editable = true }
-kaos-source = { path = "../kaos-source", editable = true }
-kaos-web = { path = "../kaos-web", editable = true }
-kaos-pdf = { path = "../kaos-pdf", editable = true }
-kaos-office = { path = "../kaos-office", editable = true }
-kaos-citations = { path = "../kaos-citations", editable = true }
-kaos-tabular = { path = "../kaos-tabular", editable = true }
-kaos-nlp-transformers = { path = "../kaos-nlp-transformers", editable = true }
