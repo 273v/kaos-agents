@@ -179,7 +179,7 @@ No new external dependencies.
 
 ## MCP Tools
 
-12 tools registered via `register_agent_tools(runtime)`:
+14 tools registered via `register_agent_tools(runtime)`:
 
 | Tool | Name | Purpose |
 |------|------|---------|
@@ -195,6 +195,32 @@ No new external dependencies.
 | AgentGraphWalkTool | `kaos-agent-graph-walk` | Track 3 B3 — N-hop ego subgraph from a starting IRI in the session knowledge graph |
 | AgentGraphSparqlTool | `kaos-agent-graph-sparql` | Track 3 B3 — SPARQL SELECT/ASK over the session graph (requires `kaos-graph[rdf]`) |
 | AgentGraphProjectionTool | `kaos-agent-graph-projection` | Track 3 B3 — pre-built typed views (findings_with_citations, tool_calls_by_step, step_timeline, all_nodes) |
+| AgentFindingsTool | `kaos-agent-findings` | K7 (0.1.0a6) — run a FindingsAgent over a corpus: per-doc candidate extraction → multi-doc filter → optional synthesis. Returns the surviving findings with `block_ref` citations and a per-stage cost breakdown. Composes with `kaos-agent-corpus-filter` upstream and `kaos-extract-verify` downstream |
+| AgentCorpusFilterTool | `kaos-agent-corpus-filter` | K8 (0.1.0a6) — LLM-aided scope tightener: given a corpus + an intent string, score each document for relevance and drop the long tail. Cheaper than running a full pattern over the whole corpus and complements the BM25 path in `triage_corpus()` |
+
+## K-series surfaces (0.1.0a6 — pre-release scope)
+
+Three new agent-side surfaces landed alongside the kaos-content K-series:
+
+- **K5: summary-aware `triage_corpus()`**. When a document in the
+  DOCUMENTS section carries a cached `ContentDocument.summary`
+  (K1), `triage_corpus()` uses the summary's top n-grams to widen
+  the BM25 query before scoring. Falls back to the pure-BM25 path
+  when no summary is present, so existing pipelines are unchanged
+  unless they opt in by precomputing summaries.
+- **K6: `FindingsAgent` wrapper pattern**. Lives in
+  `kaos_agents/patterns/findings.py`. Wraps any inner agent with a
+  three-stage extract → filter → synthesize pipeline. Value types
+  are frozen slotted dataclasses: `FindingCandidate`,
+  `FilteredFinding`, `FindingsResult`. The filter step routes
+  candidates through `Call.invoke()` (Phase 5.0 cost accounting,
+  see KC9), so `FindingsResult.cost_usd` reflects the real LLM
+  spend across all chunks. Selectors for "every sentence" /
+  "candidate sentences" / "candidate paragraphs" let callers
+  choose the recall ↔ cost tradeoff.
+- **K7 / K8 MCP wrappers** above expose the agent-side surface to
+  remote callers. Both honor the agent permission policy and the
+  per-request `_meta.kaos_config` override hook.
 
 ## Recipe Library
 
