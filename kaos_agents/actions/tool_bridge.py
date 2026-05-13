@@ -63,7 +63,11 @@ def kaos_tool_to_llm_tool(
             the policy is consulted **before** the underlying
             ``KaosTool.execute()`` runs; DENY or ASK decisions prevent
             the tool from running and return a structured error string.
-            ``None`` preserves legacy permissive behavior.
+            ``None`` installs :meth:`PermissionPolicy.default_safe` (KC17-P0-2)
+            so destructiveHint / humanConfirmationRequired tools escalate
+            to human approval. Pre-KC17 behaviour ("None = bypass all
+            checks") is gone — callers that genuinely need that must
+            construct a ``PermissionPolicy`` with explicit allow rules.
 
     Returns:
         A kaos-llm-core Tool instance.
@@ -87,50 +91,67 @@ def kaos_tool_to_llm_tool(
         parameters=meta.get_input_json_schema(),
     )
 
+    # KC17-P0-2: when no caller-supplied policy, install the default-safe
+    # policy. This makes destructiveHint=True / humanConfirmationRequired
+    # tools ESCALATE rather than silently execute. The pre-KC17 contract
+    # was "no policy = permissive bypass" which let MCP/API surfaces fire
+    # destructive tools without approval — see kaos-agents.md P0-2.
+    effective_policy: PermissionPolicy
+    if permission_policy is None:
+        from kaos_agents.runtime.permissions import PermissionPolicy as _PP
+
+        effective_policy = _PP.default_safe()
+    else:
+        effective_policy = permission_policy
+
     async def executor(**kwargs: Any) -> str:
         """Execute the wrapped KaosTool and return the result as text.
 
-        Consults ``permission_policy`` before invoking the underlying
+        Consults ``effective_policy`` before invoking the underlying
         tool — this is the WS-0.1 pre-execution gate that prevents
         destructive tools from running before ASK / DENY decisions are
         resolved. The Runner retains a post-hoc check on
         ``ToolCallStart`` events for defense in depth.
+
+        Post KC17-P0-2 ``effective_policy`` is never ``None`` — callers
+        that pass ``permission_policy=None`` get the default-safe policy
+        installed above so destructive tools escalate to human approval
+        instead of running silently.
         """
-        if permission_policy is not None:
-            decision = permission_policy.evaluate(meta.name, meta.annotations)
-            if decision == PermissionDecision.DENY:
-                logger.info(
-                    "tool_bridge: permission policy DENIED tool=%r before execution",
-                    meta.name,
-                )
-                return json.dumps(
-                    {
-                        "error": True,
-                        "message": (
-                            f"Tool {meta.name!r} denied by permission policy. "
-                            "The underlying tool was NOT invoked and no side "
-                            "effect was produced."
-                        ),
-                        "permission_decision": "deny",
-                    }
-                )
-            if decision == PermissionDecision.ASK:
-                logger.info(
-                    "tool_bridge: permission policy requested APPROVAL for tool=%r; "
-                    "skipping execution until resumed",
-                    meta.name,
-                )
-                return json.dumps(
-                    {
-                        "error": True,
-                        "message": (
-                            f"Tool {meta.name!r} requires approval before running. "
-                            "The underlying tool was NOT invoked; the run will "
-                            "pause and resume after approval."
-                        ),
-                        "permission_decision": "ask",
-                    }
-                )
+        decision = effective_policy.evaluate(meta.name, meta.annotations)
+        if decision == PermissionDecision.DENY:
+            logger.info(
+                "tool_bridge: permission policy DENIED tool=%r before execution",
+                meta.name,
+            )
+            return json.dumps(
+                {
+                    "error": True,
+                    "message": (
+                        f"Tool {meta.name!r} denied by permission policy. "
+                        "The underlying tool was NOT invoked and no side "
+                        "effect was produced."
+                    ),
+                    "permission_decision": "deny",
+                }
+            )
+        if decision == PermissionDecision.ASK:
+            logger.info(
+                "tool_bridge: permission policy requested APPROVAL for tool=%r; "
+                "skipping execution until resumed",
+                meta.name,
+            )
+            return json.dumps(
+                {
+                    "error": True,
+                    "message": (
+                        f"Tool {meta.name!r} requires approval before running. "
+                        "The underlying tool was NOT invoked; the run will "
+                        "pause and resume after approval."
+                    ),
+                    "permission_decision": "ask",
+                }
+            )
 
         import time as _time
 
@@ -215,7 +236,10 @@ def bridge_runtime_tools(
         permission_policy: Optional pre-execution gate (WS-0.1). Threaded
             into each bridged tool's executor so DENY / ASK decisions
             prevent the underlying ``KaosTool.execute()`` from running.
-            ``None`` preserves legacy permissive behavior.
+            ``None`` installs :meth:`PermissionPolicy.default_safe`
+            (KC17-P0-2) inside each bridged executor so destructive tools
+            escalate to human approval. Pre-KC17 "None = bypass" behaviour
+            is gone.
         relevance_query: When set, replaces the iteration-order cap
             with a BM25 retrieval over the tool catalog. The top
             ``max_tools`` by relevance to ``relevance_query`` are

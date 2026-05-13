@@ -213,8 +213,22 @@ class ResearchAgent(ChatAgent):
         # citation-spans-don't-verify-in-corpus failure mode).
         resolved_settings = settings or KaosAgentSettings.resolve(None)
         self._refusal_policy = self._build_refusal_policy(resolved_settings)
+        # KC17-P2-1 — read the profile-resolved values, not the raw
+        # field. When ``research_profile == "strict"``,
+        # ``resolved_refuse_unverified_answers()`` returns True even if
+        # the underlying field is False (legacy default) — flipping
+        # the three knobs at once via one switch is the whole point
+        # of the profile.
         self._refuse_unverified: bool = bool(
-            getattr(resolved_settings, "refuse_unverified_answers", False)
+            resolved_settings.resolved_refuse_unverified_answers()
+            if hasattr(resolved_settings, "resolved_refuse_unverified_answers")
+            else getattr(resolved_settings, "refuse_unverified_answers", False)
+        )
+        # KC17-P2-1 — capture whether the strict profile is active so
+        # the warn-and-continue path at line ~669 can short-circuit
+        # into a structured refusal instead of appending a warning.
+        self._strict_profile: bool = (
+            getattr(resolved_settings, "research_profile", "default") == "strict"
         )
         # Cache the rendered outline string. Computed lazily on first turn
         # because rendering walks every document's heading tree (O(n_docs *
@@ -258,7 +272,13 @@ class ResearchAgent(ChatAgent):
         ``policy is None`` so this keeps the agent functional without
         the LLM dep.
         """
-        threshold = float(getattr(settings, "verifier_min_confidence", 0.0) or 0.0)
+        # KC17-P2-1 — read the profile-resolved value so ``strict``
+        # profile flips the verifier floor on even when the raw
+        # ``verifier_min_confidence`` field is left at its default 0.0.
+        if hasattr(settings, "resolved_verifier_min_confidence"):
+            threshold = float(settings.resolved_verifier_min_confidence())
+        else:
+            threshold = float(getattr(settings, "verifier_min_confidence", 0.0) or 0.0)
         if threshold <= 0.0:
             return None
         try:
@@ -674,14 +694,24 @@ class ResearchAgent(ChatAgent):
                 try:
                     from kaos_llm_core.signatures.grounding import InsufficientEvidence
 
+                    # KC17-P2-1 — surface BOTH the granular flag and
+                    # the profile switch in the refusal message so a
+                    # partner knows how to downgrade either way.
+                    reason_suffix = (
+                        " (research_profile='strict' is enforcing refusal of "
+                        "unverified answers; set KAOS_AGENT_RESEARCH_PROFILE=default "
+                        "to revert, or KAOS_AGENT_REFUSE_UNVERIFIED_ANSWERS=false "
+                        "to downgrade to a warning)."
+                        if self._strict_profile
+                        else " (set KAOS_AGENT_REFUSE_UNVERIFIED_ANSWERS=false to "
+                        "downgrade to a warning instead)."
+                    )
                     collapsed = InsufficientEvidence(
                         reason=(
                             "RAG returned an answer but its citation "
                             "spans could not be verified in the source "
                             "corpus. Refusing to present an unverified "
-                            "answer (set "
-                            "KAOS_AGENT_REFUSE_UNVERIFIED_ANSWERS=false to "
-                            "downgrade to a warning instead)."
+                            "answer" + reason_suffix
                         ),
                         attempted_claims=getattr(result.grounded_answer, "claims", []),
                     )

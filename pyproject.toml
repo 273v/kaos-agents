@@ -151,6 +151,47 @@ include = [
   "/docs",
   "/tests",
 ]
+# KC17-P0-4 (release blocker, 2026-05-13): the sdist MUST NOT ship
+# unredacted live-test telemetry recordings or any other on-disk
+# artifact that contains privileged / attorney-client markers or
+# absolute internal paths. .gitignore is not enough — hatchling
+# builds from the working tree, so any maintainer running
+# ``uv build`` locally will pick up files that git refuses to track.
+# These globs are the second wall; the release-time CI smoke check
+# in .github/workflows/release.yml is the third. See
+# docs/audit-02/kaos-agents.md (P0-4) and
+# docs/oss/60-secrets-and-history/acceptance-gate.md.
+exclude = [
+  # 142 pre-KC16-4 schema_version=3 captures (~7.8 MB) under
+  # tests/integration/runs/2026-05-11/ contain verbatim LLM
+  # input/output, some with attorney-client markers in the
+  # synthesised deliverable text.
+  "tests/integration/runs/**",
+  # Defense in depth: any *.jsonl anywhere under tests/ is treated
+  # as a recording / fixture-output stream that should not ship.
+  # The single fixture-input we do consume in tests
+  # (tests/benchmarks/data/edgar-agreements-decoded.jsonl) is
+  # already .gitignored and regenerated on demand.
+  "tests/**/*.jsonl",
+  # Exploratory probe scripts (skeptic_probe_*.py, probe[1-4]_*.py)
+  # — listed in .gitignore but not in git, kept out of sdist
+  # explicitly so a maintainer-side build never picks them up.
+  "tests/scratch/**",
+  # Harvey-lab generated benchmark deliverables — these contain
+  # full LLM-generated output with privileged-marker boilerplate
+  # ("PRIVILEGED AND CONFIDENTIAL — ATTORNEY-CLIENT COMMUNICATION
+  # / ATTORNEY WORK PRODUCT") and absolute fixture paths. Stored
+  # under docs/benchmarks/_private/ (which is also .gitignored),
+  # with public summary numbers preserved in the public
+  # docs/benchmarks/*.md files.
+  "docs/benchmarks/_private/**",
+  # Local-only outputs from .benchmarks/ (pytest-benchmark) and
+  # the .kaos-vfs/ artifact store accumulate in the maintainer
+  # checkout; .gitignore covers them but they should also never
+  # be considered for sdist.
+  "/.benchmarks",
+  "/.kaos-vfs",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["kaos_agents"]

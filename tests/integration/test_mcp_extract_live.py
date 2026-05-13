@@ -24,6 +24,8 @@ from kaos_agents.tools.extract import (
     ExtractVerifyTool,
 )
 
+pytestmark = pytest.mark.live
+
 requires_anthropic = pytest.mark.skipif(
     not (os.getenv("KAOS_LLM_ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY")),
     reason="Anthropic API key not set",
@@ -104,7 +106,7 @@ class TestExtractSchemaToolLive:
         assert not result.isError, result.text
         output = result.structuredContent
         assert output is not None
-        assert output["schema_id"] == "court-opinion-v1"
+        assert output["schema_id"] == "court-opinion-v2"
         by_id = {c["column_id"]: c for c in output["cells"]}
         # case_name should include Miranda.
         case_name = by_id.get("case_name", {}).get("ai_value")

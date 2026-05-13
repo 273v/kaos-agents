@@ -7,7 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `SECURITY.md` and `CONTRIBUTING.md` rewritten for the actual
+  kaos-agents surface — HTTP API auth (P0-3), tool approvals (P0-2),
+  memory deletion (P1-1), prompt-injection envelope, recorder
+  retention, cost caps. Replaces verbatim copies of kaos-web's
+  browser-tooling docs that didn't apply (KC17-P1-2).
+- **`SessionMemory.sections` is now a public read-only property (KC17-P2-4).** The HTTP API
+  in `kaos_agents/api/server.py` previously read `memory._sections` — a leading-underscore,
+  `__slots__`-private attribute — to enumerate configured section types in the wire payload.
+  Any future memory-layout change would have silently broken the public surface. The new
+  `memory.sections` property returns a defensively-copied `tuple[MemoryType, ...]` keyed in
+  configuration order. The HTTP API now uses it; the private `_sections` attribute remains
+  for internal mutation only.
+
+### Fixed
+- **Atomic `SessionStore.save` survives SIGTERM mid-save (KC17-P1-3).** Pre-KC17 `save()`
+  wrote `memory.json` and `graph.ttl` as two non-atomic `vfs.write()` calls. A SIGTERM
+  between them left a torn on-disk state that the next `load()` consumed as corrupt JSON.
+  Both writes now route through `_atomic_write`: temp+fsync+`os.replace` on disk-backed VFS
+  (POSIX-atomic on the same filesystem), with a best-effort directory `fsync` for Linux
+  durability. Non-disk backends (memory) fall back to direct write — torn states aren't
+  reachable for in-process bytes.
+- **DELETE session + memory-clear actually remove persisted memory (KC17-P1-1).** The HTTP
+  API's `DELETE /v1/sessions/{id}` and the MCP `kaos-agent-memory-clear` tool previously called
+  `vfs.cleanup_context(session_id)` only — leaving
+  `kaos-agents/sessions/{id}/memory.json` (and `graph.ttl`) on disk. After a successful
+  DELETE, `SessionStore.exists()` stayed True and a follow-up `GET /v1/sessions/{id}` returned
+  200. Both paths now call `SessionStore.delete(session_id)` which sweeps `memory.json` AND
+  `graph.ttl` (and any future per-session siblings), then call `cleanup_context` for VFS
+  scratch (run state, artifacts) — privacy / right-to-delete now matches the contract.
+
+### Security
+- **HTTP API auth + tenant scoping + CORS hardening (KC17-P0-3).** The FastAPI surface previously
+  shipped with NO auth, NO tenant scoping, and CORS wildcard + credentials. POST
+  `/v1/runs/{run_id}/approve` was a human-in-the-loop bypass for anyone who could reach the port.
+  - `create_app()` refuses to start unless `KAOS_AGENTS_API_TOKEN` is set OR
+    `KAOS_AGENTS_API_ALLOW_UNAUTH_LOCALHOST=1`. Pre-KC17 the API would happily run on `0.0.0.0`
+    with no token.
+  - Bearer-token auth via `Authorization: Bearer <KAOS_AGENTS_API_TOKEN>` with constant-time
+    compare. Wrong token → 401.
+  - Tenant scoping: sessions are namespaced by SHA-256(token)[:12]. Token A's session is 404 (not
+    403) to token B — explicit "no existence leak across tenants" contract.
+  - Localhost-dev mode (`KAOS_AGENTS_API_ALLOW_UNAUTH_LOCALHOST=1`) permits unauthenticated
+    requests from 127.0.0.1 / ::1 only; emits a per-request warning log.
+  - CORS default is `[]` (no cross-origin). Explicit origin list via
+    `KAOS_AGENTS_API_CORS_ALLOW_ORIGINS` (comma-separated). Wildcard `*` with credentials is
+    rejected at config time (the W3C CORS spec forbids it; Starlette permits but browsers reject).
+- **Default-deny destructive tool approvals (KC17-P0-2).** `Runner` and `tool_bridge` previously
+  treated `permission_policy=None` as "skip all checks" — meaning an HTTP API or MCP caller could
+  invoke a tool annotated `destructiveHint=True` with no approval gate. Now `None` installs
+  `PermissionPolicy.default_safe()` which escalates destructive / `humanConfirmationRequired` tools
+  to ASK. Tests, internal benchmarks, and other callers that genuinely need to bypass all checks
+  must set `Runner(unsafe_bypass=True)` explicitly. Production deployments MUST NOT use the bypass.
+- **XML-escape candidate text in the FindingsAgent injection envelope (KC17-P2-3).** The renderer
+  for both filter and synthesis stages now passes `cand.text` through `xml.sax.saxutils.escape`
+  before interpolating it into the `<untrusted_document_content>` envelope, so a candidate
+  containing a literal `</untrusted_document_content>` tag can no longer close its own envelope
+  from inside. Defense-in-depth (heuristic detector + signature directive) was already in place;
+  this fix removes a structural-integrity gap.
+
 ### Added
+- `research_profile = "strict"` setting (env: `KAOS_AGENT_RESEARCH_PROFILE`)
+  for legal / regulated deployments. Raises BM25 score floor, verifier
+  confidence threshold, and refuses unverified answers via a typed
+  `InsufficientEvidence` collapse instead of warn-and-return. Default profile
+  behavior unchanged (KC17-P2-1).
 - KaosRuntime VFS isolation: `KaosRuntime(vfs=...)` kwarg + `KaosRuntime.test_mode(in_memory=True)` classmethod
   + `runtime.artifacts` as `cached_property`. Closes the disk-VFS cross-run leakage footgun in live tests.
   Live composition tests are now isolated by default. (Sprint-1 #1, commit d0ba060.)
@@ -35,6 +100,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `AgentResponse.cost_usd` + `AgentResponse.total_tokens` as first-class frozen attributes. Same
   numbers ship as `ToolResult.structuredContent["cost_usd"]` and `["total_tokens"]` across all four
   agent tools. (Sprint-3 #10, commit a338d1e.)
+- Property-style test asserting the three event→AgentResponse
+  drain paths (Runner.turn / agent.py / events_to_response.py)
+  produce identical normalized output, closing the unenforced
+  "must agree" invariant before consolidation lands in 0.1.0a2
+  (KC17-P1-4, PA14).
+
+### Fixed
+- Base install now imports cleanly without optional extras. `kaos_agents.Actor` and the rest of the
+  `kaos_llm_core`-dependent public surface (`Runner`, `BaseAgent`, `FindingsAgent`, `ReflexionLoop`,
+  `RouterAgent`, `SessionMemory`, `ChatAgent`, `PlanExecuteAgent`, `ResearchAgent`, `Perceiver`,
+  `IntentExtractor`, `TerminationJudge`, …) plus `kaos_agents.api.create_app` (FastAPI-dependent)
+  are now lazily resolved via PEP 562 `__getattr__`. Consumers without `[llm]` / `[api]` extras
+  still `import kaos_agents` successfully and can use the always-on surface (`Agent`, `AgentPattern`,
+  `KaosAgentSettings`, `KaosEvent`, `PermissionPolicy`, the trigger types, the event serdes, …);
+  they only hit a clear install-hint `ImportError` when they actually touch an optional name.
+  Closes KC17-P0-1.
+- Package root re-exports the three pattern classes the README markets but `__init__.py` previously
+  hid behind submodules: `FindingsAgent`, `ReflexionLoop`, `RouterAgent` are now importable from
+  `kaos_agents` directly. Closes KC17-P0-5.
+- `tests/integration/test_mcp_extract_live.py` now carries `pytestmark = pytest.mark.live` so the
+  default `pytest -m "not live and not network and not slow"` run no longer spends real Anthropic
+  tokens on every CI invocation. Recipe-name assertion bumped from `court-opinion-v1` to
+  `court-opinion-v2` to match the shipping recipe schema id. Closes KC17-P2-2.
+- sdist no longer ships unredacted telemetry recordings from
+  `tests/integration/runs/` or privileged-marker benchmark JSONs
+  from `docs/benchmarks/`. The 9 Harvey-Lab raw JSONs (which
+  contain LLM-generated deliverable text with "PRIVILEGED AND
+  CONFIDENTIAL — ATTORNEY-CLIENT COMMUNICATION / ATTORNEY WORK
+  PRODUCT" boilerplate) moved to a gitignored
+  `docs/benchmarks/_private/`; their public pass-rate /
+  cost summary remains in
+  `harvey-coc-pipeline-comparison-2026-05-06.md`. Multiformat
+  benchmark `corpus_dir` paths rewritten to repo-relative. New
+  `scripts/check_sdist.py` gate fails any future release that
+  regresses; CI release jobs should call it after `uv build`.
+  Sdist drops from 17 MB / 752 files to 2.0 MB / 564 files.
+  Closes KC17-P0-4.
+
+### Documentation
+- Per-file fixture provenance manifests added to every leaf data directory under `tests/fixtures/`:
+  `harvey-lab/<task>/`, `harvey-lab/<task>/documents/`, and `images/` now each carry a
+  source-URL + license + retrieved + SHA-256 table per file, satisfying
+  `docs/oss/50-data-and-fixtures/provenance-policy.md:16`. Closes KC17-P1-5.
 
 ### Changed
 - Streaming recorder JSONL schema bumped to v3: header line written + fsync'd on `__aenter__`,

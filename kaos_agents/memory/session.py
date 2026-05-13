@@ -61,6 +61,10 @@ class SessionMemory:
         self._session_id = session_id
         self._chars_per_token = chars_per_token
         self._turn_count = 0
+        # ``_sections`` is internal — public callers should read it via
+        # :attr:`sections` (KC17-P2-4). It stays underscored because the
+        # ``__slots__`` layout is implementation detail and the API needs
+        # a frozen, defensively-copied view.
         self._sections: dict[MemoryType, Section] = {}
         for config in sections:
             self._sections[config.memory_type] = Section(config)
@@ -89,6 +93,23 @@ class SessionMemory:
     def section_names(self) -> list[MemoryType]:
         """All configured section types."""
         return list(self._sections.keys())
+
+    @property
+    def sections(self) -> tuple[MemoryType, ...]:
+        """Public read-only view of the configured section types.
+
+        KC17-P2-4: replaces the public API's pre-KC17 reach-into
+        ``memory._sections`` (a leading-underscore, ``__slots__``-private
+        attribute). Returns a defensively-copied tuple so the underlying
+        section table cannot be mutated through this accessor; iteration
+        order matches the section configuration order. Use
+        :attr:`section_names` when you need a ``list[MemoryType]``.
+
+        Public callers (HTTP API, MCP tools, downstream agents) should
+        prefer ``memory.sections`` over ``memory._sections``. The private
+        attribute is reserved for internal mutation in this module.
+        """
+        return tuple(self._sections.keys())
 
     @property
     def graph(self) -> Any:

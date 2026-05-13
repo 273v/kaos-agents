@@ -63,6 +63,28 @@ class PermissionPolicy:
         """The configured permission rules."""
         return self._rules
 
+    @classmethod
+    def default_safe(cls) -> PermissionPolicy:
+        """Return the default safe policy used when no explicit policy is supplied.
+
+        This is the policy that ``Runner`` and ``tool_bridge`` install when
+        the caller passes ``permission_policy=None``. Its behaviour comes
+        entirely from the annotation-evaluation arm of :meth:`evaluate`:
+
+        - ``readOnlyHint=True`` tools auto-allow (no friction for safe reads).
+        - ``destructiveHint=True`` tools → ASK (escalate to human approval).
+        - ``humanConfirmationRequired=True`` tools → ASK.
+        - Everything else (no annotations or no flags) → ALLOW.
+
+        Crucially this is **not** equivalent to "no policy" — pre-KC17-P0-2
+        ``Runner``/``tool_bridge`` interpreted ``None`` as "skip checks
+        entirely", which meant a HTTP API caller could fire a destructive
+        tool with no approval gate. The default-safe policy closes that
+        gap; callers who genuinely need to bypass all checks (in-process
+        tests, internal benchmarks) must set ``Runner(unsafe_bypass=True)``.
+        """
+        return cls(rules=())
+
     def evaluate(
         self,
         tool_name: str,

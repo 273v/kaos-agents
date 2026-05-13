@@ -1,5 +1,19 @@
 # Image fixtures
 
+## Per-file manifest
+
+Required by `docs/oss/50-data-and-fixtures/provenance-policy.md:16`.
+
+| File | Source URL | License | Retrieved | SHA-256 |
+|------|------------|---------|-----------|---------|
+| iss068e027836-full-moon-south-texas.jpg | https://images-assets.nasa.gov/image/iss068e027836/iss068e027836~orig.jpg | NASA Public Domain (17 USC §105) | 2026-05-11 | 488ee4cc766132b655ff8abff003b5745f3203d85092533ee4ff5870d70d9d3b |
+
+The on-disk file was downsized from the 1.03 MB upstream original
+(5568x3712) to ~73 KB (1280x853) via PIL `thumbnail` with
+`quality=85`; EXIF bytes were copied through verbatim. The SHA-256
+above is for the downsized fixture as committed, not for the upstream
+original.
+
 ## `iss068e027836-full-moon-south-texas.jpg`
 
 NASA International Space Station photograph (ISS Expedition 68, image

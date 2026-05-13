@@ -19,6 +19,43 @@ class TestSessionMemoryBasic:
             len(mem.section_names) == 15
         )  # DEFAULT_SECTIONS (13 + GRAPH from B1 + LESSONS from G2)
 
+    def test_sections_public_property(self):
+        """KC17-P2-4 — ``memory.sections`` is the public read-only view.
+
+        Pre-KC17 the HTTP API + downstream consumers reached into
+        ``memory._sections`` (slot-private). ``memory.sections`` is the
+        public accessor; it returns a tuple keyed in the configured order.
+        """
+        mem = SessionMemory("test-sections")
+        sections = mem.sections
+        # Must be a tuple (immutable for callers).
+        assert isinstance(sections, tuple)
+        # Must contain MemoryType keys, not Section objects (the API
+        # consumes ``mt.value`` for the wire form).
+        assert all(isinstance(s, MemoryType) for s in sections)
+        # And match section_names (the historical accessor).
+        assert list(sections) == mem.section_names
+
+    def test_sections_returns_defensive_copy(self):
+        """Mutating the returned tuple cannot leak into the internal dict.
+
+        Tuples are immutable so this is enforced by the type system, but
+        we still verify the structural contract: a second call returns
+        a fresh tuple equal-by-value to the first, and the underlying
+        dict is unaffected by anything the caller does with the result.
+        """
+        from typing import Any, cast
+
+        mem = SessionMemory("test-defensive")
+        first = mem.sections
+        second = mem.sections
+        assert first == second
+        # The tuple cannot be mutated (TypeError on assignment); cast
+        # through Any to bypass ty's static check — we WANT to exercise
+        # the runtime immutability contract.
+        with pytest.raises(TypeError):
+            cast("Any", first)[0] = MemoryType.MESSAGES
+
     def test_add_and_read(self):
         mem = SessionMemory("test")
         mem.add(MemoryType.MESSAGES, "Hello world")

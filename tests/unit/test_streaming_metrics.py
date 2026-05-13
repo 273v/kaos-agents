@@ -28,10 +28,22 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from kaos_agents.api.server import create_app
+from kaos_agents.api.settings import KaosAgentsApiSettings
 from kaos_agents.config import Agent
 from kaos_agents.events import KaosEvent
 from kaos_agents.runtime.runner import Runner
 from kaos_agents.types import IntentResult, IntentType
+
+
+def _localhost_dev_settings() -> KaosAgentsApiSettings:
+    """KC17-P0-3: tests use the localhost-dev escape hatch (no token).
+
+    create_app() refuses to start without an auth source; this settings
+    instance turns on the unauthenticated 127.0.0.1 mode that the test
+    client emulates by default.
+    """
+    return KaosAgentsApiSettings(api_allow_unauth_localhost=True)
+
 
 # Numeric targets in seconds (or bytes for memory).
 TIME_TO_FIRST_EVENT_TARGET_S = 0.500
@@ -124,7 +136,7 @@ class TestSSEConnectionSetup:
     @pytest.mark.asyncio
     async def test_sse_setup_under_target(self) -> None:
         """Time from POST to first byte received should be < 100ms (mocked LLM)."""
-        app = create_app()
+        app = create_app(api_settings=_localhost_dev_settings())
         transport = ASGITransport(app=app)
 
         with _patch_llm():
@@ -158,7 +170,7 @@ class TestAPIColdStart:
         """create_app() to first request response should be < 2s."""
         with _patch_llm():
             t0 = time.perf_counter()
-            app = create_app()
+            app = create_app(api_settings=_localhost_dev_settings())
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as client:
                 resp = await client.post("/v1/sessions", json={"session_id": "cold-1"})

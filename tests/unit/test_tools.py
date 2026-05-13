@@ -174,3 +174,42 @@ class TestToolInputValidation:
         result = await tool.execute({})
         assert result.isError
         assert "session_id" in (result.text or "").lower()
+
+    async def test_memory_clear_removes_persisted_session(self):
+        """KC17-P1-1 regression: memory-clear deletes the on-disk session.
+
+        Pre-KC17 the tool only called ``vfs.cleanup_context()`` which
+        left ``kaos-agents/sessions/{id}/memory.json`` intact. The next
+        ``SessionStore.exists()`` returned True so subsequent turns
+        re-hydrated the "cleared" memory.
+        """
+        from kaos_core.base.context import KaosContext
+        from kaos_core.types.enums import StorageBackend
+        from kaos_core.vfs.core import VirtualFileSystem
+        from kaos_core.vfs.models import VFSConfig
+
+        from kaos_agents.memory.session import SessionMemory
+        from kaos_agents.memory.store import SessionStore
+        from kaos_agents.types.memory import MemoryType
+
+        vfs = VirtualFileSystem(config=VFSConfig(default_backend=StorageBackend.MEMORY))
+        runtime = KaosRuntime(vfs=vfs)
+        context = KaosContext.create(runtime=runtime)
+
+        # Seed a persisted session.
+        store = SessionStore(vfs)
+        mem = SessionMemory("clear-target")
+        mem.add(MemoryType.MESSAGES, "remember this")
+        await store.save(mem)
+        assert await store.exists("clear-target"), "fixture precondition"
+
+        # Run memory-clear over MCP.
+        tool = AgentMemoryClearTool()
+        result = await tool.execute({"session_id": "clear-target"}, context=context)
+        assert not result.isError, f"unexpected error: {result.text}"
+
+        # The store must agree: the persisted directory is gone.
+        assert not await store.exists("clear-target"), (
+            "KC17-P1-1 regression: SessionStore.exists() still True after "
+            "kaos-agent-memory-clear — the persisted memory was not removed"
+        )
