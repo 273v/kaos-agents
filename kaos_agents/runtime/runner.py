@@ -91,6 +91,7 @@ class Runner:
         "_permission_policy",
         "_runtime",
         "_settings",
+        "_unsafe_bypass",
         "_vfs",
     )
 
@@ -106,13 +107,31 @@ class Runner:
         corpus: Any | None = None,
         agent_loop_version: str | None = None,
         auto_select_planner: bool = True,
+        unsafe_bypass: bool = False,
     ) -> None:
         self._agent = agent
         self._runtime = runtime
         self._settings = agent.resolve_settings()
         self._vfs = vfs or _resolve_vfs(runtime)
         self._hooks = hooks
-        self._permission_policy = permission_policy
+        # KC17-P0-2: when no policy is supplied, install the default-safe
+        # policy (which still escalates destructiveHint / humanConfirmation
+        # to ASK). The pre-KC17 behaviour of "no policy → skip all checks"
+        # let API/MCP callers fire destructive tools without approval. The
+        # ``unsafe_bypass=True`` escape hatch is for tests + internal
+        # benchmarks ONLY — MUST NOT be used in production.
+        self._unsafe_bypass = unsafe_bypass
+        if unsafe_bypass:
+            if permission_policy is not None:
+                logger.warning(
+                    "Runner: unsafe_bypass=True ignores the provided "
+                    "permission_policy. This MUST NOT be used in production."
+                )
+            self._permission_policy = None
+        elif permission_policy is None:
+            self._permission_policy = PermissionPolicy.default_safe()
+        else:
+            self._permission_policy = permission_policy
         self._corpus = corpus
         # Phase 2 feature flag: KAOS_AGENT_LOOP=v2 routes Runner.run /
         # Runner.run_trigger / Runner.invoke_trigger through the new

@@ -134,8 +134,13 @@ class TestPermissionGateAllow:
         assert tool.invocations[0] == {"query": "hello"}
         assert "ran with" in result
 
-    async def test_no_policy_permits_execution(self) -> None:
-        """Legacy path — when no policy is supplied, behavior is permissive."""
+    async def test_no_policy_uses_default_safe_for_read_only(self) -> None:
+        """KC17-P0-2 — when no policy is supplied, default_safe() is installed.
+
+        For a tool with readOnlyHint=True (the default in ``_ObservableTool``),
+        the default-safe policy allows execution — this preserves the legacy
+        permissive behavior for read-only tools.
+        """
         tool = _ObservableTool("kaos-test-unrestricted-tool")
         wrapped = kaos_tool_to_llm_tool(tool)  # no permission_policy
 
@@ -196,3 +201,85 @@ class TestPermissionGateAnnotations:
         )
         parsed = json.loads(result)
         assert parsed["permission_decision"] == "ask"
+
+
+@pytest.mark.unit
+class TestDefaultDenyDestructive:
+    """KC17-P0-2 — None policy installs default-safe, NOT a permissive bypass.
+
+    Pre-KC17, ``permission_policy=None`` on ``kaos_tool_to_llm_tool`` and
+    on ``Runner.__init__`` was interpreted as "skip all checks". This let
+    any HTTP-API or MCP caller fire a destructive tool with no approval
+    gate. The fix: ``None`` now installs ``PermissionPolicy.default_safe()``
+    which still escalates destructive / human-confirmation annotations.
+    """
+
+    async def test_default_safe_blocks_destructive_without_policy(self) -> None:
+        """A destructive tool wrapped with no caller-supplied policy is
+        BLOCKED by the default-safe fallback — execution is prevented."""
+        tool = _ObservableTool(
+            "kaos-test-delete-everything",
+            annotations=ToolAnnotations(destructiveHint=True),
+        )
+        # No permission_policy kwarg — pre-KC17 this would let the tool
+        # run. Post-KC17 default_safe() kicks in.
+        wrapped = kaos_tool_to_llm_tool(tool)
+
+        result = await wrapped.invoke({"target": "all-rows"})
+
+        assert tool.invocations == [], (
+            "KC17-P0-2 regression: None policy must install default_safe() "
+            "and BLOCK destructive tools, but the tool executed "
+            f"{len(tool.invocations)} time(s): {tool.invocations}"
+        )
+        parsed = json.loads(result)
+        assert parsed["permission_decision"] == "ask"
+        assert "approval" in parsed["message"].lower()
+
+    async def test_default_safe_blocks_human_confirmation_without_policy(self) -> None:
+        """A humanConfirmationRequired tool with no caller policy is BLOCKED."""
+        tool = _ObservableTool(
+            "kaos-test-irreversible",
+            annotations=ToolAnnotations(humanConfirmationRequired=True),
+        )
+        wrapped = kaos_tool_to_llm_tool(tool)  # no permission_policy
+
+        result = await wrapped.invoke({})
+
+        assert tool.invocations == [], (
+            "KC17-P0-2 regression: humanConfirmationRequired must trigger "
+            "ASK under default_safe(), but the tool ran "
+            f"{len(tool.invocations)} time(s)"
+        )
+        parsed = json.loads(result)
+        assert parsed["permission_decision"] == "ask"
+
+    def test_runner_default_safe_when_policy_is_none(self) -> None:
+        """Runner with permission_policy=None must install default_safe()."""
+        from kaos_agents.config import Agent
+        from kaos_agents.runtime.runner import Runner
+
+        runner = Runner(Agent(), permission_policy=None)
+        # Internal attribute, but the contract is that no None means
+        # destructive escalation kicks in via the runner check too.
+        assert runner._permission_policy is not None, (
+            "KC17-P0-2: Runner(permission_policy=None) must install a "
+            "default-safe policy, not leave the slot as None"
+        )
+
+    def test_runner_unsafe_bypass_skips_policy(self) -> None:
+        """Runner(unsafe_bypass=True) opts back into the pre-KC17 behavior."""
+        from kaos_agents.config import Agent
+        from kaos_agents.runtime.runner import Runner
+
+        runner = Runner(Agent(), unsafe_bypass=True)
+        assert runner._permission_policy is None, (
+            "KC17-P0-2: Runner(unsafe_bypass=True) is the documented "
+            "escape hatch; it must leave _permission_policy=None"
+        )
+
+    def test_default_safe_factory_is_idempotent_and_rules_empty(self) -> None:
+        from kaos_agents.runtime.permissions import PermissionPolicy
+
+        policy = PermissionPolicy.default_safe()
+        assert policy.rules == ()

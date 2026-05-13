@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Default-deny destructive tool approvals (KC17-P0-2).** `Runner` and `tool_bridge` previously
+  treated `permission_policy=None` as "skip all checks" — meaning an HTTP API or MCP caller could
+  invoke a tool annotated `destructiveHint=True` with no approval gate. Now `None` installs
+  `PermissionPolicy.default_safe()` which escalates destructive / `humanConfirmationRequired` tools
+  to ASK. Tests, internal benchmarks, and other callers that genuinely need to bypass all checks
+  must set `Runner(unsafe_bypass=True)` explicitly. Production deployments MUST NOT use the bypass.
+
 ### Added
 - KaosRuntime VFS isolation: `KaosRuntime(vfs=...)` kwarg + `KaosRuntime.test_mode(in_memory=True)` classmethod
   + `runtime.artifacts` as `cached_property`. Closes the disk-VFS cross-run leakage footgun in live tests.
