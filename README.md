@@ -241,6 +241,8 @@ For interactive inspection, the bundled single-page HTML viewer at
 filterable table with per-call inputs/outputs, markdown rendering, and
 group-by-`trace_id`:
 
+![Run Inspector — dark mode, NDA Hello-World run loaded](docs/assets/viewer/viewer-loaded-dark.png)
+
 ```bash
 # 1. Capture the audit trail
 export KAOS_LLM_CORE_RECORDER_DIR=/tmp/kaos-runs
@@ -250,9 +252,18 @@ python -m kaos_agents.examples.nda_review.hello
 python -m kaos_agents.examples.viewer /tmp/kaos-runs/subprocess-*.jsonl
 ```
 
+Click a row to inspect the prompt + structured response side-by-side,
+with markdown rendered for prose and redacted-body sentinels (the
+`{"_redacted": true, "len_chars": N}` shape from KC16-4) shown as
+explicit badges:
+
+![Run Inspector — detail panel open, CorpusQA call expanded](docs/assets/viewer/viewer-detail-panel.png)
+
 The viewer is a single static HTML file (Tailwind + Alpine + Marked via
-CDN, no build step). Useful for triaging an unexpected spend or
-inspecting redacted-vs-full-text behavior during local dev.
+CDN, no build step). Toggle Light / Dark from the header, press `/` to
+focus search, arrow keys step rows, Esc clears the detail panel.
+Useful for triaging an unexpected spend or inspecting
+redacted-vs-full-text behavior during local dev.
 
 ## Companion packages
 
