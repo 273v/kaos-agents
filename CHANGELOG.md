@@ -61,6 +61,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (KC17-P1-4, PA14).
 
 ### Fixed
+- Base install now imports cleanly without optional extras. `kaos_agents.Actor` and the rest of the
+  `kaos_llm_core`-dependent public surface (`Runner`, `BaseAgent`, `FindingsAgent`, `ReflexionLoop`,
+  `RouterAgent`, `SessionMemory`, `ChatAgent`, `PlanExecuteAgent`, `ResearchAgent`, `Perceiver`,
+  `IntentExtractor`, `TerminationJudge`, …) plus `kaos_agents.api.create_app` (FastAPI-dependent)
+  are now lazily resolved via PEP 562 `__getattr__`. Consumers without `[llm]` / `[api]` extras
+  still `import kaos_agents` successfully and can use the always-on surface (`Agent`, `AgentPattern`,
+  `KaosAgentSettings`, `KaosEvent`, `PermissionPolicy`, the trigger types, the event serdes, …);
+  they only hit a clear install-hint `ImportError` when they actually touch an optional name.
+  Closes KC17-P0-1.
 - Package root re-exports the three pattern classes the README markets but `__init__.py` previously
   hid behind submodules: `FindingsAgent`, `ReflexionLoop`, `RouterAgent` are now importable from
   `kaos_agents` directly. Closes KC17-P0-5.
