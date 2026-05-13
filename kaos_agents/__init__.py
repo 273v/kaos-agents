@@ -155,6 +155,9 @@ from kaos_agents.optimization import (
     evaluate_agent,
 )
 from kaos_agents.patterns import ChatAgent, PlanExecuteAgent, ResearchAgent
+from kaos_agents.patterns.findings import FindingsAgent
+from kaos_agents.patterns.reflexion import ReflexionLoop
+from kaos_agents.patterns.router import RouterAgent
 from kaos_agents.perception import (
     Perceiver,
     PerceptionItem,
@@ -334,6 +337,7 @@ __all__ = [
     "EvidenceInsufficient",
     "FieldSet",
     "FileSystemTrigger",
+    "FindingsAgent",
     "FunctionHook",
     "Goal",
     "GroundingRefusalTriggered",
@@ -411,9 +415,11 @@ __all__ = [
     "ReActPlan",
     "ReActPlanner",
     "RecipeMetadata",
+    "ReflexionLoop",
     "ResearchAgent",
     "Reversibility",
     "RouteResult",
+    "RouterAgent",
     "RunError",
     "RunState",
     "Runner",

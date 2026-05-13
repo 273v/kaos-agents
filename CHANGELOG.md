@@ -36,6 +36,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   numbers ship as `ToolResult.structuredContent["cost_usd"]` and `["total_tokens"]` across all four
   agent tools. (Sprint-3 #10, commit a338d1e.)
 
+### Fixed
+- Package root re-exports the three pattern classes the README markets but `__init__.py` previously
+  hid behind submodules: `FindingsAgent`, `ReflexionLoop`, `RouterAgent` are now importable from
+  `kaos_agents` directly. Closes KC17-P0-5.
+
 ### Changed
 - Streaming recorder JSONL schema bumped to v3: header line written + fsync'd on `__aenter__`,
   per-invocation lines streamed + fsync'd during run, optional trailer at exit. Audit trail
