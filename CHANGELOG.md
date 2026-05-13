@@ -75,6 +75,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   this fix removes a structural-integrity gap.
 
 ### Added
+- `kaos_agents/examples/nda_review/hello.py` — Hello-World "easy
+  version" of the NDA review: defaults-only, asks for a markdown
+  summary table across the 5 NDAs via `ResearchAgent.turn()`. ~$0.10
+  on `claude-haiku-4-5`. Best first-impression demo; the README
+  quickstart now leads with this. The senior-counsel version
+  (recall-first per-doc `FindingsAgent` with provenance + cost cap
+  + refusal contract + audit trail) remains at `quickstart.py`
+  (KC17-P0-6b). Live regression at
+  `tests/integration/test_hello_nda_review_live.py`.
 - `research_profile = "strict"` setting (env: `KAOS_AGENT_RESEARCH_PROFILE`)
   for legal / regulated deployments. Raises BM25 score floor, verifier
   confidence threshold, and refuses unverified answers via a typed

@@ -43,132 +43,139 @@ uv add 'kaos-agents[llm,mcp,api]'               # +FastAPI HTTP surface
 uv add 'kaos-agents[llm,pdf,office,source,web]' # +tool-bearing siblings auto-registered
 ```
 
-## 60-second quickstart
+## Hello world (30 seconds)
 
-`kaos-agents` reviews **batches** of legal documents the way an
-associate does — every sentence considered, every finding cited back
-to its source paragraph, every LLM call captured to an audit trail.
-The quickstart loads 5 mutual NDAs from a deal-room and asks a senior-
-counsel question, then prints a per-document finding report with the
-deviations a partner would act on.
-
-The fixtures (curated, anonymized NDAs with lawyer-authored ground
-truth at `tests/integration/ladder/fixtures/nda_ground_truth.py`) ship
-as package data, so this works on a plain `pip install`. Requires
-`ANTHROPIC_API_KEY` in the environment and `pip install
-'kaos-agents[llm,office]'` (the `office` extra pulls in `kaos-office`
-for the DOCX reader).
+The package ships 5 real mutual NDAs as package data. The Hello-World
+demo loads all 5 and asks a default `ResearchAgent` (Anthropic Haiku
+4.5) for a markdown summary table — defaults only. Requires
+`ANTHROPIC_API_KEY` and `pip install 'kaos-agents[llm,office]'`.
 
 ```bash
-python -m kaos_agents.examples.nda_review.quickstart
+python -m kaos_agents.examples.nda_review.hello
 ```
 
-The runnable source lives at `kaos_agents/examples/nda_review/quickstart.py`
-and is short enough to read top-to-bottom. The pattern:
+The runnable source at `kaos_agents/examples/nda_review/hello.py` fits
+on one screen:
 
 ```python
 import asyncio
 from importlib.resources import files as _resource_files
 
-from kaos_agents.patterns.findings import FindingsAgent, every_sentence_selector
+from kaos_core.registry.container import KaosRuntime
+
+from kaos_agents import ResearchAgent, SessionMemory, SessionStore
 
 NDAS_DIR = _resource_files("kaos_agents.examples.nda_review").joinpath("ndas")
 
 
-async def review_one(docx_path: str):
-    from kaos_content.views import DocumentView
-    from kaos_nlp_core._defaults import get_default_punkt_tokenizer
+async def main():
+    from kaos_content.serializers.markdown import serialize_markdown
     from kaos_office import parse_docx
 
+    runtime = KaosRuntime.test_mode()                # in-memory VFS
+    memory = SessionMemory("nda-hello")
+    agent = ResearchAgent(runtime.vfs)               # default: claude-haiku-4-5
+    for path in sorted(p for p in NDAS_DIR.iterdir() if p.name.endswith(".docx")):
+        uri = path.name.replace(" ", "_")            # IRI-safe
+        agent.load_document(memory, uri, serialize_markdown(parse_docx(str(path))))
+    await SessionStore(runtime.vfs).save(memory)
+
+    response = await agent.turn(
+        "Make a markdown table of key terms across these 5 NDAs. Columns: "
+        "Document, Counterparty, Governing Law, Term Length, Confidentiality "
+        "Period, Mutual?, Non-Solicit?. One row per NDA. Keep cells short.",
+        session_id="nda-hello",
+    )
+    print(response.text)
+    print(f"\ncost_usd=${response.cost_usd:.4f}  total_tokens={response.total_tokens}")
+
+
+asyncio.run(main())
+```
+
+**Expected output** (one live run, ~40 seconds wall-clock, ~$0.09
+total across the 5 NDAs):
+
+```
+| Document | Counterparty | Governing Law | Term Length | Confidentiality Period | Mutual? | Non-Solicit? |
+|---|---|---|---|---|---|---|
+| EMNA_Mutual_NDA | ExMachi Bank N.A. | Delaware | 2 years | Until info no longer confidential or 1 yr from first disclosure | Yes | Yes (6 mo post-term) |
+| MNDA_-_Acme | Acme Co. (Nevada) | Michigan | Indefinite (until released) | Survives termination unless released in writing | Yes | No |
+| MNDA_-_BI | Beta Inc. (Delaware) | Michigan | 3 years | Survives termination unless released in writing | Yes | No |
+| MNDA_-_CC_Final_2 | CyberCorp Co. (California) | Michigan | 5 years | Until info no longer confidential or 1 yr from first disclosure | Yes | Yes (1 yr post-term) |
+| MNDA_-_DynaMo | DynaMo GmbH (Germany) | Delaware | 2 years | Until info no longer confidential or 1 yr from first disclosure | Yes | Yes (6 mo post-term) |
+
+[Verified: 11 claim(s), 24 citation(s)]
+
+cost_usd=$0.0903  total_tokens=17478
+```
+
+`ResearchAgent` runs RAG over the 5 docs in memory, verifies the answer
+against retrieved spans, and surfaces the citation count at the bottom.
+No cost cap — production users should set `max_cost_usd` or use
+`quickstart.py` (below) for a strict per-doc cap and refusal contract.
+
+## Production review (60 seconds)
+
+The **production** version at `kaos_agents/examples/nda_review/quickstart.py`
+is what a partner would sign off on: recall-first per-sentence
+enumeration, typed findings with `block_ref` provenance, strict per-doc
+cost cap, refusal contract, and an audit trail of every LLM call. Same
+5 NDAs, Haiku 4.5 filter + Sonnet 4.6 synthesis:
+
+```bash
+python -m kaos_agents.examples.nda_review.quickstart
+```
+
+The pattern (abridged — see the file for the full version):
+
+```python
+from kaos_agents.patterns.findings import FindingsAgent, every_sentence_selector
+
+
+async def review_one(docx_path):
     view = DocumentView(parse_docx(docx_path), sentence_segmenter=get_default_punkt_tokenizer())
     agent = FindingsAgent(
-        selector=every_sentence_selector,             # Phase 1: enumerate EVERY sentence
-        filter_model="anthropic:claude-haiku-4-5",    # Phase 2: cheap filter
-        synthesis_model="anthropic:claude-sonnet-4-6",# Phase 3: quality synthesis with cites
-        chunk_size=20,
-        num_parallel=3,
+        selector=every_sentence_selector,              # Phase 1: enumerate EVERY sentence
+        filter_model="anthropic:claude-haiku-4-5",     # Phase 2: cheap filter
+        synthesis_model="anthropic:claude-sonnet-4-6", # Phase 3: synthesis with cites
         relevance_threshold=0.4,
-        max_cost_usd=0.50,                            # strict per-doc cap
+        max_cost_usd=0.50,                             # strict per-doc cap
     )
     return await agent.run(
         "Review this NDA for deviations: governing law, term length, "
         "confidentiality survival, non-solicit clauses, signature anomalies.",
         view,
     )
-
-
-async def main():
-    nda_paths = sorted(p for p in NDAS_DIR.iterdir() if p.name.endswith(".docx"))
-    results = await asyncio.gather(*(review_one(str(p)) for p in nda_paths))
-    for path, result in zip(nda_paths, results):
-        if result.refusal is not None:        # typed refusal — not a crash
-            print(f"{path.name}: refused ({result.refusal.reason})")
-            continue
-        print(f"{path.name}: ${result.total_cost_usd:.4f}, "
-              f"{result.total_filtered} findings, "
-              f"budget_exceeded={result.budget_exceeded}")
-        print(result.answer)
-
-
-asyncio.run(main())
 ```
 
-**Expected output** (one live run, ~40 seconds wall-clock,
-$0.18 total across 5 NDAs):
+Each NDA's review surfaces governing-law deviations, term-length
+variance, confidentiality-period drift, and template artifacts (EMNA's
+signature block reads "DynaMo" even though the parties are 273 Ventures
++ ExMachi Bank N.A.). Cites are encoded as `[finding_id]` references
+back to AST blocks. Total spend lands near $0.18 across the 5 NDAs.
 
-```
-Loaded 5 NDAs: EMNA Mutual NDA.docx, MNDA - Acme.docx, MNDA - BI.docx, MNDA - CC Final 2.docx, MNDA - DynaMo.docx
+What the production version demonstrates that the Hello-World cannot:
 
---- EMNA Mutual NDA.docx ---
-  Cost: $0.0377  budget_exceeded=False
-  Enumerated 80 sentences, 21 survived the filter.
-  Governing law: Delaware [94a1cfb7bb3d]. Term: 2 years [4f7ac284120a].
-  Confidentiality survival: irreconcilable conflict between 1-year cap [d43bd017fd81]
-  and "perpetual" clause [5ce2b29c4050]. Non-solicit: 6 months, employees only [9f3ba8badc51].
-  TEMPLATE ARTIFACT: signature block reads "DynaMo" even though parties are
-  273 Ventures + ExMachi Bank N.A. — likely an unupdated prior-version artifact.
-
---- MNDA - Acme.docx ---
-  Cost: $0.0324  Enumerated 90 sentences, 15 survived.
-  Governing law: Michigan, venue Lansing. Term: OPEN-ENDED — no end date stated.
-  Confidentiality survives indefinitely "unless the Disclosing Party sends ...
-  written notice releasing the Recipient." No non-solicit clause.
-
---- MNDA - BI.docx ---           Michigan / 3-year term  / "John Doe" placeholder signatory
---- MNDA - CC Final 2.docx ---   Michigan / 5-year term  / non-solicit covers customers (broad)
---- MNDA - DynaMo.docx ---       Delaware / 2-year term  / 6-month non-solicit, employees only
-
-TOTAL: 100 findings across 5 NDAs, $0.1836 spent.
-```
-
-What this demonstrates that a one-shot LLM call cannot:
-
-- **Recall-first review** — every sentence is enumerated (Phase 1),
-  then filtered (Phase 2) — so a clause buried in a non-obvious section
-  of the document does not get missed. The `every_sentence_selector`
-  is the right tool when missing a clause costs more than the
-  marginal LLM cycles.
-- **Typed findings with provenance** — each surviving sentence carries
-  a deterministic `finding_id` (SHA-256 over the AST anchor), a
-  `block_ref` back to the paragraph, and a `page` number when known.
-  A partner can verify every cite.
-- **Refusal contract** — when no candidate survives, the agent returns
-  a `FindingsRefusal` with a stable `reason` string. An empty answer
-  no longer looks like a crash.
+- **Recall-first review** — every sentence is enumerated, then filtered,
+  so a clause buried in a non-obvious section never gets missed.
+- **Typed findings with provenance** — each surviving sentence carries a
+  deterministic `finding_id` (SHA-256 over the AST anchor), a `block_ref`
+  back to the paragraph, and a `page` number when known.
+- **Refusal contract** — when no candidate survives, the agent returns a
+  `FindingsRefusal` with a stable `reason` string. Empty answers don't
+  look like crashes.
 - **Strict cost cap** — `max_cost_usd=0.50` is a contract, not a hope.
   If the filter sweep would breach the cap, the agent stops dispatching
-  new chunks and surfaces `budget_exceeded=True`. The synthesis call
-  is also gated by a pre-flight headroom check.
+  and surfaces `budget_exceeded=True`.
 - **Audit trail** — every LLM call routed through `kaos-llm-core` is
-  captured to a JSONL recorder (schema-v4, redaction-by-default,
-  `fsync()` per line — survives `SIGTERM` and pod eviction). See
-  "Live audit trail" below.
+  captured to a JSONL recorder (schema-v4, `fsync()` per line — see
+  "Live audit trail" below).
 
-The same `FindingsAgent.run()` is also exposed via the
-`kaos-agent-findings` MCP tool (typed `cost_usd` / `total_tokens` at the
-top of `ToolResult.structuredContent`). For a streaming variant or the
-8-step turn-loop pattern, see [`CLAUDE.md`](CLAUDE.md) and the 15-event
-taxonomy.
+`FindingsAgent.run()` is also exposed via the `kaos-agent-findings`
+MCP tool (typed `cost_usd` / `total_tokens` at the top of
+`ToolResult.structuredContent`). For a streaming variant or the 8-step
+turn-loop pattern, see [`CLAUDE.md`](CLAUDE.md).
 
 ## Patterns
 
