@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_No entries yet for the next version._
+
+## [0.1.0a1] — 2026-05-13
+
+First public alpha release.
+
 ### Changed
 - Viewer JSON renderer upgraded to an interactive tree: syntax
   highlighting, click-to-expand/collapse at every depth, copy-path
@@ -238,3 +244,4 @@ regulated-industry adopter must know about.
   canonical declaration).
 
 [Unreleased]: https://github.com/273v/kaos-agents/compare/v0.1.0a1...HEAD
+[0.1.0a1]: https://github.com/273v/kaos-agents/releases/tag/v0.1.0a1
