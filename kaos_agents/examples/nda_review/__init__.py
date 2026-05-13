@@ -1,16 +1,24 @@
-"""NDA-batch review quickstart — the public-facing kaos-agents demo.
+"""Two runnable NDA-review demos shipped as package data.
 
-Loads 5 mutual NDAs from a deal-room and runs a
-:class:`~kaos_agents.patterns.findings.FindingsAgent` over the corpus to
-surface governing-law deviations, term-length variance, confidentiality-
-period drift, signature-block template artifacts, and other deviations
-a careful senior associate would flag.
+- :mod:`kaos_agents.examples.nda_review.hello` — **Hello-World**
+  version: defaults only, asks the agent for a markdown table of key
+  terms across all 5 NDAs in a single ``ResearchAgent.turn`` call. Best
+  first-impression demo; ~$0.05-0.10 on ``claude-haiku-4-5``::
 
-Run with::
+      python -m kaos_agents.examples.nda_review.hello
 
-    python -m kaos_agents.examples.nda_review.quickstart
+- :mod:`kaos_agents.examples.nda_review.quickstart` — **production**
+  senior-counsel deviation review with per-doc
+  :class:`~kaos_agents.patterns.findings.FindingsAgent`, typed findings
+  with ``block_ref`` provenance, strict ``max_cost_usd`` cap, refusal
+  contract, and full audit trail. The version a partner would sign off
+  on; ~$0.05-0.10 on Haiku 4.5 filter + Sonnet 4.6 synthesis::
 
-The fixture NDAs ship as package data under ``ndas/`` and are reachable
-via :func:`importlib.resources.files` from any install (editable or
-wheel). See ``ndas/README.md`` for the per-file provenance manifest.
+      python -m kaos_agents.examples.nda_review.quickstart
+
+Both ship the same 5 real mutual NDAs under ``ndas/`` (reachable via
+:func:`importlib.resources.files` from any install — editable, wheel,
+or sdist). See ``ndas/README.md`` for fixture provenance and
+``tests/integration/ladder/fixtures/nda_ground_truth.py`` for the
+lawyer-authored ground truth the live regressions assert against.
 """
