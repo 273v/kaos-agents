@@ -65,6 +65,41 @@ class TestSessionEndpoints:
         assert resp.status_code == 200
         assert resp.json()["status"] == "deleted"
 
+    @pytest.mark.asyncio
+    async def test_delete_actually_removes_persisted_memory(self, client: AsyncClient, app) -> None:
+        """KC17-P1-1 regression: DELETE removes the persisted session.
+
+        Pre-KC17 the API called ``vfs.cleanup_context(session_id)`` only,
+        which did not remove ``kaos-agents/sessions/{id}/memory.json``.
+        After DELETE, ``SessionStore.exists()`` stayed True and GET
+        returned 200.
+        """
+        from kaos_agents.memory.session import SessionMemory
+        from kaos_agents.memory.store import SessionStore
+        from kaos_agents.types.memory import MemoryType
+
+        # Seed a real persisted session (not just load_or_create which
+        # leaves nothing on disk until save()).
+        store = SessionStore(app.state.vfs)
+        mem = SessionMemory("delete-proof")
+        mem.add(MemoryType.MESSAGES, "user: please remember this")
+        await store.save(mem)
+        assert await store.exists("delete-proof"), "fixture precondition"
+
+        # DELETE must actually delete.
+        resp = await client.delete("/v1/sessions/delete-proof")
+        assert resp.status_code == 200
+
+        # The store must agree.
+        assert not await store.exists("delete-proof"), (
+            "KC17-P1-1 regression: SessionStore.exists() still True after "
+            "DELETE — the persisted memory.json was not removed"
+        )
+
+        # The follow-up GET should be 404.
+        get_resp = await client.get("/v1/sessions/delete-proof")
+        assert get_resp.status_code == 404
+
 
 @pytest.mark.unit
 class TestMessageEndpoints:

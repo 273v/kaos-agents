@@ -95,6 +95,39 @@ class TestSessionStoreDelete:
     async def test_delete_nonexistent(self, store: SessionStore):
         assert not await store.delete("nonexistent")
 
+    async def test_delete_sweeps_graph_ttl(self, store: SessionStore, vfs: VirtualFileSystem):
+        """KC17-P1-1: delete must remove graph.ttl alongside memory.json.
+
+        Pre-KC17, delete() called vfs.delete(memory.json) ONLY, leaving
+        the per-session graph.ttl on disk. A subsequent ``exists()``
+        would return True; a privacy/right-to-delete defect.
+        """
+        # Write both files directly to simulate a real session that
+        # built a knowledge graph.
+        await vfs.write(
+            "kaos-agents/sessions/with-graph/memory.json",
+            b'{"session_id":"with-graph","turn_count":0,"sections":{},"chars_per_token":4.0}',
+        )
+        await vfs.write(
+            "kaos-agents/sessions/with-graph/graph.ttl",
+            b"@prefix ex: <http://example/> . ex:s ex:p ex:o .",
+        )
+
+        deleted = await store.delete("with-graph")
+        assert deleted is True
+
+        # Both files should be gone.
+        assert not await vfs.exists("kaos-agents/sessions/with-graph/memory.json")
+        assert not await vfs.exists("kaos-agents/sessions/with-graph/graph.ttl")
+        assert not await store.exists("with-graph")
+
+    async def test_delete_idempotent_when_empty(self, store: SessionStore):
+        """Calling delete twice returns False the second time."""
+        mem = SessionMemory("idempotent-delete")
+        await store.save(mem)
+        assert await store.delete("idempotent-delete") is True
+        assert await store.delete("idempotent-delete") is False
+
 
 class TestSessionStoreList:
     async def test_list_empty(self):

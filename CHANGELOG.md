@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **DELETE session + memory-clear actually remove persisted memory (KC17-P1-1).** The HTTP
+  API's `DELETE /v1/sessions/{id}` and the MCP `kaos-agent-memory-clear` tool previously called
+  `vfs.cleanup_context(session_id)` only — leaving
+  `kaos-agents/sessions/{id}/memory.json` (and `graph.ttl`) on disk. After a successful
+  DELETE, `SessionStore.exists()` stayed True and a follow-up `GET /v1/sessions/{id}` returned
+  200. Both paths now call `SessionStore.delete(session_id)` which sweeps `memory.json` AND
+  `graph.ttl` (and any future per-session siblings), then call `cleanup_context` for VFS
+  scratch (run state, artifacts) — privacy / right-to-delete now matches the contract.
+
 ### Security
 - **HTTP API auth + tenant scoping + CORS hardening (KC17-P0-3).** The FastAPI surface previously
   shipped with NO auth, NO tenant scoping, and CORS wildcard + credentials. POST

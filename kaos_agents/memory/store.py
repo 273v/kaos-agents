@@ -176,12 +176,39 @@ class SessionStore:
         return await self._vfs.exists(_session_path(session_id))
 
     async def delete(self, session_id: str) -> bool:
-        """Delete a saved session. Returns True if it existed."""
-        path = _session_path(session_id)
-        if not await self._vfs.exists(path):
+        """Delete a saved session and all sibling files. Returns True if it existed.
+
+        KC17-P1-1: removes ALL files under ``{_SESSION_PREFIX}/{session_id}/``,
+        not just ``memory.json``. Pre-KC17 this left ``graph.ttl`` (and any
+        future per-session files) on disk so the next ``exists()`` returned
+        True for the session even after a successful DELETE — a privacy /
+        right-to-delete defect for regulated deployments.
+
+        Returns ``True`` when at least one session-owned file was removed;
+        ``False`` when the session directory was already empty (idempotent).
+        """
+        memory_path = _session_path(session_id)
+        graph_path = _session_graph_path(session_id)
+
+        removed = 0
+        for path in (memory_path, graph_path):
+            if await self._vfs.exists(path):
+                try:
+                    await self._vfs.delete(path)
+                    removed += 1
+                except Exception as exc:
+                    # Best-effort: keep going so a partial failure
+                    # doesn't leak the other files. The audit trail
+                    # carries the warning.
+                    logger.warning(
+                        "store.delete: failed to delete %s (continuing): %s",
+                        path,
+                        exc,
+                    )
+
+        if removed == 0:
             return False
-        await self._vfs.delete(path)
-        logger.debug("store.delete: session=%s", session_id)
+        logger.debug("store.delete: session=%s files_removed=%d", session_id, removed)
         return True
 
     async def list_sessions(self) -> list[str]:

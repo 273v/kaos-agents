@@ -975,15 +975,26 @@ class AgentMemoryClearTool(KaosTool):
             )
 
         try:
+            from kaos_agents.memory.store import SessionStore
+
             runtime = context.runtime if context else None
             vfs = _get_vfs(runtime)
 
-            # Delete session files from VFS
+            # KC17-P1-1: actually delete the persisted session files. Pre-KC17
+            # this only called ``vfs.cleanup_context(session_id)`` which left
+            # ``kaos-agents/sessions/{id}/memory.json`` (and graph.ttl) on
+            # disk — so a subsequent ``SessionStore.exists()`` returned True
+            # and the next turn re-hydrated the "cleared" memory. SessionStore.delete()
+            # sweeps the entire session directory.
+            store = SessionStore(vfs)
+            await store.delete(session_id)
+            # Also sweep any session-scoped VFS artifacts (run state, etc.).
             await vfs.cleanup_context(session_id)
 
             return ToolResult.create_text(
                 f"Session '{session_id}' memory cleared. "
-                "All conversation history, actions, and findings have been deleted."
+                "All conversation history, actions, findings, and the knowledge "
+                "graph have been deleted from persistent storage."
             )
 
         except Exception as exc:
