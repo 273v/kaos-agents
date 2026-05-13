@@ -10,13 +10,18 @@ Endpoints:
 - DELETE /v1/sessions/{session_id} — delete session
 - GET /v1/sessions/{session_id}/memory/{section} — read memory section
 - GET /v1/sessions/{session_id}/memory/search — BM25 search memory
+
+All endpoints require auth (KC17-P0-3): either a bearer token via
+``Authorization: Bearer <KAOS_AGENTS_API_TOKEN>`` OR an unauthenticated
+request from 127.0.0.1 when ``KAOS_AGENTS_API_ALLOW_UNAUTH_LOCALHOST=1``.
+``create_app`` refuses to start with no auth source configured.
 """
 
 from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import Body, FastAPI, Header, HTTPException, Path, Query
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Path, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from kaos_core import KaosRuntime
@@ -27,12 +32,18 @@ from kaos_core.vfs.models import VFSConfig
 from pydantic import BaseModel, Field
 from starlette.responses import StreamingResponse
 
+from kaos_agents.api.settings import (
+    KaosAgentsApiSettings,
+    scope_session_id,
+)
 from kaos_agents.api.wire import events_to_sse
 from kaos_agents.config import Agent, AgentPattern
 from kaos_agents.runtime.runner import Runner
 from kaos_agents.settings import DEFAULT_MODEL
 
 logger = get_logger(__name__)
+
+_LOCALHOST_IPS = frozenset({"127.0.0.1", "::1"})
 
 # ---------------------------------------------------------------------------
 # Request / Response schemas
@@ -153,39 +164,162 @@ def create_app(
     *,
     runtime: KaosRuntime | None = None,
     cors_origins: list[str] | None = None,
+    api_settings: KaosAgentsApiSettings | None = None,
 ) -> FastAPI:
     """Create the FastAPI application for kaos-agents.
 
     Args:
         runtime: KaosRuntime for tool execution. None for tool-free agents.
-        cors_origins: Allowed CORS origins. Default: ["*"] (permissive for dev).
+        cors_origins: Explicit CORS origins override. When None, falls back
+            to ``api_settings.api_cors_allow_origins``. Wildcard ``*`` is
+            rejected by :class:`KaosAgentsApiSettings` because it is
+            incompatible with credentialed requests.
+        api_settings: Auth + CORS config (KC17-P0-3). When None, loads from
+            env (``KAOS_AGENTS_API_*``). At least one of ``api_token`` or
+            ``api_allow_unauth_localhost`` must be set or
+            :class:`InsecureApiConfigurationError` is raised.
 
     Returns:
         Configured FastAPI application.
+
+    Raises:
+        InsecureApiConfigurationError: when neither ``KAOS_AGENTS_API_TOKEN``
+            nor ``KAOS_AGENTS_API_ALLOW_UNAUTH_LOCALHOST=1`` is configured.
+            Pre-KC17 the API would happily start with no auth + wildcard
+            CORS; that silent footgun is no longer permitted.
     """
+    settings = api_settings if api_settings is not None else KaosAgentsApiSettings()
+    if not settings.is_auth_configured():
+        raise settings.insecure_startup_error()
+
     app = FastAPI(
         title="KAOS Agents API",
         description="Streaming agent API with SSE event delivery.",
         version="0.1.0",
     )
 
-    # CORS for web app development
+    # CORS — explicit allow-list only. Default empty (no cross-origin).
+    effective_origins: list[str]
+    if cors_origins is not None:
+        # Caller override — still reject wildcards because credentials are on.
+        if "*" in cors_origins:
+            raise ValueError(
+                "cors_origins=['*'] is incompatible with allow_credentials=True. "
+                "List explicit origins instead. See KaosAgentsApiSettings docs."
+            )
+        effective_origins = list(cors_origins)
+    else:
+        effective_origins = list(settings.api_cors_allow_origins)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=cors_origins or ["*"],
-        allow_credentials=True,
+        allow_origins=effective_origins,
+        allow_credentials=bool(effective_origins),
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
-    # Store runtime in app state for dependency injection
+    if settings.api_token is None:
+        logger.warning(
+            "kaos-agents API: starting with no bearer token; "
+            "localhost-dev mode enabled. Do NOT expose this beyond 127.0.0.1."
+        )
+
+    # Store runtime + settings in app state for dependency injection
     app.state.runtime = runtime
     app.state.vfs = _resolve_vfs(runtime)
+    app.state.api_settings = settings
+    app.state.tenant_id = settings.tenant_id()
 
     # Register routes
     _register_routes(app)
 
     return app
+
+
+# ---------------------------------------------------------------------------
+# Auth dependency
+# ---------------------------------------------------------------------------
+
+
+def _client_ip(request: Request) -> str | None:
+    """Best-effort client IP. Honors ``X-Forwarded-For`` ONLY when the
+    immediate peer is localhost — never trust a public-facing peer to
+    set its own client IP. Returns the original ``request.client.host``
+    otherwise.
+    """
+    peer = request.client.host if request.client else None
+    if peer in _LOCALHOST_IPS:
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            # First entry is the original client when proxies append.
+            first = forwarded.split(",")[0].strip()
+            return first or peer
+    return peer
+
+
+async def _require_auth(request: Request) -> str | None:
+    """FastAPI dependency: authenticate the request and return tenant id.
+
+    KC17-P0-3 contract:
+    - When ``api_token`` is configured: requires ``Authorization: Bearer X``
+      with constant-time compare to the token. Returns the derived tenant
+      id (12-char SHA-256 prefix of the token).
+    - Otherwise when ``api_allow_unauth_localhost`` is configured: requires
+      the request to originate from 127.0.0.1 / ::1. Emits a per-request
+      warning log. Returns ``None`` (no tenant scoping).
+    - Otherwise: 401 (defensive — :func:`create_app` should have refused
+      to start, but if a caller monkey-patched settings, this still blocks).
+
+    The dependency NEVER returns 403 (would leak existence of the
+    endpoint to an authenticated tenant A querying tenant B's id).
+    """
+    settings: KaosAgentsApiSettings = request.app.state.api_settings
+
+    if settings.api_token is not None:
+        auth = request.headers.get("authorization", "")
+        # Case-insensitive scheme match; the value after the space is the token.
+        scheme, _, presented = auth.partition(" ")
+        if scheme.lower() != "bearer" or not settings.check_token(presented):
+            raise HTTPException(
+                status_code=401,
+                detail=(
+                    "Authentication required. Send 'Authorization: Bearer "
+                    "<KAOS_AGENTS_API_TOKEN>' header. "
+                    "Sessions and runs are scoped per token — token A "
+                    "cannot read token B's data."
+                ),
+            )
+        return settings.tenant_id()
+
+    if settings.api_allow_unauth_localhost:
+        peer = _client_ip(request)
+        if peer not in _LOCALHOST_IPS:
+            raise HTTPException(
+                status_code=401,
+                detail=(
+                    "Localhost-dev mode: only 127.0.0.1 / ::1 origins "
+                    "permitted. Either set KAOS_AGENTS_API_TOKEN to enable "
+                    "bearer-token auth, or bind the API to 127.0.0.1."
+                ),
+            )
+        logger.warning(
+            "kaos-agents API: unauthenticated localhost-dev request "
+            "(method=%s path=%s peer=%s). MUST NOT be exposed in production.",
+            request.method,
+            request.url.path,
+            peer,
+        )
+        return None
+
+    # Belt + suspenders — create_app should have refused to start.
+    raise HTTPException(
+        status_code=401,
+        detail=(
+            "kaos-agents API is not authenticated. Server-side misconfiguration: "
+            "neither KAOS_AGENTS_API_TOKEN nor "
+            "KAOS_AGENTS_API_ALLOW_UNAUTH_LOCALHOST is set."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +334,7 @@ def _register_routes(app: FastAPI) -> None:
     async def send_message(
         session_id: Annotated[str, Path(description="Session identifier")],
         body: Annotated[MessageRequest, Body()],
+        tenant_id: Annotated[str | None, Depends(_require_auth)],
         accept: Annotated[str, Header()] = "text/event-stream",
     ) -> StreamingResponse | JSONResponse:
         """Send a message; responds per ``Accept`` header content negotiation.
@@ -214,6 +349,11 @@ def _register_routes(app: FastAPI) -> None:
         - ``data:`` — JSON-encoded event
         - ``id:`` — sequence number for reconnection
         """
+        # KC17-P0-3 — tenant-scope the session id so token A cannot
+        # reach token B's sessions. localhost-dev mode (tenant_id=None)
+        # leaves the id unchanged.
+        effective_session_id = scope_session_id(session_id, tenant_id)
+
         # Optional per-request settings override — currently scoped to
         # the plan-cost cap (the only field consumed by Runner today).
         agent_settings = None
@@ -262,7 +402,9 @@ def _register_routes(app: FastAPI) -> None:
         if "application/json" in accept and "text/event-stream" not in accept:
             from kaos_agents.tools.registry import _run_turn_with_status
 
-            response, status = await _run_turn_with_status(runner, body.message, session_id)
+            response, status = await _run_turn_with_status(
+                runner, body.message, effective_session_id
+            )
             payload = {
                 "text": response.text,
                 "intent": response.intent.intent.value if response.intent else "unknown",
@@ -287,7 +429,7 @@ def _register_routes(app: FastAPI) -> None:
             return JSONResponse(payload)
 
         # Default: SSE streaming
-        event_stream = runner.run(body.message, session_id)
+        event_stream = runner.run(body.message, effective_session_id)
         return StreamingResponse(
             events_to_sse(event_stream),
             media_type="text/event-stream",
@@ -303,6 +445,7 @@ def _register_routes(app: FastAPI) -> None:
             str, Path(description="Run identifier from a paused ToolCallApprovalRequired")
         ],
         body: Annotated[ApprovalRequest, Body()],
+        tenant_id: Annotated[str | None, Depends(_require_auth)],
     ) -> StreamingResponse:
         """Approve or deny a paused run, then stream the continuation as SSE.
 
@@ -311,7 +454,9 @@ def _register_routes(app: FastAPI) -> None:
         streams the resulting events back as SSE.
 
         Returns 404 if no RunState exists for the run_id (the run was
-        never paused, or the VFS state has expired).
+        never paused, or the VFS state has expired) OR if the loaded
+        run belongs to a different tenant. Both return 404 (not 403) to
+        avoid leaking run-id existence across tenants — see KC17-P0-3.
         """
         from kaos_agents.runtime.interrupts import load_run_state
 
@@ -327,6 +472,26 @@ def _register_routes(app: FastAPI) -> None:
                     "ToolCallApprovalRequired event."
                 ),
             ) from exc
+
+        # KC17-P0-3 — tenant scoping. A paused run's session_id carries
+        # the tenant prefix (because it was scoped at message-creation
+        # time). If this caller's tenant doesn't own the session, return
+        # 404 — explicitly NOT 403 to avoid confirming the run exists.
+        if tenant_id is not None and not state.session_id.startswith(f"{tenant_id}:"):
+            logger.warning(
+                "kaos-agents approve: cross-tenant access blocked "
+                "(run_id=%s state_session=%s caller_tenant=%s)",
+                run_id,
+                state.session_id,
+                tenant_id,
+            )
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"No paused run found for run_id={run_id!r}. "
+                    "Either the run was never paused, or the VFS state has expired."
+                ),
+            )
 
         # WS-0.3: reconstruct the Runner with the original Agent config
         # when available. Pre-WS-0.3 this fell back to ``Agent()`` defaults,
@@ -353,12 +518,14 @@ def _register_routes(app: FastAPI) -> None:
     @app.post("/v1/sessions", response_model=SessionResponse)
     async def create_session(
         body: SessionCreateRequest,
+        tenant_id: Annotated[str | None, Depends(_require_auth)],
     ) -> SessionResponse:
         """Create a new session (initializes memory)."""
         from kaos_agents.memory.store import SessionStore
 
+        effective_session_id = scope_session_id(body.session_id, tenant_id)
         store = SessionStore(app.state.vfs)
-        memory = await store.load_or_create(body.session_id)
+        memory = await store.load_or_create(effective_session_id)
         section_names = [mt.value for mt in memory._sections]
         return SessionResponse(
             session_id=body.session_id,
@@ -368,14 +535,16 @@ def _register_routes(app: FastAPI) -> None:
 
     @app.get("/v1/sessions/{session_id}", response_model=SessionResponse)
     async def get_session(
+        tenant_id: Annotated[str | None, Depends(_require_auth)],
         session_id: str = Path(description="Session identifier"),
     ) -> SessionResponse:
         """Get session state (turn count, configured sections)."""
         from kaos_agents.memory.store import SessionStore
 
+        effective_session_id = scope_session_id(session_id, tenant_id)
         store = SessionStore(app.state.vfs)
         try:
-            memory = await store.load(session_id)
+            memory = await store.load(effective_session_id)
         except Exception as exc:
             raise HTTPException(
                 status_code=404,
@@ -391,11 +560,30 @@ def _register_routes(app: FastAPI) -> None:
 
     @app.delete("/v1/sessions/{session_id}")
     async def delete_session(
+        tenant_id: Annotated[str | None, Depends(_require_auth)],
         session_id: str = Path(description="Session identifier"),
     ) -> dict[str, str]:
-        """Delete a session and its memory."""
+        """Delete a session and its memory.
+
+        KC17-P1-1: actually deletes the persisted session directory.
+        Pre-KC17 this called ``vfs.cleanup_context(session_id)`` only,
+        which left ``sessions/{id}/memory.json`` intact and made the
+        DELETE a no-op for subsequent ``SessionStore.exists()`` calls.
+        """
+        from kaos_agents.memory.store import SessionStore
+
+        effective_session_id = scope_session_id(session_id, tenant_id)
         vfs: VirtualFileSystem = app.state.vfs
-        await vfs.cleanup_context(session_id)
+
+        # 1. Remove persisted SessionStore files (memory.json + graph.ttl).
+        store = SessionStore(vfs)
+        await store.delete(effective_session_id)
+
+        # 2. Sweep any VFS scratch keyed off the session id (artifacts,
+        #    run-state, etc.). cleanup_context is idempotent on a fresh
+        #    namespace so it's safe to call even when nothing was created.
+        await vfs.cleanup_context(effective_session_id)
+
         return {"status": "deleted", "session_id": session_id}
 
     # Note: register /memory/search BEFORE /memory/{section} so FastAPI's
@@ -406,6 +594,7 @@ def _register_routes(app: FastAPI) -> None:
         response_model=MemorySearchResponse,
     )
     async def search_memory_endpoint(
+        tenant_id: Annotated[str | None, Depends(_require_auth)],
         session_id: str = Path(description="Session identifier"),
         query: str = Query(description="Search query"),
         top_k: int = Query(default=10, ge=1, le=50, description="Max results"),
@@ -414,9 +603,10 @@ def _register_routes(app: FastAPI) -> None:
         from kaos_agents.memory.search import search_memory
         from kaos_agents.memory.store import SessionStore
 
+        effective_session_id = scope_session_id(session_id, tenant_id)
         store = SessionStore(app.state.vfs)
         try:
-            memory = await store.load(session_id)
+            memory = await store.load(effective_session_id)
         except Exception as exc:
             raise HTTPException(
                 status_code=404,
@@ -447,6 +637,7 @@ def _register_routes(app: FastAPI) -> None:
         response_model=MemoryQueryResponse,
     )
     async def get_memory(
+        tenant_id: Annotated[str | None, Depends(_require_auth)],
         session_id: str = Path(description="Session identifier"),
         section: str = Path(description="Memory section name"),
         limit: int = Query(default=20, ge=1, le=100, description="Max items"),
@@ -455,9 +646,10 @@ def _register_routes(app: FastAPI) -> None:
         from kaos_agents.memory.store import SessionStore
         from kaos_agents.types.memory import MemoryType
 
+        effective_session_id = scope_session_id(session_id, tenant_id)
         store = SessionStore(app.state.vfs)
         try:
-            memory = await store.load(session_id)
+            memory = await store.load(effective_session_id)
         except Exception as exc:
             raise HTTPException(
                 status_code=404,

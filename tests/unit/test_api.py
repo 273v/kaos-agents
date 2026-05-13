@@ -7,6 +7,11 @@ Covers:
 - GET /v1/sessions/{id} returns session state
 - DELETE /v1/sessions/{id} deletes session
 - 404 for nonexistent sessions
+
+KC17-P0-3: ``create_app()`` now requires an auth source. These tests use
+the localhost-dev escape hatch (``api_allow_unauth_localhost=True``) so
+the existing pre-auth flows still exercise. See ``test_api_auth.py`` for
+the bearer-token + tenant-scoping + CORS regression coverage.
 """
 
 from __future__ import annotations
@@ -17,19 +22,21 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from kaos_agents.api.server import create_app
+from kaos_agents.api.settings import KaosAgentsApiSettings
 from kaos_agents.types import IntentResult, IntentType
 
 
 @pytest.fixture
 def app():
     """Create a test FastAPI app with no runtime (tool-free)."""
-    return create_app()
+    settings = KaosAgentsApiSettings(api_allow_unauth_localhost=True)
+    return create_app(api_settings=settings)
 
 
 @pytest.fixture
 async def client(app):
-    """Create an async test client."""
-    transport = ASGITransport(app=app)
+    """Create an async test client (binds to 127.0.0.1)."""
+    transport = ASGITransport(app=app, client=("127.0.0.1", 12345))
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
 

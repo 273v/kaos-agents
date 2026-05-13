@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- **HTTP API auth + tenant scoping + CORS hardening (KC17-P0-3).** The FastAPI surface previously
+  shipped with NO auth, NO tenant scoping, and CORS wildcard + credentials. POST
+  `/v1/runs/{run_id}/approve` was a human-in-the-loop bypass for anyone who could reach the port.
+  - `create_app()` refuses to start unless `KAOS_AGENTS_API_TOKEN` is set OR
+    `KAOS_AGENTS_API_ALLOW_UNAUTH_LOCALHOST=1`. Pre-KC17 the API would happily run on `0.0.0.0`
+    with no token.
+  - Bearer-token auth via `Authorization: Bearer <KAOS_AGENTS_API_TOKEN>` with constant-time
+    compare. Wrong token → 401.
+  - Tenant scoping: sessions are namespaced by SHA-256(token)[:12]. Token A's session is 404 (not
+    403) to token B — explicit "no existence leak across tenants" contract.
+  - Localhost-dev mode (`KAOS_AGENTS_API_ALLOW_UNAUTH_LOCALHOST=1`) permits unauthenticated
+    requests from 127.0.0.1 / ::1 only; emits a per-request warning log.
+  - CORS default is `[]` (no cross-origin). Explicit origin list via
+    `KAOS_AGENTS_API_CORS_ALLOW_ORIGINS` (comma-separated). Wildcard `*` with credentials is
+    rejected at config time (the W3C CORS spec forbids it; Starlette permits but browsers reject).
 - **Default-deny destructive tool approvals (KC17-P0-2).** `Runner` and `tool_bridge` previously
   treated `permission_policy=None` as "skip all checks" — meaning an HTTP API or MCP caller could
   invoke a tool annotated `destructiveHint=True` with no approval gate. Now `None` installs
