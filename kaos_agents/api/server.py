@@ -526,7 +526,7 @@ def _register_routes(app: FastAPI) -> None:
         effective_session_id = scope_session_id(body.session_id, tenant_id)
         store = SessionStore(app.state.vfs)
         memory = await store.load_or_create(effective_session_id)
-        section_names = [mt.value for mt in memory._sections]
+        section_names = [mt.value for mt in memory.sections]
         return SessionResponse(
             session_id=body.session_id,
             turn_count=memory.turn_count,
@@ -551,7 +551,7 @@ def _register_routes(app: FastAPI) -> None:
                 detail=f"Session '{session_id}' not found: {exc}. "
                 "Check the session_id matches a previous message call.",
             ) from exc
-        section_names = [mt.value for mt in memory._sections]
+        section_names = [mt.value for mt in memory.sections]
         return SessionResponse(
             session_id=session_id,
             turn_count=memory.turn_count,

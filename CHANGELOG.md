@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **`SessionMemory.sections` is now a public read-only property (KC17-P2-4).** The HTTP API
+  in `kaos_agents/api/server.py` previously read `memory._sections` — a leading-underscore,
+  `__slots__`-private attribute — to enumerate configured section types in the wire payload.
+  Any future memory-layout change would have silently broken the public surface. The new
+  `memory.sections` property returns a defensively-copied `tuple[MemoryType, ...]` keyed in
+  configuration order. The HTTP API now uses it; the private `_sections` attribute remains
+  for internal mutation only.
+
 ### Fixed
 - **Atomic `SessionStore.save` survives SIGTERM mid-save (KC17-P1-3).** Pre-KC17 `save()`
   wrote `memory.json` and `graph.ttl` as two non-atomic `vfs.write()` calls. A SIGTERM
