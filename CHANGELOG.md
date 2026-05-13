@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Quickstart replaced: README now demonstrates the package's actual
+  value prop (FindingsAgent reviewing 5 mutual NDAs with provenance,
+  cost cap, refusal contract, and audit trail) instead of a one-shot
+  LLM call. Quickstart loads real curated NDAs from
+  `kaos_agents.examples.nda_review.ndas` via importlib.resources, so
+  it works from any pip-install. Live integration test enforces the
+  example can't drift from reality (KC17-P0-6).
 - `SECURITY.md` and `CONTRIBUTING.md` rewritten for the actual
   kaos-agents surface — HTTP API auth (P0-3), tool approvals (P0-2),
   memory deletion (P1-1), prompt-injection envelope, recorder

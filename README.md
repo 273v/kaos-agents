@@ -45,48 +45,130 @@ uv add 'kaos-agents[llm,pdf,office,source,web]' # +tool-bearing siblings auto-re
 
 ## 60-second quickstart
 
-The minimum working example: a `BaseAgent` answering a single user turn
-against Anthropic Haiku 4.5 (the verified-green default model — see
-*Known limitations* below for the verified provider matrix). Requires
+`kaos-agents` reviews **batches** of legal documents the way an
+associate does — every sentence considered, every finding cited back
+to its source paragraph, every LLM call captured to an audit trail.
+The quickstart loads 5 mutual NDAs from a deal-room and asks a senior-
+counsel question, then prints a per-document finding report with the
+deviations a partner would act on.
+
+The fixtures (curated, anonymized NDAs with lawyer-authored ground
+truth at `tests/integration/ladder/fixtures/nda_ground_truth.py`) ship
+as package data, so this works on a plain `pip install`. Requires
 `ANTHROPIC_API_KEY` in the environment and `pip install
-'kaos-agents[llm]'`.
+'kaos-agents[llm,office]'` (the `office` extra pulls in `kaos-office`
+for the DOCX reader).
+
+```bash
+python -m kaos_agents.examples.nda_review.quickstart
+```
+
+The runnable source lives at `kaos_agents/examples/nda_review/quickstart.py`
+and is short enough to read top-to-bottom. The pattern:
 
 ```python
 import asyncio
+from importlib.resources import files as _resource_files
 
-from kaos_core.vfs.core import IsolationMode, StorageBackend, VFSConfig, VirtualFileSystem
+from kaos_agents.patterns.findings import FindingsAgent, every_sentence_selector
 
-from kaos_agents.runtime.agent import BaseAgent
+NDAS_DIR = _resource_files("kaos_agents.examples.nda_review").joinpath("ndas")
 
 
-async def main() -> None:
-    # In-memory VFS keeps the quickstart stateless. For a real deployment
-    # use KaosRuntime() (disk-backed at .kaos-vfs/) or scope a per-tenant
-    # root. See "Known limitations / Persistence model" below.
-    vfs = VirtualFileSystem(
-        config=VFSConfig(
-            default_backend=StorageBackend.MEMORY,
-            isolation_mode=IsolationMode.GLOBAL,
-        )
+async def review_one(docx_path: str):
+    from kaos_content.views import DocumentView
+    from kaos_nlp_core._defaults import get_default_punkt_tokenizer
+    from kaos_office import parse_docx
+
+    view = DocumentView(parse_docx(docx_path), sentence_segmenter=get_default_punkt_tokenizer())
+    agent = FindingsAgent(
+        selector=every_sentence_selector,             # Phase 1: enumerate EVERY sentence
+        filter_model="anthropic:claude-haiku-4-5",    # Phase 2: cheap filter
+        synthesis_model="anthropic:claude-sonnet-4-6",# Phase 3: quality synthesis with cites
+        chunk_size=20,
+        num_parallel=3,
+        relevance_threshold=0.4,
+        max_cost_usd=0.50,                            # strict per-doc cap
+    )
+    return await agent.run(
+        "Review this NDA for deviations: governing law, term length, "
+        "confidentiality survival, non-solicit clauses, signature anomalies.",
+        view,
     )
 
-    agent = BaseAgent(vfs, model="anthropic:claude-haiku-4-5")
-    response = await agent.turn(
-        "In one sentence, what is the Federal Register?",
-        session_id="quickstart",
-    )
 
-    print(response.text)
-    print(f"cost: ${response.cost_usd:.6f}  tokens: {response.total_tokens}")
+async def main():
+    nda_paths = sorted(p for p in NDAS_DIR.iterdir() if p.name.endswith(".docx"))
+    results = await asyncio.gather(*(review_one(str(p)) for p in nda_paths))
+    for path, result in zip(nda_paths, results):
+        if result.refusal is not None:        # typed refusal — not a crash
+            print(f"{path.name}: refused ({result.refusal.reason})")
+            continue
+        print(f"{path.name}: ${result.total_cost_usd:.4f}, "
+              f"{result.total_filtered} findings, "
+              f"budget_exceeded={result.budget_exceeded}")
+        print(result.answer)
 
 
 asyncio.run(main())
 ```
 
-The same `BaseAgent.turn()` call produces a streaming event stream when
-invoked as `async for event in agent.run(...)` — see
-[`kaos-agents/CLAUDE.md`](CLAUDE.md) for the 8-step turn-loop design
-and the 15-event taxonomy.
+**Expected output** (one live run, ~40 seconds wall-clock,
+$0.18 total across 5 NDAs):
+
+```
+Loaded 5 NDAs: EMNA Mutual NDA.docx, MNDA - Acme.docx, MNDA - BI.docx, MNDA - CC Final 2.docx, MNDA - DynaMo.docx
+
+--- EMNA Mutual NDA.docx ---
+  Cost: $0.0377  budget_exceeded=False
+  Enumerated 80 sentences, 21 survived the filter.
+  Governing law: Delaware [94a1cfb7bb3d]. Term: 2 years [4f7ac284120a].
+  Confidentiality survival: irreconcilable conflict between 1-year cap [d43bd017fd81]
+  and "perpetual" clause [5ce2b29c4050]. Non-solicit: 6 months, employees only [9f3ba8badc51].
+  TEMPLATE ARTIFACT: signature block reads "DynaMo" even though parties are
+  273 Ventures + ExMachi Bank N.A. — likely an unupdated prior-version artifact.
+
+--- MNDA - Acme.docx ---
+  Cost: $0.0324  Enumerated 90 sentences, 15 survived.
+  Governing law: Michigan, venue Lansing. Term: OPEN-ENDED — no end date stated.
+  Confidentiality survives indefinitely "unless the Disclosing Party sends ...
+  written notice releasing the Recipient." No non-solicit clause.
+
+--- MNDA - BI.docx ---           Michigan / 3-year term  / "John Doe" placeholder signatory
+--- MNDA - CC Final 2.docx ---   Michigan / 5-year term  / non-solicit covers customers (broad)
+--- MNDA - DynaMo.docx ---       Delaware / 2-year term  / 6-month non-solicit, employees only
+
+TOTAL: 100 findings across 5 NDAs, $0.1836 spent.
+```
+
+What this demonstrates that a one-shot LLM call cannot:
+
+- **Recall-first review** — every sentence is enumerated (Phase 1),
+  then filtered (Phase 2) — so a clause buried in a non-obvious section
+  of the document does not get missed. The `every_sentence_selector`
+  is the right tool when missing a clause costs more than the
+  marginal LLM cycles.
+- **Typed findings with provenance** — each surviving sentence carries
+  a deterministic `finding_id` (SHA-256 over the AST anchor), a
+  `block_ref` back to the paragraph, and a `page` number when known.
+  A partner can verify every cite.
+- **Refusal contract** — when no candidate survives, the agent returns
+  a `FindingsRefusal` with a stable `reason` string. An empty answer
+  no longer looks like a crash.
+- **Strict cost cap** — `max_cost_usd=0.50` is a contract, not a hope.
+  If the filter sweep would breach the cap, the agent stops dispatching
+  new chunks and surfaces `budget_exceeded=True`. The synthesis call
+  is also gated by a pre-flight headroom check.
+- **Audit trail** — every LLM call routed through `kaos-llm-core` is
+  captured to a JSONL recorder (schema-v4, redaction-by-default,
+  `fsync()` per line — survives `SIGTERM` and pod eviction). See
+  "Live audit trail" below.
+
+The same `FindingsAgent.run()` is also exposed via the
+`kaos-agent-findings` MCP tool (typed `cost_usd` / `total_tokens` at the
+top of `ToolResult.structuredContent`). For a streaming variant or the
+8-step turn-loop pattern, see [`CLAUDE.md`](CLAUDE.md) and the 15-event
+taxonomy.
 
 ## Patterns
 
