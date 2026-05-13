@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Atomic `SessionStore.save` survives SIGTERM mid-save (KC17-P1-3).** Pre-KC17 `save()`
+  wrote `memory.json` and `graph.ttl` as two non-atomic `vfs.write()` calls. A SIGTERM
+  between them left a torn on-disk state that the next `load()` consumed as corrupt JSON.
+  Both writes now route through `_atomic_write`: temp+fsync+`os.replace` on disk-backed VFS
+  (POSIX-atomic on the same filesystem), with a best-effort directory `fsync` for Linux
+  durability. Non-disk backends (memory) fall back to direct write — torn states aren't
+  reachable for in-process bytes.
 - **DELETE session + memory-clear actually remove persisted memory (KC17-P1-1).** The HTTP
   API's `DELETE /v1/sessions/{id}` and the MCP `kaos-agent-memory-clear` tool previously called
   `vfs.cleanup_context(session_id)` only — leaving
