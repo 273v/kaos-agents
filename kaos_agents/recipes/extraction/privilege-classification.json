@@ -1,0 +1,120 @@
+{
+  "name": "privilege-classification",
+  "description": "Classify documents for attorney-client privilege, work product doctrine, and related protections. Generates privilege log entries per FRCP 26(b)(5)(A). Competitive baseline: Relativity aiR for Privilege (>99% recall on 25M+ documents, 610 hours saved per 30K-document case).",
+  "harvey_recall_floor": null,
+  "schema": {
+    "id": "privilege-classification-v1",
+    "version": 1,
+    "columns": [
+      {
+        "id": "privilege_basis",
+        "column_type": "enum",
+        "description": "The legal basis for asserting privilege over this document. Select the strongest applicable privilege doctrine. Attorney-client privilege requires: (1) an attorney or someone reasonably believed to be an attorney, (2) a client or prospective client, (3) a communication, (4) made for the purpose of seeking or providing legal advice, (5) intended to be confidential. Work product doctrine protects materials prepared in anticipation of litigation (Hickman v. Taylor). Joint defense extends attorney-client privilege to co-parties with aligned legal interests. If no privilege applies, select 'none'.",
+        "constraints": {
+          "values": [
+            "attorney_client",
+            "work_product_opinion",
+            "work_product_ordinary",
+            "joint_defense",
+            "common_interest",
+            "deliberative_process",
+            "none"
+          ]
+        }
+      },
+      {
+        "id": "attorney_identified",
+        "column_type": "string",
+        "description": "The attorney or law firm whose involvement confers privilege. Look in email From/To/CC fields, letterheads, signature blocks, and forwarding chains. Include the person's name and their role (outside counsel, in-house counsel, or unknown). If the document was sent BY an attorney, they are the attorney. If sent TO an attorney for legal advice, they are also the attorney. Return 'None identified' if no attorney appears.",
+        "required": false
+      },
+      {
+        "id": "client_identified",
+        "column_type": "string",
+        "description": "The client or entity holding the privilege. For attorney-client privilege, the privilege holder is the CLIENT, not the attorney. For corporate clients, identify the specific corporate entity. For individual clients, identify the person. Look in the To/From fields and the body. Return 'None identified' if the client cannot be determined.",
+        "required": false
+      },
+      {
+        "id": "communication_type",
+        "column_type": "enum",
+        "description": "The form of the communication or document. Classify based on how the content was created and transmitted. Emails include email threads and forwards. Memoranda are formal internal documents. Draft documents are work-in-progress versions of contracts, briefs, or filings.",
+        "constraints": {
+          "values": [
+            "email",
+            "memorandum",
+            "letter",
+            "draft_document",
+            "notes",
+            "presentation",
+            "spreadsheet",
+            "attachment",
+            "meeting_minutes",
+            "other"
+          ]
+        }
+      },
+      {
+        "id": "legal_advice_present",
+        "column_type": "boolean",
+        "description": "Whether the document contains, requests, or reflects legal advice as opposed to purely business, administrative, or factual content. The 'dominant purpose' test applies: if the primary reason for the communication was to obtain or provide legal counsel, this is true. Business strategy discussions that happen to mention legal risks are NOT legal advice unless the legal analysis is the dominant purpose. Be conservative — when in doubt, mark false."
+      },
+      {
+        "id": "confidentiality_maintained",
+        "column_type": "enum",
+        "description": "Whether confidentiality was maintained for the communication. Check: (1) was the communication shared with any third party outside the attorney-client relationship? (2) was it forwarded to non-privileged recipients? (3) does the document bear confidentiality markings? (4) was it posted publicly or filed without seal? 'potentially_waived' means a third party appears in the recipient list but may be covered by joint defense or agency. 'waived' means clear disclosure to an adverse or unrelated party.",
+        "constraints": {
+          "values": [
+            "maintained",
+            "potentially_waived",
+            "waived",
+            "unknown"
+          ]
+        }
+      },
+      {
+        "id": "work_product_type",
+        "column_type": "enum",
+        "description": "If work product doctrine applies, classify the tier. 'opinion' work product contains mental impressions, conclusions, opinions, or legal theories of an attorney — this receives near-absolute protection. 'ordinary' work product is factual investigation or compilation prepared in anticipation of litigation — this is discoverable on showing substantial need and inability to obtain the equivalent. Select 'not_applicable' if the document was not prepared in anticipation of litigation.",
+        "constraints": {
+          "values": [
+            "opinion",
+            "ordinary",
+            "not_applicable"
+          ]
+        }
+      },
+      {
+        "id": "privilege_holder",
+        "column_type": "string",
+        "description": "The name of the entity or individual who holds the privilege and has authority to waive it. For attorney-client privilege, this is always the CLIENT (not the attorney). For corporate clients, the privilege is held by the corporation acting through its officers and directors. For work product, the privilege holder is the party who prepared it or on whose behalf it was prepared."
+      },
+      {
+        "id": "waiver_risk",
+        "column_type": "enum",
+        "description": "Assessment of whether the privilege may have been waived. Consider: (1) voluntary disclosure to third parties, (2) crime-fraud exception (communication furthering a crime or fraud), (3) at-issue waiver (party put privileged matter in issue), (4) subject-matter waiver from partial disclosure, (5) FRE 502(b) inadvertent disclosure safe harbor (reasonable steps taken to prevent and rectify). 'no_risk' means all elements intact with no disclosure. 'low_risk' means minor concerns. 'waived' means clear, intentional disclosure to an adverse party.",
+        "constraints": {
+          "values": [
+            "no_risk",
+            "low_risk",
+            "moderate_risk",
+            "high_risk",
+            "waived"
+          ]
+        }
+      },
+      {
+        "id": "privilege_log_description",
+        "column_type": "string",
+        "description": "A 1-2 sentence description suitable for a federal privilege log entry per FRCP 26(b)(5)(A). Must identify: the nature of the document, the privilege asserted, and why the privilege applies — without revealing privileged content. Use the template: '[Document type] from [author role] to [recipient role] [providing/requesting] legal advice regarding [general subject]. Privileged under [basis].' Example: 'Email from outside counsel to corporate client providing legal advice regarding pending SEC investigation. Privileged under attorney-client privilege.'"
+      }
+    ]
+  },
+  "notes": [
+    "Privilege is RECALL-optimized: a missed privileged document can be catastrophic (waiver). Err on the side of flagging as potentially privileged.",
+    "The Extract program should use provenance='cited' so every classification is grounded in specific text from the document.",
+    "For email corpora, pre-process with kaos-source EML/MBOX parser to extract headers (From/To/CC/Subject/Date) before feeding to the extraction schema.",
+    "Domain intelligence (kaos-web WHOIS/DNS) can classify email domains as law firm vs corporate vs third party — this is how Relativity builds its social network graph.",
+    "The December 2025 FRCP amendments require parties to negotiate privilege log format at the Rule 26(f) conference. The privilege_log_description column is designed for the common 'individual entry' format."
+  ],
+  "golden_sets": []
+}

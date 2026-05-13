@@ -1,0 +1,90 @@
+# Pre-commit hooks for kaos-agents.
+#
+# Install:
+#   uvx pre-commit install
+#
+# Run on every commit (automatic after install) or manually on the whole tree:
+#   uvx pre-commit run --all-files
+#
+# Hook versions are pinned for reproducibility. The CI workflow runs the same
+# checks (ruff format/check, ty check, pytest) so local hooks just shorten the
+# feedback loop — they are not a substitute for CI.
+
+repos:
+  # ───────────── general hygiene ─────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      # Test fixtures, audit-trail JSONLs, and pinned benchmark JSONs
+      # are preserved verbatim — whitespace cleanup would shift gold
+      # spans and invalidate provenance hashes.
+      - id: trailing-whitespace
+        exclude: ^(LICENSE|tests/fixtures/|tests/integration/runs/|docs/benchmarks/)
+      - id: end-of-file-fixer
+        exclude: ^(LICENSE|tests/fixtures/|tests/integration/runs/|docs/benchmarks/)
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: mixed-line-ending
+        args: [--fix=lf]
+        exclude: ^(tests/fixtures/|tests/integration/runs/|docs/benchmarks/)
+      - id: detect-private-key
+
+  # ───────────── ruff (format + lint) ─────────────
+  # Pinned to match the dev group in pyproject.toml to avoid drift between
+  # local hooks and `uv sync --group dev`.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.12
+    hooks:
+      - id: ruff-format
+        files: ^(kaos_agents|tests)/.*\.py$
+      - id: ruff-check
+        args: [--fix, --exit-non-zero-on-fix]
+        files: ^(kaos_agents|tests)/.*\.py$
+
+  # ───────────── ty (type check) ─────────────
+  # Astral's ty is still pre-1.0 and does not ship an official pre-commit hook
+  # yet. Run via `uv run` so the locked dev-group version (matching CI) is
+  # used. `pass_filenames: false` because ty works on the project, not on
+  # individual files.
+  - repo: local
+    hooks:
+      - id: ty
+        name: ty check
+        entry: uv run ty check kaos_agents/ tests/
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true
+      - id: bandit
+        name: bandit
+        entry: uvx --python 3.13 bandit
+        args:
+          - --recursive
+          - --skip
+          - B101,B324,B404,B603,B607
+          - --severity-level
+          - medium
+          - --confidence-level
+          - medium
+          - kaos_agents
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true
+      - id: vulture
+        name: vulture
+        entry: uvx --python 3.13 vulture
+        args:
+          - kaos_agents
+          - --min-confidence
+          - "100"
+          - --ignore-names
+          - client_id,scopes,authorization_endpoint,token_endpoint,device_authorization_endpoint,url,open_ch,container_tag,message_id,parent_message_id,kwargs,context_id,frame,signum,exc_type,tb,service_name
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true

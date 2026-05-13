@@ -1,0 +1,35 @@
+{
+  "name": "edgar-research",
+  "description": "Research SEC EDGAR filings (10-K, 10-Q, 8-K) for a company",
+  "tools": [
+    "kaos-source-edgar-search",
+    "kaos-source-edgar-company",
+    "kaos-source-edgar-lookup",
+    "kaos-web-get-markdown",
+    "kaos-agent-plan"
+  ],
+  "steps": [
+    {
+      "description": "Look up the company's CIK number from ticker symbol",
+      "tool": "kaos-source-edgar-lookup"
+    },
+    {
+      "description": "Search for recent filings by type (10-K, 10-Q, 8-K)",
+      "tool": "kaos-source-edgar-search"
+    },
+    {
+      "description": "Get company filing metadata and recent submissions",
+      "tool": "kaos-source-edgar-company"
+    },
+    {
+      "description": "Fetch and extract the full text of key filings",
+      "tool": "kaos-web-get-markdown",
+      "note": "EDGAR filing URLs are HTML \u2014 extract with kaos-web for clean content"
+    },
+    {
+      "description": "Analyze the filing content \u2014 extract risk factors, financial highlights, or material events",
+      "tool": "kaos-agent-plan",
+      "note": "Use Cited[T] extraction for provenance-tracked findings"
+    }
+  ]
+}

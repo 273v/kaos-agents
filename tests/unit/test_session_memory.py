@@ -1,0 +1,321 @@
+"""Tests for SessionMemory — the top-level memory container."""
+
+from __future__ import annotations
+
+import pytest
+
+from kaos_agents.errors import MemoryBudgetExceededError
+from kaos_agents.memory.session import SessionMemory
+from kaos_agents.types.memory import MemoryType
+
+
+class TestSessionMemoryBasic:
+    def test_create_with_defaults(self):
+        mem = SessionMemory("test")
+        assert mem.session_id == "test"
+        assert mem.turn_count == 0
+        assert mem.total_tokens == 0
+        assert (
+            len(mem.section_names) == 15
+        )  # DEFAULT_SECTIONS (13 + GRAPH from B1 + LESSONS from G2)
+
+    def test_sections_public_property(self):
+        """KC17-P2-4 — ``memory.sections`` is the public read-only view.
+
+        Pre-KC17 the HTTP API + downstream consumers reached into
+        ``memory._sections`` (slot-private). ``memory.sections`` is the
+        public accessor; it returns a tuple keyed in the configured order.
+        """
+        mem = SessionMemory("test-sections")
+        sections = mem.sections
+        # Must be a tuple (immutable for callers).
+        assert isinstance(sections, tuple)
+        # Must contain MemoryType keys, not Section objects (the API
+        # consumes ``mt.value`` for the wire form).
+        assert all(isinstance(s, MemoryType) for s in sections)
+        # And match section_names (the historical accessor).
+        assert list(sections) == mem.section_names
+
+    def test_sections_returns_defensive_copy(self):
+        """Mutating the returned tuple cannot leak into the internal dict.
+
+        Tuples are immutable so this is enforced by the type system, but
+        we still verify the structural contract: a second call returns
+        a fresh tuple equal-by-value to the first, and the underlying
+        dict is unaffected by anything the caller does with the result.
+        """
+        from typing import Any, cast
+
+        mem = SessionMemory("test-defensive")
+        first = mem.sections
+        second = mem.sections
+        assert first == second
+        # The tuple cannot be mutated (TypeError on assignment); cast
+        # through Any to bypass ty's static check — we WANT to exercise
+        # the runtime immutability contract.
+        with pytest.raises(TypeError):
+            cast("Any", first)[0] = MemoryType.MESSAGES
+
+    def test_add_and_read(self):
+        mem = SessionMemory("test")
+        mem.add(MemoryType.MESSAGES, "Hello world")
+        assert mem.section_token_count(MemoryType.MESSAGES) > 0
+        assert mem.section_item_count(MemoryType.MESSAGES) == 1
+
+    def test_add_multiple_sections(self):
+        mem = SessionMemory("test")
+        mem.add(MemoryType.MESSAGES, "user message")
+        mem.add(MemoryType.ACTIONS, "tool result")
+        mem.add(MemoryType.FINDINGS, "key finding")
+        assert mem.total_tokens > 0
+        assert mem.section_item_count(MemoryType.MESSAGES) == 1
+        assert mem.section_item_count(MemoryType.ACTIONS) == 1
+        assert mem.section_item_count(MemoryType.FINDINGS) == 1
+
+    def test_explicit_section_rejects_writes(self):
+        mem = SessionMemory("test")
+        with pytest.raises(MemoryBudgetExceededError, match="explicit-only"):
+            mem.add(MemoryType.ROLE, "should fail")
+
+    def test_unknown_section_raises(self):
+        from kaos_agents.errors import SectionNotConfiguredError
+
+        mem = SessionMemory("test")
+        with pytest.raises(SectionNotConfiguredError, match="not configured"):
+            mem.add(MemoryType.LAST_USER_MESSAGE, "should fail")
+
+    def test_unknown_section_is_also_key_error(self):
+        """SectionNotConfiguredError inherits KeyError for stdlib compat."""
+
+        mem = SessionMemory("test")
+        with pytest.raises(KeyError):
+            mem.add(MemoryType.LAST_USER_MESSAGE, "should fail")
+
+    def test_has_section(self):
+        mem = SessionMemory("test")
+        assert mem.has_section(MemoryType.MESSAGES)
+        assert not mem.has_section(MemoryType.LAST_USER_MESSAGE)
+
+
+class TestContextAssembly:
+    def test_get_sections_returns_requested(self):
+        mem = SessionMemory("test")
+        mem.add(MemoryType.MESSAGES, "msg 1")
+        mem.add(MemoryType.MESSAGES, "msg 2")
+        mem.add(MemoryType.ACTIONS, "action 1")
+
+        result = mem.get_sections(
+            [MemoryType.MESSAGES, MemoryType.ACTIONS],
+            total_budget_tokens=10000,
+        )
+        assert MemoryType.MESSAGES in result
+        assert MemoryType.ACTIONS in result
+        assert len(result[MemoryType.MESSAGES]) == 2
+        assert len(result[MemoryType.ACTIONS]) == 1
+
+    def test_get_sections_respects_total_budget(self):
+        mem = SessionMemory("test")
+        # Fill messages with enough content to exceed a small budget
+        for i in range(20):
+            mem.add(MemoryType.MESSAGES, f"Message number {i} with some content to use tokens")
+
+        result = mem.get_sections(
+            [MemoryType.MESSAGES],
+            total_budget_tokens=50,
+        )
+        total = sum(item.token_count for item in result[MemoryType.MESSAGES])
+        assert total <= 50
+
+    def test_get_sections_priority_trims_lowest_first(self):
+        mem = SessionMemory("test")
+        mem.add(MemoryType.MESSAGES, "important message " * 10)
+        mem.add(MemoryType.ACTIONS, "less important action " * 10)
+
+        # Request both with a tight budget, messages first in priority
+        result = mem.get_sections(
+            [MemoryType.MESSAGES, MemoryType.ACTIONS],
+            total_budget_tokens=30,
+            priority_order=[MemoryType.MESSAGES, MemoryType.ACTIONS],
+        )
+
+        # Messages (higher priority) should have more tokens than actions
+        msg_tokens = sum(i.token_count for i in result.get(MemoryType.MESSAGES, []))
+        act_tokens = sum(i.token_count for i in result.get(MemoryType.ACTIONS, []))
+        assert msg_tokens >= act_tokens
+
+    def test_get_sections_skips_unconfigured(self):
+        mem = SessionMemory("test")
+        result = mem.get_sections(
+            [MemoryType.MESSAGES, MemoryType.LAST_USER_MESSAGE],  # LAST_USER_MESSAGE not configured
+            total_budget_tokens=10000,
+        )
+        assert MemoryType.LAST_USER_MESSAGE not in result
+
+
+class TestTurnLifecycle:
+    def test_begin_turn_clears_ephemeral(self):
+        mem = SessionMemory("test")
+        mem.add(MemoryType.WORKING, "scratch note")
+        mem.add(MemoryType.PLANNING_CONTEXT, "plan context")
+        assert mem.section_item_count(MemoryType.WORKING) == 1
+
+        mem.begin_turn()
+        assert mem.section_item_count(MemoryType.WORKING) == 0
+        assert mem.section_item_count(MemoryType.PLANNING_CONTEXT) == 0
+
+    def test_begin_turn_preserves_persistent(self):
+        mem = SessionMemory("test")
+        mem.add(MemoryType.MESSAGES, "user message")
+        mem.begin_turn()
+        assert mem.section_item_count(MemoryType.MESSAGES) == 1
+
+    def test_end_turn_increments_counter(self):
+        mem = SessionMemory("test")
+        assert mem.turn_count == 0
+        mem.end_turn()
+        assert mem.turn_count == 1
+        mem.end_turn()
+        assert mem.turn_count == 2
+
+
+class TestSerialization:
+    def test_round_trip(self):
+        mem = SessionMemory("test-123")
+        mem.add(MemoryType.MESSAGES, "hello")
+        mem.add(MemoryType.MESSAGES, "world")
+        mem.add(MemoryType.ACTIONS, "action result")
+        mem.add(MemoryType.FINDINGS, "key finding")
+        mem.end_turn()
+
+        data = mem.to_dict()
+        restored = SessionMemory.from_dict(data)
+
+        assert restored.session_id == "test-123"
+        assert restored.turn_count == 1
+        assert restored.total_tokens == mem.total_tokens
+        assert restored.section_item_count(MemoryType.MESSAGES) == 2
+        assert restored.section_item_count(MemoryType.ACTIONS) == 1
+        assert restored.section_item_count(MemoryType.FINDINGS) == 1
+
+    def test_round_trip_empty_memory(self):
+        mem = SessionMemory("empty")
+        data = mem.to_dict()
+        restored = SessionMemory.from_dict(data)
+        assert restored.session_id == "empty"
+        assert restored.total_tokens == 0
+
+    def test_skips_empty_sections_in_serialization(self):
+        mem = SessionMemory("test")
+        mem.add(MemoryType.MESSAGES, "only messages")
+        data = mem.to_dict()
+        # Only MESSAGES should be in sections (the rest are empty)
+        assert "messages" in data["sections"]
+        assert "actions" not in data["sections"]
+
+    def test_unknown_section_in_data_is_skipped(self):
+        data = {
+            "session_id": "test",
+            "turn_count": 0,
+            "sections": {
+                "unknown_section_type": {"items": []},
+                "messages": {"items": []},
+            },
+        }
+        # Should not raise — just skip the unknown section
+        restored = SessionMemory.from_dict(data)
+        assert restored.session_id == "test"
+
+
+class TestEvictionUnderPressure:
+    def test_messages_over_budget_waits_for_summarize(self):
+        """Post-WS-0.7: the default MESSAGES section has
+        ``SummarizationPolicy.ON_OVERFLOW`` — so ``add()`` deliberately
+        allows transient overflow. Compression happens in
+        ``summarize_turn()``, not in ``add()``. Pre-WS-0.7 this test
+        expected eviction-at-add-time because ``add()`` always evicted;
+        that silently made ``ON_OVERFLOW`` summarization unreachable."""
+        mem = SessionMemory("test")
+        for i in range(200):
+            mem.add(MemoryType.MESSAGES, f"Message {i}: " + "x" * 100)
+
+        # Section is now transiently over budget (ON_OVERFLOW policy).
+        # Eviction does NOT happen at add() time for this policy.
+        assert mem.section_token_count(MemoryType.MESSAGES) > 3000, (
+            "ON_OVERFLOW section is expected to exceed budget until "
+            "summarize_turn() fires. If this assertion flips back, the "
+            "WS-0.7 fix has been reverted and summarize_turn will be "
+            "unreachable again."
+        )
+        # But all 200 items are retained — summarization will compress
+        # them into a single summary item on the next summarize_turn.
+        assert mem.section_item_count(MemoryType.MESSAGES) == 200
+
+    def test_ten_turn_conversation(self):
+        """Simulate 10 turns of conversation."""
+        mem = SessionMemory("test")
+        for turn in range(10):
+            mem.begin_turn()
+            mem.add(MemoryType.MESSAGES, f"User turn {turn}: What about topic {turn}?")
+            mem.add(MemoryType.WORKING, f"Thinking about topic {turn}...")
+            mem.add(MemoryType.ACTIONS, f"Called tool for topic {turn} → result data")
+            mem.add(MemoryType.MESSAGES, f"Assistant turn {turn}: Here's what I found...")
+            mem.add(MemoryType.FINDINGS, f"Finding {turn}: Key insight about topic {turn}")
+            mem.end_turn()
+
+        # Working memory has 1 item (from the last turn — cleared at begin_turn, not end_turn)
+        # After begin_turn of a hypothetical turn 11, it would be cleared
+        mem.begin_turn()
+        assert mem.section_item_count(MemoryType.WORKING) == 0
+        # Messages should be within budget
+        assert mem.section_token_count(MemoryType.MESSAGES) <= 3000
+        # Findings should all be retained (NONE eviction, 1500 budget is generous)
+        assert mem.section_item_count(MemoryType.FINDINGS) == 10
+        # Turn counter should be 10
+        assert mem.turn_count == 10
+
+
+class TestLoadExplicit:
+    def test_load_role(self):
+        mem = SessionMemory("test")
+        n = mem.load_explicit(MemoryType.ROLE, ["You are a legal assistant."])
+        assert n == 1
+        items = mem.get_recent(MemoryType.ROLE, 5)
+        assert len(items) == 1
+        assert "legal assistant" in items[0].content
+
+    def test_load_playbooks(self):
+        mem = SessionMemory("test")
+        n = mem.load_explicit(
+            MemoryType.PLAYBOOKS,
+            [
+                "Privilege review: parse → resolve → classify → log",
+                "Contract extraction: parse → extract → verify",
+            ],
+        )
+        assert n == 2
+        items = mem.get(MemoryType.PLAYBOOKS)
+        assert len(items) == 2
+
+    def test_load_plan_examples(self):
+        mem = SessionMemory("test")
+        n = mem.load_explicit(
+            MemoryType.PLAN_EXAMPLES,
+            ["Example: Search FR for rules → extract key provisions → summarize"],
+        )
+        assert n == 1
+
+    def test_explicit_sections_cannot_be_added_via_add(self):
+        """add() should reject writes to explicit sections."""
+        mem = SessionMemory("test")
+        with pytest.raises(MemoryBudgetExceededError):
+            mem.add(MemoryType.ROLE, "Should fail")
+
+    def test_load_explicit_survives_persistence_round_trip(self):
+        """Loaded explicit items should survive serialization."""
+        mem = SessionMemory("test")
+        mem.load_explicit(MemoryType.ROLE, ["I am a research assistant."])
+        data = mem.to_dict()
+        restored = SessionMemory.from_dict(data)
+        items = restored.get_recent(MemoryType.ROLE, 5)
+        assert len(items) == 1
+        assert "research assistant" in items[0].content

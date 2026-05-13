@@ -1,0 +1,277 @@
+{
+  "result": {
+    "question": "What are the receiving party's obligations to protect Confidential Information?",
+    "answer": "The receiving party has several obligations to protect Confidential Information:\n\n1. **Hold in confidence**: The Recipient must hold the Confidential Information in confidence and not disclose it to any person or entity without prior written consent of the Disclosing Party [e3904762].\n\n2. **Limited internal disclosure**: The Recipient may only share Confidential Information with personnel who strictly need it to perform duties related to the Agreement's limited purposes [90406b6a].\n\n3. **Binding permitted personnel**: Any personnel to whom Confidential Information is disclosed must be individually bound to a non-disclosure agreement substantially similar to the Agreement, at the Disclosing Party's request [befbe068].\n\n4. **Prompt notification of unauthorized disclosure**: The Recipient must promptly advise the Disclosing Party if it becomes aware of any possible unauthorized disclosure or use of the Confidential Information [f5c27d5e].\n\n5. **Return of materials**: Upon written request, the Recipient must return all written materials containing the Confidential Information to the Disclosing Party [9bdbc4a0].\n\n6. **General protection obligation**: The Receiving Party agrees to protect all Confidential Information and material disclosed between the parties [3d3e9a84].\n\n7. **Perpetual confidentiality**: These confidentiality obligations remain in full force and effect at all times after the effective date of the Agreement [204851ca].",
+    "total_enumerated": 27,
+    "total_filtered": 10,
+    "filter_cost_usd": 0.0045896,
+    "synthesis_cost_usd": 0.008205,
+    "total_cost_usd": 0.0127946,
+    "filter_calls": 2,
+    "findings": [
+      {
+        "finding_id": "90406b6a",
+        "text": "The Recipient shall not disclose any Confidential Information to any personnel, including, but not limited to, employees and contractors of the Recipient, except those personnel who are required to have the Confidential Information in order to perform their duties in connection with the limited purposes of this Agreement.",
+        "block_ref": "#/body/6/children/1/children/1/children/2/children/0",
+        "section_title": null,
+        "page": null,
+        "relevance": 1.0,
+        "reasoning": "Details the Recipient's obligation to restrict disclosure to only personnel who need it for agreement purposes."
+      },
+      {
+        "finding_id": "e3904762",
+        "text": "The Recipient will hold the Confidential Information in confidence and will not disclose the Confidential Information to any person or entity without the prior written consent of the Disclosing Party.",
+        "block_ref": "#/body/6/children/1/children/1/children/0/children/0",
+        "section_title": null,
+        "page": null,
+        "relevance": 1.0,
+        "reasoning": "Directly addresses the Recipient's primary obligation to hold Confidential Information in confidence and not disclose without written consent."
+      },
+      {
+        "finding_id": "f5c27d5e",
+        "text": "The Recipient shall promptly advise the Disclosing Party if the Recipient becomes aware of any possible unauthorized disclosure or use of the Confidential Information.",
+        "block_ref": "#/body/6/children/1/children/1/children/1/children/0",
+        "section_title": null,
+        "page": null,
+        "relevance": 1.0,
+        "reasoning": "Specifies the Recipient's obligation to promptly advise the Disclosing Party of unauthorized disclosure or use."
+      },
+      {
+        "finding_id": "3d3e9a84",
+        "text": "In consideration of the Parties\u2019 discussions and access the Receiving Party may have to Confidential Information of the Disclosing Party, the Parties agree that the Receiving Party will protect the Confidential Information and material which may be disclosed between the Disclosing Party and the Recipient.",
+        "block_ref": "#/body/2",
+        "section_title": null,
+        "page": null,
+        "relevance": 0.95,
+        "reasoning": "Directly states that the Receiving Party agrees to protect Confidential Information disclosed by the Disclosing Party."
+      },
+      {
+        "finding_id": "befbe068",
+        "text": "Permitted personnel to whom Confidential Information is disclosed shall be individually bound to a non-disclosure agreement substantially similar to this Agreement at the request of the Disclosing Party.",
+        "block_ref": "#/body/6/children/1/children/1/children/2/children/0",
+        "section_title": null,
+        "page": null,
+        "relevance": 0.95,
+        "reasoning": "Specifies that personnel receiving Confidential Information must be bound by non-disclosure agreements."
+      },
+      {
+        "finding_id": "359e7533",
+        "text": "In consideration for the receipt by the Recipient of the Confidential Information, the Recipient agrees as follows:",
+        "block_ref": "#/body/6/children/1/children/0",
+        "section_title": null,
+        "page": null,
+        "relevance": 0.9,
+        "reasoning": "Introduces the Recipient's obligations section, setting up the specific duties that follow."
+      },
+      {
+        "finding_id": "9bdbc4a0",
+        "text": "Upon the written request of the Disclosing Party, the Recipient shall return to the Disclosing Party all written materials containing the Confidential Information.",
+        "block_ref": "#/body/7/children/0/children/0",
+        "section_title": null,
+        "page": null,
+        "relevance": 0.9,
+        "reasoning": "Sets forth the Recipient's obligation to return written materials containing Confidential Information upon request."
+      },
+      {
+        "finding_id": "a3a56421",
+        "text": "The Recipient understands and acknowledges that the Confidential Information has been developed or obtained by the Disclosing Party by the investment of significant time, effort, and expense, and that the Confidential Information is a valuable, special, and unique asset of the Disclosing Party which provides the Disclosing Party with a significant competitive advantage, and needs to be protected from improper disclosure.",
+        "block_ref": "#/body/6/children/1/children/0",
+        "section_title": null,
+        "page": null,
+        "relevance": 0.85,
+        "reasoning": "Establishes the context for protection obligations by noting the value and competitive importance of Confidential Information."
+      },
+      {
+        "finding_id": "204851ca",
+        "text": "The confidentiality provisions of this Agreement shall remain in full force and effect at all times after the effective date of this Agreement.",
+        "block_ref": "#/body/7/children/10/children/0",
+        "section_title": null,
+        "page": null,
+        "relevance": 0.5,
+        "reasoning": "Indicates that confidentiality provisions remain in full force and effect, suggesting ongoing obligations of the receiving party to maintain confidentiality over time."
+      },
+      {
+        "finding_id": "d2b4ef69",
+        "text": "The Recipient acknowledges that, as between the Disclosing Party and the Recipient, the Confidential Information and all related copyrights and other intellectual property rights, are (and at all times will be) the property of the Disclosing Party, even if suggestions, comments, and/or ideas made by the Recipient are incorporated into the Confidential Information or related materials during the period of this Agreement.",
+        "block_ref": "#/body/7/children/3/children/0",
+        "section_title": null,
+        "page": null,
+        "relevance": 0.4,
+        "reasoning": "Clarifies that the receiving party acknowledges the disclosing party's ownership of intellectual property rights, which implies the recipient's obligation to respect and protect that ownership."
+      }
+    ],
+    "cited_finding_ids": [
+      "e3904762",
+      "90406b6a",
+      "befbe068",
+      "f5c27d5e",
+      "9bdbc4a0",
+      "3d3e9a84",
+      "204851ca"
+    ],
+    "wall_seconds": 10.356488704681396
+  },
+  "cited_finding_ids": [
+    "e3904762",
+    "90406b6a",
+    "befbe068",
+    "f5c27d5e",
+    "9bdbc4a0",
+    "3d3e9a84",
+    "204851ca"
+  ],
+  "citations_audit": [
+    {
+      "finding_id": "e3904762",
+      "exists_in_survivors": true,
+      "underlying_text": "The Recipient will hold the Confidential Information in confidence and will not disclose the Confidential Information to any person or entity without the prior written consent of the Disclosing Party.",
+      "underlying_block_ref": "#/body/6/children/1/children/1/children/0/children/0",
+      "section_title": null
+    },
+    {
+      "finding_id": "90406b6a",
+      "exists_in_survivors": true,
+      "underlying_text": "The Recipient shall not disclose any Confidential Information to any personnel, including, but not limited to, employees and contractors of the Recipient, except those personnel who are required to have the Confidential Information in order to perform their duties in connection with the limited purposes of this Agreement.",
+      "underlying_block_ref": "#/body/6/children/1/children/1/children/2/children/0",
+      "section_title": null
+    },
+    {
+      "finding_id": "befbe068",
+      "exists_in_survivors": true,
+      "underlying_text": "Permitted personnel to whom Confidential Information is disclosed shall be individually bound to a non-disclosure agreement substantially similar to this Agreement at the request of the Disclosing Party.",
+      "underlying_block_ref": "#/body/6/children/1/children/1/children/2/children/0",
+      "section_title": null
+    },
+    {
+      "finding_id": "f5c27d5e",
+      "exists_in_survivors": true,
+      "underlying_text": "The Recipient shall promptly advise the Disclosing Party if the Recipient becomes aware of any possible unauthorized disclosure or use of the Confidential Information.",
+      "underlying_block_ref": "#/body/6/children/1/children/1/children/1/children/0",
+      "section_title": null
+    },
+    {
+      "finding_id": "9bdbc4a0",
+      "exists_in_survivors": true,
+      "underlying_text": "Upon the written request of the Disclosing Party, the Recipient shall return to the Disclosing Party all written materials containing the Confidential Information.",
+      "underlying_block_ref": "#/body/7/children/0/children/0",
+      "section_title": null
+    },
+    {
+      "finding_id": "3d3e9a84",
+      "exists_in_survivors": true,
+      "underlying_text": "In consideration of the Parties\u2019 discussions and access the Receiving Party may have to Confidential Information of the Disclosing Party, the Parties agree that the Receiving Party will protect the Confidential Information and material which may be disclosed between the Disclosing Party and the Recipient.",
+      "underlying_block_ref": "#/body/2",
+      "section_title": null
+    },
+    {
+      "finding_id": "204851ca",
+      "exists_in_survivors": true,
+      "underlying_text": "The confidentiality provisions of this Agreement shall remain in full force and effect at all times after the effective date of this Agreement.",
+      "underlying_block_ref": "#/body/7/children/10/children/0",
+      "section_title": null
+    }
+  ],
+  "sentence_audit": [
+    {
+      "sentence": "The receiving party has several obligations to protect Confidential Information:\n\n1.",
+      "n_citations": 0,
+      "has_citation": false,
+      "cited_ids_in_sentence": []
+    },
+    {
+      "sentence": "**Hold in confidence**: The Recipient must hold the Confidential Information in confidence and not disclose it to any person or entity without prior written consent of the Disclosing Party [e3904762].",
+      "n_citations": 1,
+      "has_citation": true,
+      "cited_ids_in_sentence": [
+        "e3904762"
+      ]
+    },
+    {
+      "sentence": "2.",
+      "n_citations": 0,
+      "has_citation": false,
+      "cited_ids_in_sentence": []
+    },
+    {
+      "sentence": "**Limited internal disclosure**: The Recipient may only share Confidential Information with personnel who strictly need it to perform duties related to the Agreement's limited purposes [90406b6a].",
+      "n_citations": 1,
+      "has_citation": true,
+      "cited_ids_in_sentence": [
+        "90406b6a"
+      ]
+    },
+    {
+      "sentence": "3.",
+      "n_citations": 0,
+      "has_citation": false,
+      "cited_ids_in_sentence": []
+    },
+    {
+      "sentence": "**Binding permitted personnel**: Any personnel to whom Confidential Information is disclosed must be individually bound to a non-disclosure agreement substantially similar to the Agreement, at the Disclosing Party's request [befbe068].",
+      "n_citations": 1,
+      "has_citation": true,
+      "cited_ids_in_sentence": [
+        "befbe068"
+      ]
+    },
+    {
+      "sentence": "4.",
+      "n_citations": 0,
+      "has_citation": false,
+      "cited_ids_in_sentence": []
+    },
+    {
+      "sentence": "**Prompt notification of unauthorized disclosure**: The Recipient must promptly advise the Disclosing Party if it becomes aware of any possible unauthorized disclosure or use of the Confidential Information [f5c27d5e].",
+      "n_citations": 1,
+      "has_citation": true,
+      "cited_ids_in_sentence": [
+        "f5c27d5e"
+      ]
+    },
+    {
+      "sentence": "5.",
+      "n_citations": 0,
+      "has_citation": false,
+      "cited_ids_in_sentence": []
+    },
+    {
+      "sentence": "**Return of materials**: Upon written request, the Recipient must return all written materials containing the Confidential Information to the Disclosing Party [9bdbc4a0].",
+      "n_citations": 1,
+      "has_citation": true,
+      "cited_ids_in_sentence": [
+        "9bdbc4a0"
+      ]
+    },
+    {
+      "sentence": "6.",
+      "n_citations": 0,
+      "has_citation": false,
+      "cited_ids_in_sentence": []
+    },
+    {
+      "sentence": "**General protection obligation**: The Receiving Party agrees to protect all Confidential Information and material disclosed between the parties [3d3e9a84].",
+      "n_citations": 1,
+      "has_citation": true,
+      "cited_ids_in_sentence": [
+        "3d3e9a84"
+      ]
+    },
+    {
+      "sentence": "7.",
+      "n_citations": 0,
+      "has_citation": false,
+      "cited_ids_in_sentence": []
+    },
+    {
+      "sentence": "**Perpetual confidentiality**: These confidentiality obligations remain in full force and effect at all times after the effective date of the Agreement [204851ca].",
+      "n_citations": 1,
+      "has_citation": true,
+      "cited_ids_in_sentence": [
+        "204851ca"
+      ]
+    }
+  ],
+  "n_sentences_in_answer": 14,
+  "n_sentences_without_citation": 7,
+  "n_cited_ids_not_in_survivors": 0
+}

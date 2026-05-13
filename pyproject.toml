@@ -1,0 +1,276 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kaos-agents"
+dynamic = ["version"]
+description = "Agentic runtime with persistent memory for KAOS"
+readme = "README.md"
+requires-python = ">=3.13"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [
+  { name = "273 Ventures LLC", email = "it@273ventures.com" },
+]
+maintainers = [
+  { name = "Michael Bommarito", email = "mike@273ventures.com" },
+]
+keywords = [
+  "agentic",
+  "mcp",
+  "model-context-protocol",
+  "kaos",
+  "agent",
+  "ReAct",
+  "legal-tech",
+  "audit-trail",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Typing :: Typed",
+]
+dependencies = [
+  "kaos-core>=0.1.0a6,<0.2",
+  "kaos-content[markdown,html]>=0.1.0a6,<0.2",
+  "kaos-graph>=0.1.0a3,<0.2",
+  "kaos-nlp-core>=0.1.0a3,<0.2",
+  "pydantic>=2.11.0",
+  "pydantic-settings>=2.8.1",
+]
+
+[project.optional-dependencies]
+# LLM transport + typed Programs (Call, ReAct, RAG, Refine, BestOfN, ...)
+# kaos-llm-core>=0.1.0a6 pulls in the gpt-5.5 pricing entry parity fix
+# from KC16-2 / per-module kaos-llm-core 0.1.0a6 — required so the
+# Sprint-3 #9 cost-cap contract is enforceable on every published
+# provider, not just Anthropic.
+llm = ["kaos-llm-client>=0.1.0a3,<0.2", "kaos-llm-core>=0.1.0a7,<0.2"]
+# MCP server bridge (kaos-agents-serve --http and --stdio)
+mcp = ["kaos-mcp>=0.1.0a3,<0.2"]
+# FastAPI HTTP API surface (kaos-agents-serve --api)
+api = ["fastapi[standard]>=0.115"]
+# OpenTelemetry export hook
+otel = ["opentelemetry-api>=1.20"]
+# Cross-encoder rerank + dense embeddings
+rerank = ["kaos-nlp-transformers[torch]>=0.1.0a1"]
+
+# Per-tool-module extras — each maps 1:1 to a `--with-X` CLI flag.
+# Users opt in via e.g. `pip install 'kaos-agents[pdf,source,web]'`.
+pdf = ["kaos-pdf>=0.1.0a2,<0.2"]
+office = ["kaos-office[pptx]>=0.1.0a2,<0.2"]
+source = ["kaos-source>=0.1.0a3,<0.2"]
+web = ["kaos-web>=0.1.0a2,<0.2"]
+citations = ["kaos-citations>=0.1.0a2,<0.2"]
+tabular = ["kaos-tabular>=0.1.0a1,<0.2"]
+
+# Live-tier integration tests. Installs only what the live suite imports
+# beyond the base `dev` group — `pytesseract` for `test_pdf_ocr_legal_live.py`
+# (which probes `importlib.util.find_spec("pytesseract")` and skips the
+# test cleanly when missing, so this is a recall lever, not a hard-fail
+# dependency). The dev group already carries httpx / fastapi / datasets /
+# transformers / mdit-py-plugins which the live tests also import.
+live-tests = [
+  "pytesseract>=0.3.10",
+]
+
+# Convenience meta-extra: every tool module + every runtime extra.
+# Use `pip install 'kaos-agents[full]'` for a one-shot install of
+# everything required to run the chat CLI / serve CLI / FastAPI with
+# all `--with-*` flags enabled.
+full = [
+  "kaos-agents[llm,mcp,api,otel,rerank,pdf,office,source,web,citations,tabular]",
+]
+
+[dependency-groups]
+dev = [
+  "kaos-llm-client>=0.1.0a3,<0.2",
+  "kaos-llm-core>=0.1.0a7,<0.2",
+  "kaos-mcp>=0.1.0a3,<0.2",
+  "kaos-pdf>=0.1.0a2,<0.2",
+  "kaos-office[pptx]>=0.1.0a2,<0.2",
+  "kaos-source>=0.1.0a3,<0.2",
+  "kaos-web>=0.1.0a2,<0.2",
+  "kaos-citations>=0.1.0a2,<0.2",
+  "kaos-tabular>=0.1.0a1,<0.2",
+  # kaos-ml-core is unused in production code but referenced by two
+  # research-corpus tests (soft-imported via importlib.util.find_spec).
+  # Keeping it in `dev` so those tests RUN rather than silently skip.
+  "kaos-ml-core>=0.1.0a2,<0.2",
+  "kaos-nlp-transformers[torch]>=0.1.0a1",
+  "pytest>=8.3.5",
+  "pytest-asyncio>=0.26.0",
+  "pytest-cov>=6.0.0",
+  "pytest-benchmark>=5.1.0",
+  # Used by the Phase A7 unit-suite sanity gate
+  # (`pytest tests/unit/ -q --timeout=60`) — without this, the literal
+  # gate command fails with "unrecognized arguments: --timeout=60".
+  # See `docs/design/kc16-1-qa-gate-closure.md`.
+  "pytest-timeout>=2.3",
+  "ruff>=0.11.0",
+  "ty>=0.0.1a17",
+  "fastapi[standard]>=0.115",
+  "opentelemetry-api>=1.20",
+  "httpx>=0.27",
+  "datasets>=4.8.4",
+  "transformers>=5.5.4",
+  "mdit-py-plugins>=0.4",
+  "fastembed>=0.4",
+]
+
+[project.scripts]
+kaos-agent = "kaos_agents.cli.chat:main"
+kaos-extract = "kaos_agents.cli.extract:main"
+kaos-agents-serve = "kaos_agents.api.serve:main"
+
+[project.urls]
+Homepage = "https://kelvin.legal"
+Documentation = "https://docs.kelvin.legal"
+Repository = "https://github.com/273v/kaos-agents"
+Issues = "https://github.com/273v/kaos-agents/issues"
+Changelog = "https://github.com/273v/kaos-agents/blob/main/CHANGELOG.md"
+
+[tool.hatch.version]
+path = "kaos_agents/_version.py"
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/kaos_agents",
+  "/README.md",
+  "/CHANGELOG.md",
+  "/LICENSE",
+  "/NOTICE",
+  "/CLAUDE.md",
+  "/docs",
+  "/tests",
+]
+# KC17-P0-4 (release blocker, 2026-05-13): the sdist MUST NOT ship
+# unredacted live-test telemetry recordings or any other on-disk
+# artifact that contains privileged / attorney-client markers or
+# absolute internal paths. .gitignore is not enough — hatchling
+# builds from the working tree, so any maintainer running
+# ``uv build`` locally will pick up files that git refuses to track.
+# These globs are the second wall; the release-time CI smoke check
+# in .github/workflows/release.yml is the third. See
+# docs/audit-02/kaos-agents.md (P0-4) and
+# docs/oss/60-secrets-and-history/acceptance-gate.md.
+exclude = [
+  # 142 pre-KC16-4 schema_version=3 captures (~7.8 MB) under
+  # tests/integration/runs/2026-05-11/ contain verbatim LLM
+  # input/output, some with attorney-client markers in the
+  # synthesised deliverable text.
+  "tests/integration/runs/**",
+  # Defense in depth: any *.jsonl anywhere under tests/ is treated
+  # as a recording / fixture-output stream that should not ship.
+  # The single fixture-input we do consume in tests
+  # (tests/benchmarks/data/edgar-agreements-decoded.jsonl) is
+  # already .gitignored and regenerated on demand.
+  "tests/**/*.jsonl",
+  # Exploratory probe scripts (skeptic_probe_*.py, probe[1-4]_*.py)
+  # — listed in .gitignore but not in git, kept out of sdist
+  # explicitly so a maintainer-side build never picks them up.
+  "tests/scratch/**",
+  # Harvey-lab generated benchmark deliverables — these contain
+  # full LLM-generated output with privileged-marker boilerplate
+  # ("PRIVILEGED AND CONFIDENTIAL — ATTORNEY-CLIENT COMMUNICATION
+  # / ATTORNEY WORK PRODUCT") and absolute fixture paths. Stored
+  # under docs/benchmarks/_private/ (which is also .gitignored),
+  # with public summary numbers preserved in the public
+  # docs/benchmarks/*.md files.
+  "docs/benchmarks/_private/**",
+  # Local-only outputs from .benchmarks/ (pytest-benchmark) and
+  # the .kaos-vfs/ artifact store accumulate in the maintainer
+  # checkout; .gitignore covers them but they should also never
+  # be considered for sdist.
+  "/.benchmarks",
+  "/.kaos-vfs",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["kaos_agents"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = [
+  "-ra",
+  "--strict-markers",
+  "--strict-config",
+  "--cov=kaos_agents",
+  "--cov-branch",
+  "--cov-report=term-missing",
+]
+markers = [
+  "integration: end-to-end behavior checks",
+  "unit: focused unit checks",
+  "live: requires live API keys (real provider calls; cost-incurring)",
+  "network: requires outbound network access (HTTP APIs, etc.)",
+  "slow: long-running tests (>10s wall-clock)",
+  "benchmark: performance benchmarks",
+]
+
+[tool.coverage.run]
+source = ["kaos_agents"]
+branch = true
+omit = [
+  "*/tests/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+# No global `fail_under` here. Unit-only runs (`pytest tests/unit/ -q`)
+# naturally land at ~70% line coverage because integration paths under
+# `tests/integration/` are gated behind live-API markers. Pinning a
+# fail-under here would cause the Phase A7 unit-suite sanity gate to
+# exit non-zero despite every test passing — incoherent because the
+# 80% bar is meant to apply to the FULL suite (unit + integration +
+# live), not the unit subset. CI/full-suite runners enforce the
+# threshold explicitly via `--cov-fail-under=80` on the combined
+# invocation. See `docs/design/kc16-1-qa-gate-closure.md`.
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "@abstractmethod",
+]
+
+[tool.ruff]
+# Match the package's requires-python floor (>=3.13). Setting this to
+# py314 was triggering the PEP 758 except-without-parens auto-"upgrade"
+# on code that then fails ty check (ty reads requires-python honestly).
+# Ruff target-version should be the MINIMUM supported version, not the
+# dev interpreter.
+target-version = "py313"
+line-length = 100
+# tests/scratch/ holds exploratory probe scripts (skeptic_probe_*.py,
+# probe[1-4]_*.py) used to chase down KC16-era findings. They are
+# intentionally throwaway, never imported by the package or the test
+# suite, and are not tracked in git. Excluded from the QA gates so the
+# Phase A7 sanity command (`ruff format --check kaos_agents/ tests/`)
+# stays honest about the shipped surface.
+extend-exclude = ["tests/scratch"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF", "C4", "PTH"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["kaos_agents"]
+
+[tool.ty.src]
+include = ["kaos_agents", "tests"]
+# See `[tool.ruff] extend-exclude` above — `tests/scratch/` is exploratory
+# probe code, never imported by the package or test suite; excluded from
+# the Phase A7 type-check gate.
+exclude = ["tests/scratch"]
+
+[tool.uv]
+package = true

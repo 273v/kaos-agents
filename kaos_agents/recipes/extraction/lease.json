@@ -1,0 +1,153 @@
+{
+  "name": "lease",
+  "description": "Extract key terms from a commercial real-estate lease. Mirrors Harvey's published Lease workflow (24 fields, 97.20% recall floor on matched corpus).",
+  "harvey_recall_floor": 0.9720,
+  "schema": {
+    "id": "lease-v1",
+    "version": 2,
+    "columns": [
+      {
+        "id": "landlord",
+        "column_type": "string",
+        "description": "Act as a lease reviewer looking for the landlord / lessor entity. Look in the preamble paragraph that names the parties, the signature block, and any 'BETWEEN' clause. Return the exact legal name (e.g., 'ABC Realty Holdings LLC'). Do NOT include the landlord's address or state of organization. Do NOT include property management companies unless they are the actual landlord. Do NOT include tenant entities."
+      },
+      {
+        "id": "tenant",
+        "column_type": "string",
+        "description": "Act as a lease reviewer looking for the tenant / lessee entity. Look in the preamble, signature block, or 'BETWEEN' clause. Return the exact legal name. For guarantor situations, the tenant is the party WITH the lease obligation, not the guarantor. Do NOT include the landlord."
+      },
+      {
+        "id": "guarantor",
+        "column_type": "string",
+        "description": "Act as a lease reviewer looking for a lease guarantor — a third party guaranteeing the tenant's obligations. Usually a parent company or individual. Look for a separate 'Guaranty' section or a guarantor signature block. Do NOT confuse the tenant itself with the guarantor. If no guarantor exists, omit this field.",
+        "required": false
+      },
+      {
+        "id": "premises_description",
+        "column_type": "verbatim_quote",
+        "description": "Act as a lease reviewer extracting the verbatim premises description — the clause that identifies WHAT space is being leased. Include the street address, suite/unit number, floor, and rentable square footage if stated. Look in the 'Premises' definition section or Exhibit A. Return the exact text. Do NOT include the landlord's or tenant's corporate addresses. Do NOT paraphrase."
+      },
+      {
+        "id": "rentable_area_sf",
+        "column_type": "integer",
+        "description": "Act as a lease reviewer extracting the rentable square footage. Look in the Premises definition, Exhibit A, or the base rent schedule. Return as an integer (no commas). If only usable square footage is stated (not rentable), note that distinction. If both usable and rentable are stated, return the RENTABLE figure. If not stated, omit.",
+        "required": false
+      },
+      {
+        "id": "lease_commencement_date",
+        "column_type": "date",
+        "description": "Act as a lease reviewer looking for the lease commencement date — when the lease term BEGINS. This is often different from the rent commencement date. Look for 'Commencement Date', 'Lease Commencement', or a defined term cross-referenced in the Term section. Return ISO 8601 (YYYY-MM-DD). Do NOT return the rent commencement date if different. Do NOT return the execution date of the lease."
+      },
+      {
+        "id": "rent_commencement_date",
+        "column_type": "date",
+        "description": "Act as a lease reviewer looking for the rent commencement date — when the tenant's obligation to pay rent BEGINS. Often differs from lease commencement (tenant may occupy before paying rent during a build-out period). Return ISO 8601. If the rent commencement date equals the lease commencement date or is not separately stated, omit this field.",
+        "required": false
+      },
+      {
+        "id": "lease_term",
+        "column_type": "string",
+        "description": "Act as a lease reviewer extracting the lease term length. Look in the 'Term' section. Return the stated duration (e.g., '10 years', '120 months', '5 years with two 5-year renewal options'). Do NOT include renewal periods in the base term unless the lease states they are automatic. Do NOT return just a date range — extract the stated duration."
+      },
+      {
+        "id": "expiration_date",
+        "column_type": "date",
+        "description": "Act as a lease reviewer looking for the stated expiration date. Return ISO 8601. If the lease states a term length but no explicit expiration date, compute it from commencement + term and return. If completely unstated, omit.",
+        "required": false
+      },
+      {
+        "id": "base_rent_schedule",
+        "column_type": "verbatim_quote",
+        "description": "Act as a lease reviewer extracting the verbatim base rent schedule — the clause or table that specifies the monthly or annual rent and any escalation steps. Return the EXACT text. Include rent escalation dates and amounts. Do NOT include operating expense pass-throughs (those are separate). Do NOT include percentage rent clauses (those are separate). For tabular rent schedules, include the full table text."
+      },
+      {
+        "id": "operating_expenses_type",
+        "column_type": "enum",
+        "constraints": {"values": ["gross", "modified_gross", "triple_net", "full_service", "other"]},
+        "description": "Act as a lease reviewer classifying the operating expense structure. 'gross' = landlord pays all operating expenses. 'triple_net' (NNN) = tenant pays property taxes, insurance, and CAM directly. 'modified_gross' = tenant pays base year plus excess. 'full_service' = gross lease with all services included. Look for explicit 'NNN', 'Triple Net', 'Gross Lease', or 'Full Service' labels, OR infer from the operating expense section."
+      },
+      {
+        "id": "operating_expense_stops",
+        "column_type": "string",
+        "description": "Act as a lease reviewer looking for base year expense stops — the threshold above which the tenant pays operating expense increases. Look for 'Base Year', 'Expense Stop', or a defined dollar amount per RSF. If the lease is triple-net (tenant pays all), this field does not apply — omit.",
+        "required": false
+      },
+      {
+        "id": "security_deposit",
+        "column_type": "money",
+        "description": "Act as a lease reviewer extracting the security deposit amount. Look in the 'Security Deposit' section or the basic lease terms summary. Return the dollar amount. If a letter of credit is required instead, return the LC amount. If no security deposit is required, omit.",
+        "required": false
+      },
+      {
+        "id": "permitted_use",
+        "column_type": "verbatim_quote",
+        "description": "Act as a lease reviewer extracting the verbatim permitted use clause — what the tenant is allowed to use the premises for. Look in the 'Use' section. Return the exact text. Do NOT include the continuous-operation clause (that's a separate obligation). Do NOT paraphrase."
+      },
+      {
+        "id": "exclusive_use",
+        "column_type": "string",
+        "description": "Act as a lease reviewer looking for exclusive-use provisions — landlord's promise that no other tenant in the building/complex may operate the same type of business. Look for 'Exclusive Use', 'Non-Compete', or 'Use Restriction'. If absent, omit.",
+        "required": false
+      },
+      {
+        "id": "renewal_options",
+        "column_type": "list",
+        "constraints": {"inner": "string"},
+        "description": "Act as a lease reviewer extracting all renewal / extension options. For each option, state: number of renewal terms, length of each term, rent basis during renewal (e.g., 'fair market value', 'CPI-adjusted', 'stated amount'), and notice period. Look in the 'Renewal' or 'Extension' section. Return each option as a separate list item."
+      },
+      {
+        "id": "termination_rights",
+        "column_type": "list",
+        "constraints": {"inner": "string"},
+        "description": "Act as a lease reviewer extracting early termination rights. For each right, identify: which party holds it, what triggers it (kick-out clause, casualty, condemnation, co-tenancy failure, performance threshold), and any termination fee or penalty. Do NOT include expiration-of-term (that's not early termination). Return each right as a separate list item."
+      },
+      {
+        "id": "assignment_restrictions",
+        "column_type": "string",
+        "description": "Act as a lease reviewer extracting the assignment and subletting restrictions. Look for 'Assignment', 'Subletting', or 'Transfer' sections. State whether the tenant can assign or sublet, what consent standard applies, and whether there are any carve-outs (e.g., transfers to affiliates, mergers)."
+      },
+      {
+        "id": "landlord_consent_standard",
+        "column_type": "enum",
+        "constraints": {"values": ["sole_discretion", "not_unreasonably_withheld", "commercially_reasonable", "other"]},
+        "description": "Act as a lease reviewer classifying the standard for landlord's consent to assignment or subletting. 'sole_discretion' = landlord can refuse for any reason. 'not_unreasonably_withheld' = landlord must have a reasonable basis to refuse (the most tenant-favorable standard). 'commercially_reasonable' = similar to NRW but focused on business justification. If the lease uses different standards for assignment vs. subletting, use the standard for assignment."
+      },
+      {
+        "id": "tenant_improvement_allowance",
+        "column_type": "money",
+        "description": "Act as a lease reviewer extracting the tenant improvement (TI) allowance — the dollar amount the landlord contributes toward tenant's build-out. Look in the 'Tenant Improvements', 'Work Letter', or 'Exhibit B/C'. Return the total dollar amount or per-RSF amount. If no TI allowance is provided, omit.",
+        "required": false
+      },
+      {
+        "id": "free_rent_period",
+        "column_type": "string",
+        "description": "Act as a lease reviewer looking for free rent / rent abatement periods — time during which the tenant occupies but pays no (or reduced) base rent. Often buried in the rent schedule or a separate 'Abatement' section. State the duration and any conditions (e.g., 'first 3 months', 'months 1-6 at 50%'). If absent, omit.",
+        "required": false
+      },
+      {
+        "id": "casualty_clause_type",
+        "column_type": "string",
+        "description": "Act as a lease reviewer extracting the casualty / damage clause — what happens if the premises are damaged by fire or natural disaster. State the landlord's rebuild obligation (if any), the termination threshold (e.g., 'if repair takes more than 180 days'), and any rent abatement during repair. Look in the 'Casualty', 'Damage', or 'Destruction' section."
+      },
+      {
+        "id": "subordination_clause",
+        "column_type": "boolean",
+        "description": "Act as a lease reviewer determining whether the lease contains a subordination clause — a provision making the lease subordinate to any mortgage or deed of trust on the property. Look for 'Subordination', 'Non-Disturbance', or 'Attornment' (often as an 'SNDA' reference). Return true if the lease is subordinate, false if the lease is superior or if no subordination clause exists."
+      },
+      {
+        "id": "estoppel_delivery_period",
+        "column_type": "string",
+        "description": "Act as a lease reviewer looking for the estoppel certificate delivery period — the time the tenant must deliver an estoppel certificate after landlord's request. Look for 'Estoppel', 'Certificates', or 'Statements' in the Miscellaneous section. State the number of days (e.g., '10 business days', '15 days'). If absent, omit.",
+        "required": false
+      }
+    ]
+  },
+  "notes": [
+    "Triple-net (NNN) leases pass operating expenses, taxes, and insurance to tenant. The operating_expenses_type classification directly impacts the tenant's total occupancy cost.",
+    "Landlord consent standard matters materially: 'sole discretion' is near-absolute; 'not unreasonably withheld' creates a reasonableness test that protects the tenant's ability to transfer.",
+    "Free-rent periods are often buried in the rent schedule itself, not in a separate section. Check the base rent table for '$0' or 'abated' entries.",
+    "The Extract program should use provenance='cited' so every extracted clause is grounded in specific text from the lease with character spans.",
+    "For long leases (50+ pages), enable chunk_retry='default' to recover clauses the initial LLM pass misses due to attention dilution on mid-document content."
+  ],
+  "golden_sets": ["atticus/cuad"]
+}

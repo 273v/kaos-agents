@@ -1,0 +1,24 @@
+{
+  "name": "summarization",
+  "description": "Summarize one or more documents with configurable style and length",
+  "tools": [
+    "kaos-pdf-extract-parse",
+    "kaos-web-get-markdown",
+    "kaos-agent-chat"
+  ],
+  "steps": [
+    {
+      "description": "Parse the document(s) into structured content",
+      "tool": "kaos-pdf-extract-parse"
+    },
+    {
+      "description": "Generate a summary using the specified style (executive brief, detailed analysis, bullet points)",
+      "tool": "kaos-agent-chat",
+      "note": "Pass style instructions in the user message (e.g., \"Summarize in 3 bullet points\" or \"Write an executive summary\")"
+    },
+    {
+      "description": "For multi-document summarization, iterate over documents and combine",
+      "note": "Use PlanExecuteAgent for multi-step orchestration"
+    }
+  ]
+}

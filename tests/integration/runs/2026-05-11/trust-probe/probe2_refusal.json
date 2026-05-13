@@ -1,0 +1,168 @@
+{
+  "fixture": "MNDA - Acme.docx",
+  "questions": [
+    "What is the liquidated damages amount specified in this agreement?",
+    "What is the governing law's choice-of-forum arbitration seat \u2014 Singapore or Stockholm?",
+    "What is the maximum dollar cap on damages for breach of confidentiality?"
+  ],
+  "results": [
+    {
+      "question": "What is the liquidated damages amount specified in this agreement?",
+      "answer": "",
+      "total_enumerated": 90,
+      "total_filtered": 0,
+      "filter_cost_usd": 0.0041928,
+      "synthesis_cost_usd": 0.0,
+      "total_cost_usd": 0.0041928,
+      "filter_calls": 5,
+      "findings": [],
+      "cited_finding_ids": [],
+      "wall_seconds": 1.6398813724517822,
+      "classification": {
+        "answer": "",
+        "refusal_keyword_hit": false,
+        "dollar_or_number_in_answer": false,
+        "answer_len": 0
+      }
+    },
+    {
+      "question": "What is the governing law's choice-of-forum arbitration seat \u2014 Singapore or Stockholm?",
+      "answer": "The findings do not specify Singapore or Stockholm as an arbitration seat. According to the governing law clause, the agreement is governed by the laws of the State of Michigan [9c36c8d5], and exclusive jurisdiction and venue is the U.S. federal and state courts located in Lansing, Michigan [ce2aaa1f]. Arbitration is only an option if mutually agreed to in writing [488e6619], but no arbitration seat (Singapore or Stockholm) is mentioned anywhere in the findings.",
+      "total_enumerated": 90,
+      "total_filtered": 4,
+      "filter_cost_usd": 0.005296800000000001,
+      "synthesis_cost_usd": 0.0034679999999999997,
+      "total_cost_usd": 0.0087648,
+      "filter_calls": 5,
+      "findings": [
+        {
+          "finding_id": "223b07bd",
+          "text": "JURISDICTION AND DISPUTE RESOLUTION.",
+          "block_ref": "#/body/7/children/7/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "This is the section header for 'JURISDICTION AND DISPUTE RESOLUTION' which should contain information about arbitration seats and forum selection."
+        },
+        {
+          "finding_id": "488e6619",
+          "text": "If mutually agreed to in writing during the course of dispute, the Parties may bring such dispute to an alternative dispute resolution format such as mediation or arbitration.",
+          "block_ref": "#/body/7/children/7/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.8,
+          "reasoning": "Directly addresses alternative dispute resolution including arbitration as a mutually agreed option, which is relevant to determining the arbitration seat."
+        },
+        {
+          "finding_id": "ce2aaa1f",
+          "text": "The exclusive jurisdiction and venue of any claims, legal action, or proceeding arising from, relating to, or connected with these Terms shall be the U.S. federal (if they have jurisdiction) and state courts located in Lansing, Michigan.",
+          "block_ref": "#/body/7/children/7/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.7,
+          "reasoning": "Specifies exclusive jurisdiction and venue in Lansing, Michigan courts, which is relevant to forum selection though it addresses litigation rather than arbitration."
+        },
+        {
+          "finding_id": "9c36c8d5",
+          "text": "GOVERNING LAW. The validity, interpretation, construction and performance of this Agreement shall be governed by the laws of the State of Michigan, without giving effect to the principles of conflict of laws.",
+          "block_ref": "#/body/7/children/6/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.6,
+          "reasoning": "Identifies the governing law as Michigan state law, which is relevant context for understanding the legal framework, though it doesn't specify the arbitration seat."
+        }
+      ],
+      "cited_finding_ids": [
+        "9c36c8d5",
+        "ce2aaa1f",
+        "488e6619"
+      ],
+      "wall_seconds": 6.865292310714722,
+      "classification": {
+        "answer": "The findings do not specify Singapore or Stockholm as an arbitration seat. According to the governing law clause, the agreement is governed by the laws of the State of Michigan [9c36c8d5], and exclusive jurisdiction and venue is the U.S. federal and state courts located in Lansing, Michigan [ce2aaa1f]. Arbitration is only an option if mutually agreed to in writing [488e6619], but no arbitration seat (Singapore or Stockholm) is mentioned anywhere in the findings.",
+        "refusal_keyword_hit": false,
+        "dollar_or_number_in_answer": false,
+        "answer_len": 466
+      }
+    },
+    {
+      "question": "What is the maximum dollar cap on damages for breach of confidentiality?",
+      "answer": "The findings do not specify a maximum dollar cap on damages for breach of confidentiality. In fact, the findings indicate that the Disclosing Party is not liable for any direct, indirect, special, or consequential damages in connection with confidential information [ff525b7c], while also preserving the right to pursue claims for losses and damages [9ecbb789]. No specific dollar cap is mentioned in the provided findings.",
+      "total_enumerated": 90,
+      "total_filtered": 6,
+      "filter_cost_usd": 0.006284000000000001,
+      "synthesis_cost_usd": 0.0036360000000000003,
+      "total_cost_usd": 0.009920000000000002,
+      "filter_calls": 5,
+      "findings": [
+        {
+          "finding_id": "9ecbb789",
+          "text": "The Disclosing Party shall not be prohibited by this provision from pursuing other remedies, including a claim for losses and damages.",
+          "block_ref": "#/body/6/children/2/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.9,
+          "reasoning": "Directly states that the Disclosing Party can pursue other remedies including claims for losses and damages for breach of confidentiality."
+        },
+        {
+          "finding_id": "ff525b7c",
+          "text": "IN NO EVENT SHALL THE DISCLOSING PARTY BE LIABLE FOR ANY DIRECT, INDIRECT, SPECIAL, OR CONSEQUENTIAL DAMAGES IN CONNECTION WITH OR ARISING OUT OF THE PERFORMANCE OR USE OF ANY PORTION OF THE CONFIDENTIAL INFORMATION.",
+          "block_ref": "#/body/7/children/2/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.8,
+          "reasoning": "Establishes a liability limitation stating the Disclosing Party shall not be liable for certain damages, which directly addresses damage caps in the agreement."
+        },
+        {
+          "finding_id": "09a66f0e",
+          "text": "If it appears that the Recipient has disclosed (or has threatened to disclose) Confidential Information in violation of this Agreement, the Disclosing Party shall be entitled to an injunction to restrain the Recipient from disclosing the Confidential Information in whole or in part.",
+          "block_ref": "#/body/6/children/2/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.7,
+          "reasoning": "Discusses remedies for breach of confidentiality including injunctive relief, which is relevant to understanding the full scope of damages available."
+        },
+        {
+          "finding_id": "c3db5d03",
+          "text": "Each party agrees to defend, indemnify, and hold harmless the other party and its officers, directors, agents, affiliates, distributors, representatives, and employees from any and all third party claims, demands, liabilities, costs and expenses, including reasonable attorneys fees, costs and expenses resulting from the indemnifying party's material breach of any duty, representation, or warranty under this Agreement.",
+          "block_ref": "#/body/7/children/4/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.7,
+          "reasoning": "Discusses indemnification and recovery of costs/expenses for breaches, which could relate to damages caps for breach of confidentiality."
+        },
+        {
+          "finding_id": "70c1221a",
+          "text": "In any legal action between the Parties concerning this Agreement, the prevailing party shall be entitled to recover reasonable attorneys fees and costs.",
+          "block_ref": "#/body/7/children/8/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.4,
+          "reasoning": "Addresses recovery of reasonable attorneys fees in legal actions, which is relevant to damages provisions but does not specifically address dollar caps on confidentiality breaches."
+        },
+        {
+          "finding_id": "be1d06e0",
+          "text": "PROTECTION OF CONFIDENTIAL INFORMATION.",
+          "block_ref": "#/body/6/children/1/children/0",
+          "section_title": null,
+          "page": null,
+          "relevance": 0.4,
+          "reasoning": "This section header on protection of confidential information may introduce damage or remedy provisions related to breaches."
+        }
+      ],
+      "cited_finding_ids": [
+        "ff525b7c",
+        "9ecbb789"
+      ],
+      "wall_seconds": 6.2675461769104,
+      "classification": {
+        "answer": "The findings do not specify a maximum dollar cap on damages for breach of confidentiality. In fact, the findings indicate that the Disclosing Party is not liable for any direct, indirect, special, or consequential damages in connection with confidential information [ff525b7c], while also preserving the right to pursue claims for losses and damages [9ecbb789]. No specific dollar cap is mentioned in the provided findings.",
+        "refusal_keyword_hit": false,
+        "dollar_or_number_in_answer": false,
+        "answer_len": 423
+      }
+    }
+  ],
+  "n_with_refusal_keyword": 0,
+  "n_with_dollar_in_answer": 0
+}

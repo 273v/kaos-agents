@@ -1,0 +1,57 @@
+{
+  "timestamp": "2026-04-18T06:58:54",
+  "datasets": [
+    "scifact"
+  ],
+  "techniques": [
+    "bm25",
+    "lexicon",
+    "prf",
+    "bm25_rerank"
+  ],
+  "results": [
+    {
+      "dataset": "scifact",
+      "technique": "bm25",
+      "ndcg_at_10": 0.6506436654752435,
+      "map_at_100": 0.6125192024484984,
+      "recall_at_10": 0.7705000000000001,
+      "recall_at_100": 0.8625555555555555,
+      "avg_latency_s": 0.2743181719899682,
+      "num_queries": 300
+    },
+    {
+      "dataset": "scifact",
+      "technique": "lexicon",
+      "ndcg_at_10": 0.531413248993414,
+      "map_at_100": 0.49450000541186606,
+      "recall_at_10": 0.6563888888888889,
+      "recall_at_100": 0.7946666666666666,
+      "avg_latency_s": 0.2768660338023134,
+      "num_queries": 300
+    },
+    {
+      "dataset": "scifact",
+      "technique": "prf",
+      "ndcg_at_10": 0.570692498992634,
+      "map_at_100": 0.5105254836646846,
+      "recall_at_10": 0.7587222222222223,
+      "recall_at_100": 0.8622222222222223,
+      "avg_latency_s": 0.5393848759751806,
+      "num_queries": 300
+    },
+    {
+      "dataset": "scifact",
+      "technique": "bm25_rerank",
+      "ndcg_at_10": 0.6904094839426126,
+      "map_at_100": 0.6532948210399304,
+      "recall_at_10": 0.8008333333333333,
+      "recall_at_100": 0.8625555555555555,
+      "avg_latency_s": 1.0598388983857392,
+      "num_queries": 300
+    }
+  ],
+  "baselines": {
+    "scifact": 0.6506436654752435
+  }
+}

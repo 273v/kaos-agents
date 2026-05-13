@@ -1,0 +1,171 @@
+{
+  "name": "merger-agreement",
+  "description": "Extract key deal points from an M&A merger agreement. Mirrors Harvey's published Merger Agreements workflow (27 fields, 99.66% recall floor on matched corpus).",
+  "harvey_recall_floor": 0.9966,
+  "schema": {
+    "id": "merger-agreement-v2",
+    "version": 2,
+    "columns": [
+      {
+        "id": "parties",
+        "column_type": "list",
+        "constraints": {"inner": "string"},
+        "description": "Act as an M&A lawyer identifying all named parties to the merger. Look in the preamble paragraph ('AGREEMENT AND PLAN OF MERGER by and among...'), the recitals, and the signature blocks. Return the full legal name of each party (acquirer, target, merger sub, parent guarantor). Do NOT include advisors, agents, or counsel. Do NOT include entities that appear only in representations."
+      },
+      {
+        "id": "effective_date",
+        "column_type": "date",
+        "description": "Act as an M&A lawyer looking for the execution date of the agreement. Look in the preamble ('This Agreement is made and entered into as of...') or the signature page dating. Return ISO 8601 (YYYY-MM-DD). Do NOT return the expected closing date. Do NOT return the date of the proxy statement or SEC filing date."
+      },
+      {
+        "id": "closing_date",
+        "column_type": "date",
+        "description": "Act as an M&A lawyer looking for the expected or scheduled closing date. Look in the 'Closing' section (often Article II) or the conditions precedent section for a specific date or 'business day' formula. Return ISO 8601. If only a relative date is given (e.g., '3 business days after satisfaction of all conditions'), return that text. If no specific date is stated, omit.",
+        "required": false
+      },
+      {
+        "id": "transaction_structure",
+        "column_type": "string",
+        "description": "Act as an M&A lawyer classifying the deal structure. Look in the recitals and Article I ('The Merger') for the transaction mechanics. Return one of: 'forward merger', 'reverse merger', 'forward triangular merger', 'reverse triangular merger', 'stock-for-stock', 'cash tender offer', 'two-step merger', 'asset purchase'. If multiple steps, describe the sequence. Do NOT conflate the consideration type with the structure."
+      },
+      {
+        "id": "purchase_price",
+        "column_type": "money",
+        "description": "Act as an M&A lawyer extracting the total deal consideration. Look in the 'Merger Consideration' section (often Article II or III) and the recitals. Return the aggregate dollar amount. If the consideration is per-share, compute the total if the number of shares is given. If the total cannot be determined, return the per-share amount with a note. Do NOT include assumed liabilities unless the agreement explicitly includes them in the 'total consideration.'"
+      },
+      {
+        "id": "consideration_mix",
+        "column_type": "string",
+        "description": "Act as an M&A lawyer describing the mix of consideration. Look in the 'Merger Consideration' section for how the purchase price is split between cash, stock, notes, earnouts, or assumed liabilities. Return a breakdown (e.g., '$5B cash + 0.3 shares of Acquirer per Target share + $500M earnout'). Do NOT repeat the total price — just the composition."
+      },
+      {
+        "id": "exchange_ratio",
+        "column_type": "string",
+        "description": "Act as an M&A lawyer extracting the stock exchange ratio. Look in the 'Conversion of Shares' section for the ratio at which Target shares convert to Acquirer shares. Return the exact ratio (e.g., '0.3595 shares of Parent common stock per Target share'). If the deal is all-cash, return 'N/A — all-cash consideration'. If there is a collar or floating ratio, describe the adjustment mechanism.",
+        "required": false
+      },
+      {
+        "id": "governing_law",
+        "column_type": "string",
+        "description": "Act as an M&A lawyer identifying the governing law. Look in the 'Miscellaneous' or 'General Provisions' article, typically the last article, for 'This Agreement shall be governed by and construed in accordance with the laws of the State of...' Return only the jurisdiction name (e.g., 'Delaware'). Do NOT return the dispute resolution forum here."
+      },
+      {
+        "id": "forum_selection",
+        "column_type": "string",
+        "description": "Act as an M&A lawyer extracting the forum selection clause. Look in the 'Miscellaneous' article near the governing law clause for 'exclusive jurisdiction' or 'consent to jurisdiction' language. Return the specific court(s) designated (e.g., 'Delaware Court of Chancery, or if jurisdiction is unavailable, the United States District Court for the District of Delaware'). Do NOT conflate with the governing law state."
+      },
+      {
+        "id": "no_solicit_clause",
+        "column_type": "boolean",
+        "description": "Act as an M&A lawyer determining whether the agreement contains a no-shop or no-solicit provision. Look for a section titled 'No Solicitation', 'No Shop', 'Acquisition Proposals', or 'Go-Shop' (which is the opposite — an affirmative solicitation window). Return true if there is any restriction on the target's ability to solicit competing offers. Return false if there is no such restriction or if there is only a go-shop with no restriction after the go-shop period."
+      },
+      {
+        "id": "no_solicit_scope",
+        "column_type": "verbatim_quote",
+        "description": "Act as an M&A lawyer extracting the verbatim no-shop / no-solicit clause text. Look in the 'No Solicitation' or 'Acquisition Proposals' section. Return the full operative paragraph(s) that restrict the target from soliciting or engaging with competing bidders. Include any fiduciary-out exceptions. Do NOT paraphrase. If no_solicit_clause is false, omit this field.",
+        "required": false
+      },
+      {
+        "id": "termination_fee",
+        "column_type": "money",
+        "description": "Act as an M&A lawyer extracting the target break-up fee. Look in the 'Termination' article for 'Termination Fee', 'Break-Up Fee', or 'Company Termination Fee' — the amount the target pays the acquirer if the deal terminates due to a superior proposal or board recommendation change. Return the dollar amount. If stated as a percentage of deal value, return both the percentage and the computed dollar amount if calculable. Do NOT confuse with the reverse termination fee (paid by acquirer).",
+        "required": false
+      },
+      {
+        "id": "reverse_termination_fee",
+        "column_type": "money",
+        "description": "Act as an M&A lawyer extracting the reverse break-up fee. Look in the 'Termination' article for 'Reverse Termination Fee' or 'Parent Termination Fee' — the amount the acquirer pays the target if the deal terminates due to regulatory failure, financing failure, or acquirer breach. Return the dollar amount. Do NOT confuse with the target-side termination fee.",
+        "required": false
+      },
+      {
+        "id": "regulatory_approvals",
+        "column_type": "list",
+        "constraints": {"inner": "string"},
+        "description": "Act as an M&A lawyer listing all required regulatory approvals. Look in the 'Conditions Precedent' article, the 'Efforts' covenant (often titled 'Regulatory Matters'), and the representations about 'Required Governmental Approvals'. List each regulator or statute: HSR Act, CFIUS, EU Merger Regulation, specific sector regulators (FCC, FERC, banking regulators, insurance commissioners). Do NOT include routine corporate approvals (shareholder vote, board approval)."
+      },
+      {
+        "id": "material_adverse_effect_definition",
+        "column_type": "verbatim_quote",
+        "description": "Act as an M&A lawyer extracting the verbatim Material Adverse Effect (MAE) or Material Adverse Change (MAC) definition. Look in Article I ('Definitions') or the defined-terms section for the definition of 'Company Material Adverse Effect' or 'Material Adverse Effect'. Return the full definition including all carve-outs and exceptions. This is often a multi-paragraph clause. Do NOT paraphrase. Do NOT truncate."
+      },
+      {
+        "id": "mae_carveouts",
+        "column_type": "list",
+        "constraints": {"inner": "string"},
+        "description": "Act as an M&A lawyer listing the named carve-outs from the MAE definition. Look inside the MAE definition clause for 'except that none of the following shall constitute a Material Adverse Effect...' or 'provided, however, that the following shall not be taken into account...' Return each carve-out as a separate list item (e.g., 'general economic conditions', 'industry-wide changes', 'changes in law', 'COVID-19', 'seasonal fluctuations'). Do NOT include the disproportionate-impact qualifier language."
+      },
+      {
+        "id": "representations_survival_period",
+        "column_type": "string",
+        "description": "Act as an M&A lawyer extracting the survival period for representations and warranties. Look in the 'Indemnification' article or the 'Survival' section. State the general survival period (e.g., '18 months from closing') and any extended periods for fundamental representations (organization, authority, capitalization). If reps terminate at closing (common in public mergers), state that. Do NOT conflate with indemnification claim deadlines.",
+        "required": false
+      },
+      {
+        "id": "indemnification_cap",
+        "column_type": "money",
+        "description": "Act as an M&A lawyer extracting the indemnification cap. Look in the 'Indemnification' article for 'aggregate liability', 'maximum amount', or 'cap'. Return the dollar amount or percentage of deal value. If there are separate caps for general reps vs. fundamental reps, return both. If there is no indemnification (common in public company mergers), omit this field.",
+        "required": false
+      },
+      {
+        "id": "indemnification_basket",
+        "column_type": "money",
+        "description": "Act as an M&A lawyer extracting the indemnification basket (deductible/threshold). Look in the 'Indemnification' article for 'basket', 'deductible', 'threshold', or 'mini-basket'. Distinguish between a true deductible (losses below the basket are never recoverable) and a tipping basket (once the threshold is exceeded, all losses are recoverable from the first dollar). Return the amount and type. If not applicable, omit.",
+        "required": false
+      },
+      {
+        "id": "escrow_amount",
+        "column_type": "money",
+        "description": "Act as an M&A lawyer extracting the escrow holdback. Look in the 'Closing' or 'Escrow' section for amounts held back from the purchase price to secure indemnification or working capital adjustments. Return the dollar amount or percentage. State the release schedule if specified (e.g., 'released 18 months after closing, net of pending claims'). If no escrow, omit.",
+        "required": false
+      },
+      {
+        "id": "key_conditions_precedent",
+        "column_type": "list",
+        "constraints": {"inner": "string"},
+        "description": "Act as an M&A lawyer listing the key conditions precedent to closing beyond standard boilerplate. Look in the 'Conditions to Closing' article. Include: material accuracy of representations, compliance with covenants, no MAE, receipt of regulatory approvals, stockholder approval, absence of litigation, third-party consents, and any deal-specific conditions (e.g., financing condition, spin-off completion, CFIUS clearance). Do NOT include standard procedural conditions like delivery of certificates."
+      },
+      {
+        "id": "financing_commitment",
+        "column_type": "boolean",
+        "description": "Act as an M&A lawyer determining whether the acquirer's closing obligation is conditioned on obtaining financing. Look for a 'Financing' section or a 'Financing Condition' in the conditions precedent. In public company mergers, the answer is almost always false (no financing condition). In PE buyouts, there may be a reverse termination fee as the exclusive remedy for financing failure. Return true only if closing is explicitly conditioned on financing."
+      },
+      {
+        "id": "employee_matters",
+        "column_type": "string",
+        "description": "Act as an M&A lawyer summarizing the treatment of target employees and equity awards. Look in the 'Employee Matters' or 'Employee Benefits' covenant for: (1) continuation of employment vs. at-will termination, (2) comparable compensation/benefits commitment period, (3) treatment of target stock options (accelerated vesting, assumed, cashed out), (4) treatment of RSUs and PSUs. Summarize in 2-3 sentences. Do NOT reproduce the full covenant text.",
+        "required": false
+      },
+      {
+        "id": "non_compete",
+        "column_type": "boolean",
+        "description": "Act as an M&A lawyer determining whether there are non-compete provisions. Look for 'Non-Competition', 'Restrictive Covenants', or 'Non-Compete' sections. These may apply to the target's founders, key executives, or significant stockholders. Return true if any non-compete exists. In public company mergers these are rare; they are more common in PE deals and founder-led acquisitions."
+      },
+      {
+        "id": "non_compete_duration",
+        "column_type": "string",
+        "description": "Act as an M&A lawyer extracting the non-compete duration and scope. Return the time period (e.g., '3 years'), geographic scope, and the restricted activities. If there are different durations for different individuals, list each. If non_compete is false, omit.",
+        "required": false
+      },
+      {
+        "id": "confidentiality_survival",
+        "column_type": "string",
+        "description": "Act as an M&A lawyer extracting the survival period for confidentiality obligations. Look in the 'Confidentiality' section of the miscellaneous provisions, or for a reference to a pre-existing confidentiality agreement (NDA). State the duration and whether it survives termination of the merger agreement. If confidentiality is governed entirely by a standalone NDA, state 'governed by standalone NDA dated [date]' if referenced.",
+        "required": false
+      },
+      {
+        "id": "dispute_resolution",
+        "column_type": "string",
+        "description": "Act as an M&A lawyer extracting the dispute resolution mechanism. Look in the 'Miscellaneous' article for the dispute resolution clause. State whether disputes are resolved by litigation (and in which court), binding arbitration (and under what rules — AAA, JAMS, ICC), or mediation first. If different dispute types have different mechanisms (e.g., working capital disputes go to an independent accountant), describe each."
+      }
+    ]
+  },
+  "notes": [
+    "Use provenance='cited' so every extracted value cites a verbatim source span.",
+    "MAE / MAC clauses are often multi-paragraph; verbatim_quote columns emit the full clause.",
+    "Termination fees are usually explicit dollar amounts; reverse termination fees may be structured as percentages of deal value.",
+    "Regulatory approvals often hide in the 'Efforts' covenant; scan for HSR Act, CFIUS, foreign antitrust.",
+    "Public company mergers (MAUD dataset) typically have no indemnification, no financing condition, and no escrow — these fields will be absent.",
+    "For chunk_retry='default' on long merger agreements (50+ pages), enable to recover clauses buried in mid-document exhibits."
+  ],
+  "golden_sets": ["atticus/maud"]
+}
