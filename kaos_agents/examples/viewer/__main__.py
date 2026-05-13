@@ -50,6 +50,7 @@ class _QuietHandler(http.server.SimpleHTTPRequestHandler):
     """SimpleHTTPRequestHandler that suppresses the per-request access log."""
 
     def log_message(self, format: str, *args: object) -> None:
+        del format, args  # quiet: parent signature requires the name `format`
         return None
 
 
