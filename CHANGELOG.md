@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `PermissionPolicy.default_safe()` which escalates destructive / `humanConfirmationRequired` tools
   to ASK. Tests, internal benchmarks, and other callers that genuinely need to bypass all checks
   must set `Runner(unsafe_bypass=True)` explicitly. Production deployments MUST NOT use the bypass.
+- **XML-escape candidate text in the FindingsAgent injection envelope (KC17-P2-3).** The renderer
+  for both filter and synthesis stages now passes `cand.text` through `xml.sax.saxutils.escape`
+  before interpolating it into the `<untrusted_document_content>` envelope, so a candidate
+  containing a literal `</untrusted_document_content>` tag can no longer close its own envelope
+  from inside. Defense-in-depth (heuristic detector + signature directive) was already in place;
+  this fix removes a structural-integrity gap.
 
 ### Added
 - `research_profile = "strict"` setting (env: `KAOS_AGENT_RESEARCH_PROFILE`)
