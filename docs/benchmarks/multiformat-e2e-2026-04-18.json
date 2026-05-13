@@ -1,6 +1,6 @@
 {
   "timestamp": "2026-04-18T09:42:47",
-  "corpus_dir": "/home/mjbommar/projects/273v/kaos-modules/kaos-llm-core/tests/fixtures/multiformat-corpus",
+  "corpus_dir": "kaos-llm-core/tests/fixtures/multiformat-corpus",
   "n_documents": 10,
   "summary": {
     "n_questions": 12,
