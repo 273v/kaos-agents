@@ -1,7 +1,7 @@
 # Structured Output Bypass Audit — kaos-agents
 
 **Date:** 2026-05-06
-**Scope:** `/home/mjbommar/projects/273v/kaos-modules/kaos-agents/kaos_agents/`
+**Scope:** `kaos_agents/`
 **Auditor:** Claude Code (automated)
 
 ---
