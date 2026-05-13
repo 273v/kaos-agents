@@ -37,11 +37,16 @@ pip install kaos-agents
 build. Common extras:
 
 ```bash
-uv add 'kaos-agents[llm]'                       # LLM transport + Programs (required for turn())
+uv add 'kaos-agents[llm,office]'                # quickstart: LLM transport + DOCX parser
+uv add 'kaos-agents[llm]'                       # just .turn() against in-memory text
 uv add 'kaos-agents[llm,mcp]'                   # +MCP server bridge for kaos-agents-serve
 uv add 'kaos-agents[llm,mcp,api]'               # +FastAPI HTTP surface
-uv add 'kaos-agents[llm,pdf,office,source,web]' # +tool-bearing siblings auto-registered
+uv add 'kaos-agents[llm,pdf,office,source,web]' # +all tool-bearing siblings auto-registered
 ```
+
+The Hello-World / NDA-batch quickstarts below load DOCX files via
+`kaos-office`, so use the first form. Other extras for one-off uses:
+`[citations]`, `[rerank]`, `[otel]`, `[source]`.
 
 ## Hello world (30 seconds)
 
