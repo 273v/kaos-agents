@@ -72,6 +72,7 @@ import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+from xml.sax.saxutils import escape as _xml_escape
 
 from kaos_core.logging import get_logger
 
@@ -1145,14 +1146,24 @@ def _wrap_untrusted_text(cand: FindingCandidate) -> str:
 
     XML chosen over markdown / triple-backticks because both
     Anthropic and OpenAI documentation recommend XML for structured
-    isolation, and unmatched ``<`` / ``>`` chars inside the
-    candidate text don't break the structural cue the way an
-    unmatched code fence would.
+    isolation. To prevent a candidate from closing its own envelope
+    (e.g. a payload containing a literal
+    ``</untrusted_document_content>`` tag), the candidate text is
+    XML-escaped via :func:`xml.sax.saxutils.escape` — ``<``, ``>``,
+    and ``&`` become their entity equivalents. The LLM still sees the
+    original text content; only the structural metacharacters are
+    neutralized.
+
+    Defense-in-depth note: the heuristic detector + signature
+    docstring + per-candidate envelope are the three layers above
+    this. The escape is the load-bearing structural-integrity fix
+    that makes "the envelope cannot be closed from inside" actually
+    true; the rest is data-vs-instructions framing for the LLM.
     """
     suspect_attr = ' injection_suspected="true"' if cand.injection_suspected else ""
     return (
         f'<untrusted_document_content finding_id="{cand.finding_id}"{suspect_attr}>\n'
-        f"{cand.text}\n"
+        f"{_xml_escape(cand.text)}\n"
         "</untrusted_document_content>"
     )
 
@@ -1173,7 +1184,9 @@ def _render_synthesis_findings(findings: tuple[FilteredFinding, ...]) -> str:
     Each finding's text is wrapped in ``<untrusted_document_content>``
     with finding_id + relevance as attributes. Format mirrors
     :func:`_render_filter_candidates` so the synthesis-step model
-    sees the same isolation contract as the filter step.
+    sees the same isolation contract as the filter step — including
+    the XML-escape of the candidate body that prevents the envelope
+    from being closed from inside.
     """
     parts: list[str] = []
     for f in findings:
@@ -1181,7 +1194,7 @@ def _render_synthesis_findings(findings: tuple[FilteredFinding, ...]) -> str:
         parts.append(
             f'<untrusted_document_content finding_id="{f.candidate.finding_id}" '
             f'relevance="{f.relevance:.2f}"{suspect_attr}>\n'
-            f"{f.candidate.text}\n"
+            f"{_xml_escape(f.candidate.text)}\n"
             "</untrusted_document_content>"
         )
     return "\n\n".join(parts)
