@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- kaos-agents Run Inspector — single-file static viewer (KC18, KC18-B tree). -->
 <html lang="en" class="dark">
 <head>
   <meta charset="UTF-8" />
@@ -16,16 +17,160 @@
     /* Minimal custom CSS — Tailwind utility classes do the rest. */
     [x-cloak] { display: none !important; }
     pre.json { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
-    .json-key { color: #93c5fd; }
-    .json-str { color: #86efac; }
-    .json-num { color: #fcd34d; }
-    .json-bool { color: #f9a8d4; }
-    .json-null { color: #fca5a5; }
-    html:not(.dark) .json-key { color: #1d4ed8; }
-    html:not(.dark) .json-str { color: #047857; }
-    html:not(.dark) .json-num { color: #b45309; }
-    html:not(.dark) .json-bool { color: #be185d; }
-    html:not(.dark) .json-null { color: #b91c1c; }
+
+    /* ---- JSON-tree palette (KC18-B). Theme-aware via CSS variables. ---- */
+    :root {
+      --jt-key:   #1d4ed8;
+      --jt-str:   #047857;
+      --jt-num:   #b45309;
+      --jt-bool:  #be185d;
+      --jt-null:  #6b7280;
+      --jt-punct: #475569;
+      --jt-meta:  #64748b;
+      --jt-caret: #94a3b8;
+      --jt-hover: rgba(99,102,241,0.10);
+      --jt-sel:   rgba(99,102,241,0.20);
+    }
+    html.dark {
+      --jt-key:   #93c5fd;
+      --jt-str:   #86efac;
+      --jt-num:   #fcd34d;
+      --jt-bool:  #f9a8d4;
+      --jt-null:  #94a3b8;
+      --jt-punct: #94a3b8;
+      --jt-meta:  #94a3b8;
+      --jt-caret: #64748b;
+      --jt-hover: rgba(99,102,241,0.15);
+      --jt-sel:   rgba(99,102,241,0.28);
+    }
+    .json-key { color: var(--jt-key); }
+    .json-str { color: var(--jt-str); }
+    .json-num { color: var(--jt-num); }
+    .json-bool { color: var(--jt-bool); }
+    .json-null { color: var(--jt-null); font-style: italic; }
+
+    /* Tree container & rows. */
+    .jt {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .jt-row {
+      display: flex;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 4px;
+      padding: 1px 4px 1px 0;
+      border-radius: 3px;
+      cursor: default;
+    }
+    /* Keys never wrap mid-word; long values get the rest of the row. */
+    .jt-keypart {
+      white-space: nowrap;
+      flex: 0 0 auto;
+    }
+    .jt-row .jt-strval {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+    .jt-row:hover { background: var(--jt-hover); }
+    .jt-row.jt-selected { background: var(--jt-sel); }
+    .jt-caret {
+      width: 12px;
+      flex: 0 0 12px;
+      color: var(--jt-caret);
+      text-align: center;
+      user-select: none;
+      cursor: pointer;
+    }
+    .jt-caret.jt-empty { cursor: default; }
+    .jt-keypart[data-jt-action="toggle"], .jt-keypart[data-jt-action="copy-path"] {
+      cursor: pointer;
+      user-select: none;
+    }
+    .jt-punct { color: var(--jt-punct); }
+    .jt-meta  { color: var(--jt-meta); font-style: italic; }
+    .jt-actions {
+      margin-left: 6px;
+      opacity: 0;
+      transition: opacity 80ms ease-in-out;
+      display: inline-flex;
+      gap: 4px;
+      flex: 0 0 auto;
+    }
+    .jt-row:hover .jt-actions { opacity: 1; }
+    .jt-act {
+      font-size: 10px;
+      padding: 0 4px;
+      border-radius: 3px;
+      border: 1px solid transparent;
+      color: var(--jt-meta);
+      cursor: pointer;
+      background: transparent;
+    }
+    .jt-act:hover {
+      color: #6366f1;
+      border-color: rgba(99,102,241,0.4);
+    }
+    .jt-children {
+      border-left: 1px dashed rgba(127,127,127,0.25);
+      margin-left: 6px;
+      padding-left: 8px;
+    }
+    .jt-strval {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+    .jt-row > .jt-keypart, .jt-row > .jt-strval {
+      min-width: 0;
+    }
+    .jt-row { min-width: 0; }
+    .jt { overflow-wrap: anywhere; word-break: normal; }
+    .jt-strval-expanded {
+      display: block;
+      margin-top: 2px;
+      padding: 4px 6px;
+      background: rgba(127,127,127,0.10);
+      border-radius: 3px;
+      max-height: 320px;
+      overflow: auto;
+    }
+    .jt-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+    .jt-toolbar button {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      border: 1px solid rgba(127,127,127,0.30);
+      color: var(--jt-meta);
+      background: transparent;
+      cursor: pointer;
+    }
+    .jt-toolbar button:hover { color: #6366f1; border-color: rgba(99,102,241,0.4); }
+
+    /* Toast for path-copy feedback. */
+    .jt-toast {
+      position: fixed;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1e293b;
+      color: #e2e8f0;
+      font-size: 12px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+      z-index: 100;
+      pointer-events: none;
+    }
+    html:not(.dark) .jt-toast { background: #0f172a; color: #f1f5f9; }
+
     .markdown-body { font-size: 13px; line-height: 1.55; }
     .markdown-body h1, .markdown-body h2, .markdown-body h3 { font-weight: 600; margin-top: 0.5rem; margin-bottom: 0.25rem; }
     .markdown-body h1 { font-size: 1.05rem; }
@@ -355,21 +500,24 @@
                 </div>
               </template>
 
-              <!-- Inputs / Outputs split -->
+              <!-- Inputs / Outputs split — KC18-B rich JSON tree -->
               <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
                 <div>
                   <div class="flex items-center justify-between mb-1">
                     <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500">Inputs</h3>
-                    <button class="text-[10px] text-slate-500 hover:text-indigo-500" @click="copy(JSON.stringify(selectedRow.inputs, null, 2))">copy</button>
+                    <div class="jt-toolbar">
+                      <button @click="treeExpandAll('inputs')" title="Expand all">⤢ all</button>
+                      <button @click="treeCollapseAll('inputs')" title="Collapse all">⤡ none</button>
+                      <button @click="treeReset('inputs')" title="Reset to default depth">↺</button>
+                      <button @click="copy(JSON.stringify(selectedRow.inputs, null, 2)); showToast('Copied raw JSON')" title="Copy raw JSON">⎘ raw</button>
+                    </div>
                   </div>
                   <div class="rounded p-2 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
                     <template x-if="selectedRow.inputs">
-                      <div class="space-y-2">
-                        <template x-for="(val, key) in selectedRow.inputs" :key="key">
-                          <div>
-                            <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-0.5" x-text="key"></div>
-                            <div x-html="renderField(val)"></div>
-                          </div>
+                      <div class="jt" x-data="jsonTree(() => selectedRow.inputs, 'inputs')"
+                           x-effect="resetWhenSeqChanges(selectedRow.seq)">
+                        <template x-for="node in roots" :key="node.path">
+                          <div x-html="renderNode(node)"></div>
                         </template>
                       </div>
                     </template>
@@ -381,16 +529,19 @@
                 <div>
                   <div class="flex items-center justify-between mb-1">
                     <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500">Outputs</h3>
-                    <button class="text-[10px] text-slate-500 hover:text-indigo-500" @click="copy(JSON.stringify(selectedRow.outputs, null, 2))">copy</button>
+                    <div class="jt-toolbar">
+                      <button @click="treeExpandAll('outputs')" title="Expand all">⤢ all</button>
+                      <button @click="treeCollapseAll('outputs')" title="Collapse all">⤡ none</button>
+                      <button @click="treeReset('outputs')" title="Reset to default depth">↺</button>
+                      <button @click="copy(JSON.stringify(selectedRow.outputs, null, 2)); showToast('Copied raw JSON')" title="Copy raw JSON">⎘ raw</button>
+                    </div>
                   </div>
                   <div class="rounded p-2 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
                     <template x-if="selectedRow.outputs">
-                      <div class="space-y-2">
-                        <template x-for="(val, key) in selectedRow.outputs" :key="key">
-                          <div>
-                            <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-0.5" x-text="key"></div>
-                            <div x-html="renderField(val)"></div>
-                          </div>
+                      <div class="jt" x-data="jsonTree(() => selectedRow.outputs, 'outputs')"
+                           x-effect="resetWhenSeqChanges(selectedRow.seq)">
+                        <template x-for="node in roots" :key="node.path">
+                          <div x-html="renderNode(node)"></div>
                         </template>
                       </div>
                     </template>
@@ -401,10 +552,25 @@
                 </div>
               </div>
 
-              <!-- Raw record -->
+              <!-- Raw record (also rich tree). -->
               <details class="rounded border border-slate-200 dark:border-slate-700">
-                <summary class="text-xs px-2 py-1.5 cursor-pointer bg-slate-100 dark:bg-slate-800 select-none">Raw JSON record</summary>
-                <pre class="json p-2 max-h-96 overflow-auto scrollbar-thin" x-html="highlightJson(selectedRow.raw)"></pre>
+                <summary class="text-xs px-2 py-1.5 cursor-pointer bg-slate-100 dark:bg-slate-800 select-none flex items-center justify-between">
+                  <span>Raw JSON record</span>
+                  <div class="jt-toolbar" @click.stop>
+                    <button @click="treeExpandAll('raw')" title="Expand all">⤢ all</button>
+                    <button @click="treeCollapseAll('raw')" title="Collapse all">⤡ none</button>
+                    <button @click="treeReset('raw')" title="Reset">↺</button>
+                    <button @click="copy(JSON.stringify(selectedRow.raw, null, 2)); showToast('Copied raw JSON')" title="Copy raw JSON">⎘ raw</button>
+                  </div>
+                </summary>
+                <div class="p-2 max-h-96 overflow-auto scrollbar-thin">
+                  <div class="jt" x-data="jsonTree(() => selectedRow.raw, 'raw')"
+                       x-effect="resetWhenSeqChanges(selectedRow.seq)">
+                    <template x-for="node in roots" :key="node.path">
+                      <div x-html="renderNode(node)"></div>
+                    </template>
+                  </div>
+                </div>
               </details>
             </div>
           </template>
@@ -416,6 +582,9 @@
       </div>
     </main>
   </template>
+
+  <!-- ============================= TOAST (path-copy feedback) ============================= -->
+  <div x-show="toast.visible" x-transition.opacity x-cloak class="jt-toast" role="status" aria-live="polite" x-text="toast.text"></div>
 
   <!-- ============================= PASTE MODAL ============================= -->
   <div x-show="pasteOpen" x-cloak class="fixed inset-0 z-50 bg-slate-950/70 flex items-center justify-center p-4" @click.self="pasteOpen=false">
@@ -440,6 +609,27 @@
 
   <!-- ============================= VIEWER LOGIC ============================= -->
   <script>
+    // Default depth for JSON-tree expansion at first render. Top level + one
+    // level beneath it are open by default; deeper nodes lazy-render only
+    // when the user expands them (keeps 100KB payloads cheap).
+    const JT_DEFAULT_DEPTH = 2;
+    const JT_LONG_STRING_THRESHOLD = 120;
+    const JT_LONG_STRING_PREVIEW = 100;
+
+    // Module-level shared tree state. Keyed by tree-root id
+    // (inputs/outputs/raw); each entry tracks the expanded-path set, the
+    // long-string toggle set, and a per-tree epoch counter (bump to force
+    // a re-render — used for expand-all / collapse-all / reset).
+    // Attached to window so jsonTree() can resolve it without an Alpine
+    // magic. (Alpine's `x-data` expression is evaluated with `with(...)`,
+    // so locally-scoped `const`s in this script block aren't visible to
+    // the directive expression — only globals are.)
+    window.JT_STATE = {
+      inputs:  { expanded: new Set(), longExpanded: new Set(), epoch: 0, mode: 'default' },
+      outputs: { expanded: new Set(), longExpanded: new Set(), epoch: 0, mode: 'default' },
+      raw:     { expanded: new Set(), longExpanded: new Set(), epoch: 0, mode: 'default' },
+    };
+
     function viewer() {
       return {
         // ---- state ----
@@ -457,6 +647,13 @@
         pasteText: '',
         advanced: false,
         theme: 'dark',
+
+        // ---- JSON-tree shared state (lives on window.JT_STATE; aliased
+        // here so the existing copy* / treeReset helpers can reach it
+        // via `this.treeState`). The actual re-render signal is each
+        // tree component's `localTick`, bumped by `bumpTreeTick(rootId)`. ----
+        treeState: window.JT_STATE,
+        toast: { visible: false, text: '', timer: null },
 
         selectedSeq: null,
         sort: { key: 'seq', dir: 'asc' },
@@ -780,6 +977,50 @@
           navigator.clipboard?.writeText(typeof s === 'string' ? s : JSON.stringify(s));
         },
 
+        // ---- JSON-tree control surface (KC18-B) ----
+        showToast(text, ms = 1400) {
+          this.toast.text = text;
+          this.toast.visible = true;
+          if (this.toast.timer) clearTimeout(this.toast.timer);
+          this.toast.timer = setTimeout(() => { this.toast.visible = false; }, ms);
+        },
+        copyPath(path) {
+          if (!path) path = '$';
+          navigator.clipboard?.writeText(path);
+          this.showToast('Copied path: ' + path);
+        },
+        copyValue(val) {
+          if (val === undefined) return;
+          const text = typeof val === 'string' ? val : JSON.stringify(val);
+          navigator.clipboard?.writeText(text);
+          this.showToast('Copied value');
+        },
+        treeExpandAll(rootId) {
+          const s = window.JT_STATE[rootId];
+          if (!s) return;
+          s.mode = 'all';
+          s.expanded = new Set();   // 'all' mode short-circuits per-node check
+          s.epoch++;
+          bumpTreeTick(rootId);
+        },
+        treeCollapseAll(rootId) {
+          const s = window.JT_STATE[rootId];
+          if (!s) return;
+          s.mode = 'none';
+          s.expanded = new Set();
+          s.epoch++;
+          bumpTreeTick(rootId);
+        },
+        treeReset(rootId) {
+          const s = window.JT_STATE[rootId];
+          if (!s) return;
+          s.mode = 'default';
+          s.expanded = new Set();
+          s.longExpanded = new Set();
+          s.epoch++;
+          bumpTreeTick(rootId);
+        },
+
         // ---- keyboard nav ----
         onKey(e) {
           if (e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) {
@@ -809,6 +1050,332 @@
         },
       };
     }
+
+    // Find every live jsonTree() component matching `rootId` (or all of
+    // them when rootId is omitted) and bump its `localTick`. That's the
+    // signal Alpine watches to re-run the `roots` / `renderNode` getters
+    // and rerender the tree. Centralised so the click delegate +
+    // expand-all / collapse-all / reset / select-row paths share the
+    // same trigger.
+    function bumpTreeTick(rootId) {
+      const trees = document.querySelectorAll('.jt');
+      for (const t of trees) {
+        const stack = t._x_dataStack;
+        if (!stack || !stack[0]) continue;
+        const comp = stack[0];
+        if (!rootId || comp.rootId === rootId) comp.localTick = (comp.localTick || 0) + 1;
+      }
+    }
+
+    // -------- jsonTree: Alpine component that renders a recursive,
+    // -------- lazy, theme-aware JSON tree. -------------------------
+    // `getter` is a () => value closure (so the tree re-evaluates whenever
+    // Alpine re-renders the wrapper template after a row change). `rootId`
+    // ∈ {inputs, outputs, raw} keys into the module-level JT_STATE.
+    function jsonTree(getter, rootId) {
+      const sharedState = window.JT_STATE;
+      // Escape a string for inclusion in HTML attributes / text nodes.
+      const esc = (s) => String(s).replace(/[&<>"']/g, c =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+      // JSON-pointer-ish path builder: object keys join with '.', array
+      // indices in [n], so "inputs.conversation_context.messages[2].role".
+      // Identifier-safe keys append as ".key"; non-identifier keys quote
+      // as [\"weird key\"].
+      const childPath = (parent, key, isArrayIdx) => {
+        if (isArrayIdx) return `${parent}[${key}]`;
+        if (/^[A-Za-z_$][\w$]*$/.test(key)) {
+          return parent ? `${parent}.${key}` : key;
+        }
+        return `${parent}[${JSON.stringify(key)}]`;
+      };
+
+      // Classify a JSON value into a single token used for rendering.
+      const kindOf = (v) => {
+        if (v === null) return 'null';
+        if (Array.isArray(v)) return 'array';
+        const t = typeof v;
+        if (t === 'object') return 'object';
+        return t; // 'string' | 'number' | 'boolean'
+      };
+
+      const isRedactionMarker = (v) =>
+        v && typeof v === 'object' && !Array.isArray(v) && v._redacted === true;
+
+      // Whether a node should be expanded right now.
+      // 'all'  → everything expanded
+      // 'none' → everything collapsed
+      // default → depth < JT_DEFAULT_DEPTH, plus anything user toggled
+      const isExpanded = (path, depth) => {
+        const s = sharedState[rootId];
+        if (s.mode === 'all') return true;
+        if (s.mode === 'none') return s.expanded.has(path);
+        // default mode: depth+toggle
+        if (s.expanded.has(path)) {
+          // Toggle inverts the default.
+          return !(depth < JT_DEFAULT_DEPTH);
+        }
+        return depth < JT_DEFAULT_DEPTH;
+      };
+
+      // Build a one-line preview of an object/array for collapsed view.
+      // Shows first 2 keys/items + truncation hint. Total >4 → `{N keys}`.
+      const collapsedPreview = (v) => {
+        if (Array.isArray(v)) {
+          if (v.length === 0) return '<span class="jt-meta">[ ]</span>';
+          if (v.length === 1) return `<span class="jt-punct">[</span>${previewPrimitive(v[0])}<span class="jt-punct">]</span>`;
+          if (v.length > 4) return `<span class="jt-punct">[</span><span class="jt-meta">${v.length} items</span><span class="jt-punct">]</span>`;
+          const head = v.slice(0, 2).map(previewPrimitive).join('<span class="jt-punct">, </span>');
+          const more = v.length - 2;
+          return `<span class="jt-punct">[</span>${head}<span class="jt-punct">, </span><span class="jt-meta">+ ${more} more</span><span class="jt-punct">]</span>`;
+        }
+        const keys = Object.keys(v);
+        if (keys.length === 0) return '<span class="jt-meta">{ }</span>';
+        if (keys.length > 4) return `<span class="jt-punct">{</span><span class="jt-meta">${keys.length} keys</span><span class="jt-punct">}</span>`;
+        if (keys.length === 1) {
+          return `<span class="jt-punct">{</span><span class="json-key">${esc(JSON.stringify(keys[0]))}</span><span class="jt-punct">: </span>${previewPrimitive(v[keys[0]])}<span class="jt-punct">}</span>`;
+        }
+        const head = keys.slice(0, 2).map(k =>
+          `<span class="json-key">${esc(JSON.stringify(k))}</span><span class="jt-punct">: </span>${previewPrimitive(v[k])}`).join('<span class="jt-punct">, </span>');
+        const more = keys.length - 2;
+        return `<span class="jt-punct">{</span>${head}<span class="jt-punct">, </span><span class="jt-meta">+ ${more} more</span><span class="jt-punct">}</span>`;
+      };
+
+      // Tiny inline preview of a primitive (for use inside collapsedPreview).
+      const previewPrimitive = (v) => {
+        const k = kindOf(v);
+        if (k === 'string') {
+          const short = v.length > 24 ? v.slice(0, 21) + '…' : v;
+          return `<span class="json-str">${esc(JSON.stringify(short))}</span>`;
+        }
+        if (k === 'number')  return `<span class="json-num">${esc(String(v))}</span>`;
+        if (k === 'boolean') return `<span class="json-bool">${esc(String(v))}</span>`;
+        if (k === 'null')    return `<span class="json-null">null</span>`;
+        if (k === 'array') {
+          if (v.length === 0) return '<span class="jt-meta">[]</span>';
+          return `<span class="jt-meta">[${v.length}]</span>`;
+        }
+        // object
+        const ks = Object.keys(v);
+        if (ks.length === 0) return '<span class="jt-meta">{}</span>';
+        return `<span class="jt-meta">{${ks.length}}</span>`;
+      };
+
+      // Render the value side of a row (the right-hand portion after the
+      // colon for object children, or the bare value for array children).
+      const renderInlineValue = (v, path) => {
+        const k = kindOf(v);
+        const actions =
+          `<span class="jt-actions" data-jt-actions>` +
+          `<button class="jt-act" data-jt-action="copy-path" data-jt-path="${esc(path)}" title="Copy path">⤷</button>` +
+          `<button class="jt-act" data-jt-action="copy-value" data-jt-path="${esc(path)}" title="Copy value">⎘</button>` +
+          `</span>`;
+        if (k === 'string') {
+          return `${renderStringValue(v, path)}${actions}`;
+        }
+        if (k === 'number')  return `<span class="json-num">${esc(String(v))}</span>${actions}`;
+        if (k === 'boolean') return `<span class="json-bool">${esc(String(v))}</span>${actions}`;
+        if (k === 'null')    return `<span class="json-null">null</span>${actions}`;
+        // Array / object: caller draws the open/close + summary preview.
+        return '';
+      };
+
+      const renderStringValue = (s, path) => {
+        const long = s.length > JT_LONG_STRING_THRESHOLD;
+        const expanded = sharedState[rootId].longExpanded.has(path);
+        if (!long) {
+          return `<span class="json-str jt-strval">${esc(JSON.stringify(s))}</span>`;
+        }
+        const preview = s.slice(0, JT_LONG_STRING_PREVIEW);
+        const caret = expanded ? '▾' : '▸';
+        const label = expanded
+          ? esc(JSON.stringify(s))
+          : esc(JSON.stringify(preview)).replace(/"$/, '…"');
+        const block = expanded
+          ? `<pre class="jt-strval-expanded json-str">${esc(s)}</pre>`
+          : '';
+        return `<button class="jt-act" data-jt-action="toggle-long" data-jt-path="${esc(path)}" title="Toggle full string">${caret}</button>` +
+               `<span class="json-str jt-strval">${label}</span>` +
+               `<span class="jt-meta"> (${s.length} chars)</span>` +
+               block;
+      };
+
+      // Render the redaction badge inline (matches existing styling).
+      const renderRedactionBadge = (v, path) => {
+        const len = v.len_chars || '?';
+        const hash = v.sha256 ? esc(v.sha256.slice(0, 12)) : '?';
+        const actions =
+          `<span class="jt-actions" data-jt-actions>` +
+          `<button class="jt-act" data-jt-action="copy-path" data-jt-path="${esc(path)}" title="Copy path">⤷</button>` +
+          `</span>`;
+        return `<span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
+                  <span class="font-medium">[REDACTED]</span>
+                  ${len} chars · sha256 <code>${hash}…</code>
+                </span>${actions}`;
+      };
+
+      // Recursive node renderer. Returns an HTML string for the node and,
+      // when expanded, its children. Lazy: collapsed nodes don't recurse.
+      const renderRow = (label, value, path, depth, isLast) => {
+        const k = kindOf(value);
+        // Redaction marker: special-cased (preserves existing badge UX).
+        if (isRedactionMarker(value)) {
+          const head = label != null
+            ? `<span class="jt-keypart"><span class="json-key">${esc(JSON.stringify(label))}</span><span class="jt-punct">:</span></span> `
+            : '';
+          return `<div class="jt-row"><span class="jt-caret jt-empty"></span>${head}${renderRedactionBadge(value, path)}</div>`;
+        }
+        const isContainer = k === 'object' || k === 'array';
+        if (!isContainer) {
+          const head = label != null
+            ? `<span class="jt-keypart" data-jt-action="copy-path" data-jt-path="${esc(path)}"><span class="json-key">${esc(JSON.stringify(label))}</span><span class="jt-punct">:</span></span> `
+            : '';
+          return `<div class="jt-row"><span class="jt-caret jt-empty"></span>${head}${renderInlineValue(value, path)}</div>`;
+        }
+        // Container.
+        const expanded = isExpanded(path, depth);
+        const caret = expanded ? '▾' : '▸';
+        const opener = k === 'array' ? '[' : '{';
+        const closer = k === 'array' ? ']' : '}';
+        const labelHtml = label != null
+          ? `<span class="json-key">${esc(JSON.stringify(label))}</span><span class="jt-punct">: </span>`
+          : '';
+        const summary = collapsedPreview(value);
+        const actions =
+          `<span class="jt-actions" data-jt-actions>` +
+          `<button class="jt-act" data-jt-action="copy-path" data-jt-path="${esc(path)}" title="Copy path">⤷</button>` +
+          `<button class="jt-act" data-jt-action="copy-value" data-jt-path="${esc(path)}" title="Copy value">⎘</button>` +
+          `</span>`;
+        // Collapsed view: one row, caret + label + inline preview.
+        if (!expanded) {
+          return `<div class="jt-row">
+                    <span class="jt-caret" data-jt-action="toggle" data-jt-path="${esc(path)}">${caret}</span>
+                    <span class="jt-keypart" data-jt-action="toggle" data-jt-path="${esc(path)}">${labelHtml}${summary}</span>
+                    ${actions}
+                  </div>`;
+        }
+        // Expanded view: header row + children + closing bracket row.
+        let children = '';
+        const isArr = k === 'array';
+        const keys = isArr ? value.map((_, i) => i) : Object.keys(value);
+        for (let i = 0; i < keys.length; i++) {
+          const subKey = keys[i];
+          const subVal = isArr ? value[i] : value[subKey];
+          const subPath = childPath(path, subKey, isArr);
+          children += renderRow(isArr ? null : subKey, subVal, subPath, depth + 1, i === keys.length - 1);
+        }
+        return `<div class="jt-row">
+                  <span class="jt-caret" data-jt-action="toggle" data-jt-path="${esc(path)}">${caret}</span>
+                  <span class="jt-keypart" data-jt-action="toggle" data-jt-path="${esc(path)}">${labelHtml}<span class="jt-punct">${opener}</span></span>
+                  ${actions}
+                </div>
+                <div class="jt-children">${children}</div>
+                <div class="jt-row"><span class="jt-caret jt-empty"></span><span class="jt-punct">${closer}</span></div>`;
+      };
+
+      return {
+        rootId,
+        lastSeq: null,
+        // Mirror the viewer-level treeTick into this component's
+        // reactive scope so Alpine re-runs `roots`/`renderNode` after
+        // every state mutation. Bumped by the click delegate.
+        localTick: 0,
+        get state() { return sharedState[rootId]; },
+        get roots() {
+          const _ = this.localTick;       // Alpine dependency
+          const v = getter();
+          if (v == null) return [];
+          return [{ value: v, path: rootId }];
+        },
+        renderNode(node) {
+          const _ = this.localTick;       // re-render hook
+          return renderRow(null, node.value, node.path, 0, true);
+        },
+        // Clear long-string toggles when the selection moves to a new row;
+        // expand/collapse state for nested paths is fine to share across
+        // rows because paths are scoped under "inputs"/"outputs"/"raw".
+        resetWhenSeqChanges(seq) {
+          if (seq !== this.lastSeq) {
+            sharedState[rootId].longExpanded = new Set();
+            this.lastSeq = seq;
+          }
+        },
+      };
+    }
+
+    // Global click delegate: routes any element carrying data-jt-action
+    // back to the root Alpine component's tree state. Lets the tree HTML
+    // stay as a single x-html string (which would otherwise lose @click).
+    document.addEventListener('click', (ev) => {
+      const el = ev.target.closest('[data-jt-action]');
+      if (!el) return;
+      const action = el.getAttribute('data-jt-action');
+      const path = el.getAttribute('data-jt-path') || '';
+      // Find the nearest x-data="viewer()" root.
+      const rootEl = el.closest('[x-data^="viewer"]');
+      if (!rootEl || !rootEl._x_dataStack) return;
+      const root = rootEl._x_dataStack[0];
+      // Determine which tree this click is in (inputs / outputs / raw).
+      // We stored x-data="jsonTree(..., 'inputs', ...)" on the parent.
+      const treeEl = el.closest('.jt');
+      let treeId = 'inputs';
+      if (treeEl && treeEl._x_dataStack) {
+        const sub = treeEl._x_dataStack[0];
+        if (sub && sub.rootId) treeId = sub.rootId;
+      }
+      const s = window.JT_STATE[treeId];
+      if (!s) return;
+      if (action === 'toggle') {
+        ev.preventDefault();
+        if (s.expanded.has(path)) s.expanded.delete(path);
+        else s.expanded.add(path);
+        s.epoch++;
+        bumpTreeTick(treeId);
+      } else if (action === 'toggle-long') {
+        ev.preventDefault();
+        if (s.longExpanded.has(path)) s.longExpanded.delete(path);
+        else s.longExpanded.add(path);
+        s.epoch++;
+        bumpTreeTick(treeId);
+      } else if (action === 'copy-path') {
+        ev.preventDefault();
+        root.copyPath(path);
+      } else if (action === 'copy-value') {
+        ev.preventDefault();
+        // Resolve the path against the current selection.
+        const row = root.selectedRow;
+        if (!row) return;
+        const baseMap = { inputs: row.inputs, outputs: row.outputs, raw: row.raw };
+        // path starts with treeId (e.g. "inputs.foo[0]"). Strip it, then walk.
+        let rest = path.slice(treeId.length);
+        if (rest.startsWith('.')) rest = rest.slice(1);
+        let cur = baseMap[treeId];
+        // Tokenize: .key  |  [n]  |  ["..."]
+        const re = /\.([A-Za-z_$][\w$]*)|\[(\d+)\]|\[("(?:\\.|[^"\\])*")\]/g;
+        // Add a leading '.' so the regex catches the first identifier.
+        const tokens = rest.length ? '.' + rest.replace(/^\./, '') : '';
+        let m;
+        while ((m = re.exec(tokens)) !== null) {
+          if (cur == null) break;
+          if (m[1] !== undefined)      cur = cur[m[1]];
+          else if (m[2] !== undefined) cur = cur[parseInt(m[2], 10)];
+          else if (m[3] !== undefined) cur = cur[JSON.parse(m[3])];
+        }
+        root.copyValue(cur);
+      }
+    });
+
+    // Right-click on a tree row also copies the path (no menu).
+    document.addEventListener('contextmenu', (ev) => {
+      const el = ev.target.closest('[data-jt-path]');
+      if (!el) return;
+      const path = el.getAttribute('data-jt-path');
+      if (!path) return;
+      const rootEl = el.closest('[x-data^="viewer"]');
+      if (!rootEl || !rootEl._x_dataStack) return;
+      ev.preventDefault();
+      rootEl._x_dataStack[0].copyPath(path);
+    });
   </script>
 </body>
 </html>

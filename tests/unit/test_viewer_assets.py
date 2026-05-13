@@ -35,9 +35,10 @@ EXPECTED_CDN_FRAGMENTS = (
 def test_index_html_exists_and_size() -> None:
     assert INDEX_PATH.exists(), f"missing viewer asset: {INDEX_PATH}"
     size = INDEX_PATH.stat().st_size
-    # > 5 KB ensures we shipped something substantial; < 200 KB guards
-    # against an accidental commit of inlined CDN bundles.
-    assert 5 * 1024 < size < 200 * 1024, f"unexpected size: {size} bytes"
+    # > 5 KB ensures we shipped something substantial; < 300 KB guards
+    # against an accidental commit of inlined CDN bundles. Raised from
+    # 200 KB after KC18-B added the hand-rolled JSON tree component.
+    assert 5 * 1024 < size < 300 * 1024, f"unexpected size: {size} bytes"
 
 
 def test_index_html_parses_with_lxml() -> None:
@@ -87,3 +88,42 @@ def test_viewer_cli_has_main_entry_point() -> None:
 def test_viewer_cli_missing_file_returns_exit_code_2() -> None:
     rc = viewer_cli.main(["/does/not/exist/never.jsonl"])
     assert rc == 2
+
+
+def test_index_html_ships_rich_json_tree_component() -> None:
+    """KC18-B: detail panel should render the interactive JSON tree,
+    not a `<pre>JSON.stringify(...)</pre>` plaintext dump.
+
+    The regression target is the upgrade from KC18's plaintext-only
+    inputs/outputs/raw blocks to a hand-rolled Alpine tree component
+    with syntax highlighting, expand/collapse, copy-path, and lazy
+    rendering for large payloads.
+    """
+    text = INDEX_PATH.read_text(encoding="utf-8")
+
+    # 1. Tree component is wired into Alpine state.
+    assert "jsonTree(" in text, "missing jsonTree Alpine component factory"
+    assert "treeState" in text, "missing tree shared-state map on root x-data"
+
+    # 2. Toolbar surface (expand-all / collapse-all / reset) is present.
+    assert "treeExpandAll(" in text, "missing expand-all control"
+    assert "treeCollapseAll(" in text, "missing collapse-all control"
+    assert "treeReset(" in text, "missing reset-to-default-depth control"
+
+    # 3. Copy-path UX (the key value-add over the old <pre> dump).
+    assert "copyPath(" in text, "missing copyPath handler"
+    assert "data-jt-action" in text, "missing tree click delegation attrs"
+
+    # 4. Theme-aware palette via CSS variables, both dark + light branches.
+    assert "--jt-key" in text, "missing JSON-tree CSS variable for keys"
+    assert "--jt-str" in text, "missing JSON-tree CSS variable for strings"
+    assert "html.dark" in text, "missing dark-theme palette override"
+
+    # 5. Redaction badge is still rendered specially (carried over from KC18).
+    assert "_redacted" in text, "lost redaction-marker special case"
+
+    # 6. The old plaintext <pre> dump for the raw record is gone — if
+    # this line ever comes back it means we regressed to plaintext.
+    assert 'x-html="highlightJson(selectedRow.raw)"' not in text, (
+        "raw record reverted to plaintext <pre>; KC18-B tree expected"
+    )

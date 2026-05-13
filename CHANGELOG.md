@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Viewer JSON renderer upgraded to an interactive tree: syntax
+  highlighting, click-to-expand/collapse at every depth, copy-path
+  on hover, long-string folding, redaction-aware badges, theme-
+  aware colors. Replaces the previous `<pre>` JSON dump. Renders
+  ~100 KB payloads without UI lag via lazy below-default-depth
+  nodes (KC18-B).
 - Quickstart replaced: README now demonstrates the package's actual
   value prop (FindingsAgent reviewing 5 mutual NDAs with provenance,
   cost cap, refusal contract, and audit trail) instead of a one-shot
