@@ -2,9 +2,43 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from kaos_core.config import ModuleSettings
 from pydantic import Field
 from pydantic_settings import SettingsConfigDict
+
+# KC17-P2-1 — "strict" research profile preset values.
+#
+# These are the thresholds the field-level docstrings already
+# recommend "for legal deployments". The profile is a single
+# opt-in switch that flips all three at once so a partner can
+# set ``KAOS_AGENT_RESEARCH_PROFILE=strict`` (or
+# ``research_profile="strict"``) and not have to also know to
+# tune ``bm25_score_floor`` + ``verifier_min_confidence`` +
+# ``refuse_unverified_answers`` independently.
+#
+# The constants live at module scope so they are explicit, testable,
+# and visible to consumers / audit reviewers without needing to
+# instantiate a settings object.
+STRICT_PROFILE_DEFAULTS: dict[str, float | bool] = {
+    # 1.5 sits at the lower end of the field docstring's
+    # "1.0-3.0 for legal corpora" recommendation. Empirically
+    # filters spurious lexical-overlap hits on adversarial
+    # (out-of-corpus) queries without erasing legitimate weak
+    # matches on the right corpus.
+    "bm25_score_floor": 1.5,
+    # 0.6 sits at the lower end of the docstring's "0.5-0.7
+    # recommended floor for legal Q&A" range. Above this the
+    # verifier collapses answers to InsufficientEvidence rather
+    # than ship a low-confidence claim.
+    "verifier_min_confidence": 0.6,
+    # When verification fails entirely (citation spans don't
+    # resolve in source corpus) strict mode refuses outright
+    # rather than ship the answer with a "could not be verified"
+    # warning. This is the legal-deployment posture.
+    "refuse_unverified_answers": True,
+}
 
 
 class KaosAgentSettings(ModuleSettings):
@@ -332,11 +366,78 @@ class KaosAgentSettings(ModuleSettings):
         description="Goals with fewer words than this are assessed as simple.",
     )
 
+    # KC17-P2-1 — opt-in legal/regulated-deployment profile.
+    # When ``"strict"``, ``resolved_bm25_score_floor()`` /
+    # ``resolved_verifier_min_confidence()`` /
+    # ``resolved_refuse_unverified_answers()`` return the values in
+    # ``STRICT_PROFILE_DEFAULTS`` (above), so the research agent
+    # filters low-score BM25 hits, refuses below the verifier
+    # confidence floor, AND refuses unverified answers instead of
+    # warn-and-return. The underlying field values themselves are
+    # left untouched (for back-compat in alpha) — the profile is a
+    # resolution-time override only.
+    research_profile: Literal["default", "strict"] = Field(
+        default="default",
+        description=(
+            'Research-pattern safety profile. ``"default"`` keeps '
+            "the historical permissive behavior (bm25 floor / verifier "
+            "threshold / unverified-refusal all disabled unless set "
+            'explicitly). ``"strict"`` is the recommended preset '
+            "for legal / regulated deployments: enables the BM25 score "
+            "floor, the verifier confidence threshold, and refusal of "
+            "unverified answers. Configure via "
+            "``KAOS_AGENT_RESEARCH_PROFILE=strict``. The three "
+            "underlying knobs (bm25_score_floor, verifier_min_"
+            "confidence, refuse_unverified_answers) remain available "
+            "for fine-grained override."
+        ),
+    )
+
     model_config = SettingsConfigDict(
         env_prefix="KAOS_AGENT_",
         env_file=".env",
         extra="ignore",
     )
+
+    # KC17-P2-1 — resolved accessors. These compose ``research_profile``
+    # with the underlying field value: when the profile is ``"strict"``
+    # AND the user hasn't explicitly raised the underlying field above
+    # the strict default, the strict default wins. When the user
+    # explicitly raises the floor (e.g. to a stricter 2.0), that
+    # explicit value wins — the profile is a floor, not a ceiling.
+    # When the profile is ``"default"``, the underlying field value is
+    # returned verbatim (legacy behavior).
+    def resolved_bm25_score_floor(self) -> float:
+        """Effective BM25 score floor honoring ``research_profile``.
+
+        Strict profile: max(field, STRICT_PROFILE_DEFAULTS["bm25_score_floor"]).
+        Default profile: the raw field value (unchanged for back-compat).
+        """
+        if self.research_profile == "strict":
+            strict_value = float(STRICT_PROFILE_DEFAULTS["bm25_score_floor"])
+            return max(self.bm25_score_floor, strict_value)
+        return self.bm25_score_floor
+
+    def resolved_verifier_min_confidence(self) -> float:
+        """Effective verifier confidence floor honoring ``research_profile``.
+
+        Strict profile: max(field, STRICT_PROFILE_DEFAULTS["verifier_min_confidence"]).
+        Default profile: the raw field value (unchanged for back-compat).
+        """
+        if self.research_profile == "strict":
+            strict_value = float(STRICT_PROFILE_DEFAULTS["verifier_min_confidence"])
+            return max(self.verifier_min_confidence, strict_value)
+        return self.verifier_min_confidence
+
+    def resolved_refuse_unverified_answers(self) -> bool:
+        """Effective unverified-answer refusal flag honoring ``research_profile``.
+
+        Strict profile: True (the strict preset forces refusal on).
+        Default profile: the raw field value (unchanged for back-compat).
+        """
+        if self.research_profile == "strict":
+            return True
+        return self.refuse_unverified_answers
 
 
 # Default model string for use as function parameter defaults.
