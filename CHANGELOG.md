@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- `SECURITY.md` and `CONTRIBUTING.md` rewritten for the actual
+  kaos-agents surface — HTTP API auth (P0-3), tool approvals (P0-2),
+  memory deletion (P1-1), prompt-injection envelope, recorder
+  retention, cost caps. Replaces verbatim copies of kaos-web's
+  browser-tooling docs that didn't apply (KC17-P1-2).
 - **`SessionMemory.sections` is now a public read-only property (KC17-P2-4).** The HTTP API
   in `kaos_agents/api/server.py` previously read `memory._sections` — a leading-underscore,
   `__slots__`-private attribute — to enumerate configured section types in the wire payload.
