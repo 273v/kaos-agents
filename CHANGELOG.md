@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   must set `Runner(unsafe_bypass=True)` explicitly. Production deployments MUST NOT use the bypass.
 
 ### Added
+- `research_profile = "strict"` setting (env: `KAOS_AGENT_RESEARCH_PROFILE`)
+  for legal / regulated deployments. Raises BM25 score floor, verifier
+  confidence threshold, and refuses unverified answers via a typed
+  `InsufficientEvidence` collapse instead of warn-and-return. Default profile
+  behavior unchanged (KC17-P2-1).
 - KaosRuntime VFS isolation: `KaosRuntime(vfs=...)` kwarg + `KaosRuntime.test_mode(in_memory=True)` classmethod
   + `runtime.artifacts` as `cached_property`. Closes the disk-VFS cross-run leakage footgun in live tests.
   Live composition tests are now isolated by default. (Sprint-1 #1, commit d0ba060.)
@@ -53,6 +58,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Package root re-exports the three pattern classes the README markets but `__init__.py` previously
   hid behind submodules: `FindingsAgent`, `ReflexionLoop`, `RouterAgent` are now importable from
   `kaos_agents` directly. Closes KC17-P0-5.
+- `tests/integration/test_mcp_extract_live.py` now carries `pytestmark = pytest.mark.live` so the
+  default `pytest -m "not live and not network and not slow"` run no longer spends real Anthropic
+  tokens on every CI invocation. Recipe-name assertion bumped from `court-opinion-v1` to
+  `court-opinion-v2` to match the shipping recipe schema id. Closes KC17-P2-2.
+- sdist no longer ships unredacted telemetry recordings from
+  `tests/integration/runs/` or privileged-marker benchmark JSONs
+  from `docs/benchmarks/`. The 9 Harvey-Lab raw JSONs (which
+  contain LLM-generated deliverable text with "PRIVILEGED AND
+  CONFIDENTIAL — ATTORNEY-CLIENT COMMUNICATION / ATTORNEY WORK
+  PRODUCT" boilerplate) moved to a gitignored
+  `docs/benchmarks/_private/`; their public pass-rate /
+  cost summary remains in
+  `harvey-coc-pipeline-comparison-2026-05-06.md`. Multiformat
+  benchmark `corpus_dir` paths rewritten to repo-relative. New
+  `scripts/check_sdist.py` gate fails any future release that
+  regresses; CI release jobs should call it after `uv build`.
+  Sdist drops from 17 MB / 752 files to 2.0 MB / 564 files.
+  Closes KC17-P0-4.
 
 ### Documentation
 - Per-file fixture provenance manifests added to every leaf data directory under `tests/fixtures/`:
