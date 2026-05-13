@@ -75,6 +75,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   this fix removes a structural-integrity gap.
 
 ### Added
+- `kaos_agents/examples/viewer/` — single-page HTML viewer for the
+  recorder JSONL telemetry. Tailwind + Alpine, no build step. Drag-
+  drop a `.jsonl` file to inspect every LLM call with summary stats,
+  filterable / sortable table, side-by-side inputs/outputs detail
+  panel with markdown render, and group-by-trace_id view. Launch
+  via `python -m kaos_agents.examples.viewer` (KC18).
 - `kaos_agents/examples/nda_review/hello.py` — Hello-World "easy
   version" of the NDA review: defaults-only, asks for a markdown
   summary table across the 5 NDAs via `ResearchAgent.turn()`. ~$0.10
