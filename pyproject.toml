@@ -210,12 +210,16 @@ addopts = [
   "--cov-report=term-missing",
 ]
 markers = [
-  "integration: end-to-end behavior checks",
-  "unit: focused unit checks",
+  # PA10 — every custom @pytest.mark.<name> used anywhere under tests/
+  # MUST be registered here. ``--strict-markers`` (above) turns any
+  # unknown marker into a collection error so this list is the single
+  # source of truth for the kaos-agents marker vocabulary.
+  "integration: end-to-end behavior checks (no LLM calls; provider stubs OK)",
+  "unit: focused unit checks (no I/O beyond in-memory VFS / mocks)",
   "live: requires live API keys (real provider calls; cost-incurring)",
-  "network: requires outbound network access (HTTP APIs, etc.)",
-  "slow: long-running tests (>10s wall-clock)",
-  "benchmark: performance benchmarks",
+  "network: requires outbound network access (HTTP APIs, DNS, etc.) but no LLM keys",
+  "slow: long-running tests (>10s wall-clock); reserved for future use",
+  "benchmark: performance benchmarks (pytest-benchmark plugin)",
 ]
 
 [tool.coverage.run]

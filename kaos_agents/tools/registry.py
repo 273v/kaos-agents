@@ -448,6 +448,43 @@ class AgentChatTool(KaosTool):
                 context=context,
                 permission_policy=permission_policy,
             )
+
+            # PA5: auto-hydrate any VFS artifact references found in the
+            # user message into SessionMemory.DOCUMENTS BEFORE the runner
+            # loads the session. The runner's internal agent calls
+            # ``SessionStore.load_or_create(session_id)`` on every turn,
+            # so we have to write through the store so the runner sees
+            # the hydrated content on the same turn.
+            hydrated_artifacts: tuple = ()
+            try:
+                from kaos_agents.memory.store import SessionStore
+                from kaos_agents.runtime.artifact_hydration import (
+                    hydrate_artifacts_from_message,
+                )
+
+                vfs = _get_vfs(runtime)
+                store = SessionStore(vfs)
+                memory_for_hydration = await store.load_or_create(session_id)
+                hydrated_artifacts = await hydrate_artifacts_from_message(
+                    message,
+                    memory=memory_for_hydration,
+                    runtime=runtime,
+                )
+                if hydrated_artifacts:
+                    await store.save(memory_for_hydration)
+                    logger.info(
+                        "kaos-agent-chat.auto_hydrate: session=%s injected=%d artifact(s)",
+                        session_id,
+                        len(hydrated_artifacts),
+                    )
+            except Exception as exc:
+                # Auto-hydration is best-effort. A failure here MUST NOT
+                # break the chat turn — if the user's intent doesn't
+                # actually depend on the artifact, the turn still works.
+                # We log a WARNING so the failure is visible without
+                # blocking the response.
+                logger.warning("kaos-agent-chat.auto_hydrate: failed: %s", exc)
+
             response, status = await _run_turn_with_status(runner, message, session_id)
 
             # Surface an actionable RunError as ToolResult.isError=True.
@@ -515,6 +552,23 @@ class AgentChatTool(KaosTool):
                 result_data["run_state_ref"] = status["run_state_ref"]
             if status["budget_exceeded"]:
                 result_data["budget_kind"] = status["budget_kind"]
+            # PA5: report what was auto-hydrated this turn so consumers
+            # (tests, the audit pipeline, downstream observers) can see
+            # which artifact references were picked up without re-reading
+            # session memory.
+            if hydrated_artifacts:
+                result_data["hydrated_artifacts"] = [
+                    {
+                        "artifact_id": h.artifact_id,
+                        "uri": h.uri,
+                        "name": h.name,
+                        "size": h.size,
+                        "mime_type": h.mime_type,
+                        "tier": h.tier,
+                        "bytes_loaded": h.bytes_loaded,
+                    }
+                    for h in hydrated_artifacts
+                ]
 
             summary = response.text[:500] if response.text else "(empty response)"
             if status["budget_exceeded"]:
