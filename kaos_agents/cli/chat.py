@@ -111,9 +111,25 @@ class _SessionState:
         self.turns += 1
 
     def budget_exceeded(self) -> bool:
-        """After-the-fact check. We let the current turn finish — budgets
-        only block the *next* turn, matching how Budget works in
-        planning/compose.py. Set ``max_cost_usd=0`` to disable the cap."""
+        """Return True when accumulated session cost has met or
+        exceeded the cap.
+
+        PA13 — this predicate is now checked in TWO places:
+
+        1. BEFORE dispatching each user turn (the primary gate).
+           This is what bounds overshoot to "whatever the in-flight
+           turn produces" instead of "one extra full turn".
+        2. AFTER each turn completes (defense-in-depth + audit-log
+           emission).
+
+        Pre-PA13 only path 2 existed, which allowed a full extra
+        turn to run once the cap was crossed — the canonical
+        overshoot-by-one-step bug. The pre-dispatch gate at the top
+        of the REPL loop is the actual fix.
+
+        Set ``max_cost_usd=0`` (or pass ``--max-cost 0``) to disable
+        the cap entirely.
+        """
         return (
             self.max_cost_usd is not None
             and self.max_cost_usd > 0
@@ -1096,6 +1112,49 @@ async def _run_repl(args: argparse.Namespace) -> _SessionState:
         if not stripped:
             continue
 
+        # PA13 — check the cost cap BEFORE dispatching the LLM call,
+        # not after. The historical "after-the-turn" check (still
+        # present below as defense-in-depth) let the cap overshoot
+        # by one full turn: with cap=$4 and the running spend at
+        # $3.95, the next turn ran to completion (often $1+ more)
+        # before the loop terminated. By gating dispatch up here we
+        # bound overshoot to "whatever the IN-FLIGHT turn produces",
+        # which is the contract the partner expects.
+        # Slash commands (``stripped.startswith("/")`` below) are
+        # always free and never blocked.
+        if not stripped.startswith("/") and state.budget_exceeded():
+            cap = state.max_cost_usd or 0.0
+            print(
+                _c(
+                    _ANSI_YELLOW,
+                    f"\n[budget] session cost ${state.cost_usd:.4f} "
+                    f"meets or exceeds cap ${cap:.4f} — refusing further turns.",
+                )
+            )
+            if log_file is not None:
+                import time as _t_budget
+
+                from kaos_agents.events import BudgetExceeded, serialize_event_json
+
+                evt = BudgetExceeded(
+                    timestamp=_t_budget.monotonic(),
+                    sequence=0,
+                    session_id=session_id,
+                    run_id="",
+                    kind="cost",
+                    limit=float(cap),
+                    actual=float(state.cost_usd),
+                    reason=(
+                        f"Pre-turn cost cap check refused turn "
+                        f"{state.turns + 1} (cap reached after "
+                        f"{state.turns} completed turn(s))"
+                    ),
+                )
+                log_file.write(serialize_event_json(evt))
+                log_file.write("\n")
+                log_file.flush()
+            break
+
         if stripped.startswith("/"):
             if stripped == "/quit":
                 break
@@ -1494,11 +1553,16 @@ async def _run_repl(args: argparse.Namespace) -> _SessionState:
 
                 traceback.print_exc()
 
-        # Budget cap — check after every turn. The current turn is allowed
-        # to complete (it may have been the one that pushed us over); the
-        # next one is refused. Exit code 2 in non-interactive mode so
-        # CI / course runnables / scripts can tell budget-exceeded apart
-        # from real errors (exit 1).
+        # Budget cap — defense-in-depth post-turn check. The PRIMARY
+        # gate is the pre-dispatch check at the top of the loop (PA13)
+        # which bounds overshoot to whatever the just-finished turn
+        # produced. This post-turn arm still fires the [budget]
+        # message + JSONL event so the audit trail records the exact
+        # moment the cap was crossed (the pre-dispatch path on the
+        # next iteration just refuses further turns silently).
+        # Exit code 2 in non-interactive mode so CI / course runnables /
+        # scripts can tell budget-exceeded apart from real errors
+        # (exit 1).
         if state.budget_exceeded():
             cap = state.max_cost_usd or 0.0
             print(

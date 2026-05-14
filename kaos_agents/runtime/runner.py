@@ -568,6 +568,14 @@ class Runner:
         permission policy evaluates, and SSE + JSON + MCP clients get
         identical safety semantics.
 
+        PA14 (issue #166): the inline drain that used to live in this
+        body has been consolidated into the canonical
+        :func:`events_to_response` helper. ``Runner.turn`` now collects
+        events into a list and delegates, so the two paths cannot
+        drift on cost/tokens/error metadata. The 3 known divergences
+        (D1 RunError metadata, D2 default intent reasoning, D3 empty
+        TurnSummary fallback) have been resolved in the helper.
+
         Args:
             message: The user's message.
             session_id: Session identifier for memory persistence.
@@ -578,95 +586,12 @@ class Runner:
         """
         # Local import avoids a circular-import at module load time —
         # kaos_agents.events imports from the same package.
-        from kaos_agents.events import (
-            IntentClassified,
-            RunError,
-            TextDelta,
-            TurnSummary,
-        )
-        from kaos_agents.types import IntentResult, IntentType, ToolExecution
+        from kaos_agents.runtime.events_to_response import events_to_response
 
-        text_parts: list[str] = []
-        tool_calls: list[ToolExecution] = []
-        intent_result: IntentResult | None = None
-        turn_summary: TurnSummary | None = None
-        turn_start_number: int = 0
-        run_error: RunError | None = None
-
+        events: list[KaosEvent] = []
         async for event in self.run(message, session_id):
-            if isinstance(event, TextDelta):
-                text_parts.append(event.content)
-            elif (
-                isinstance(event, Span)
-                and event.subject == SpanSubject.TOOL_CALL
-                and event.phase == SpanPhase.COMPLETE
-            ):
-                attrs = event.attributes
-                tool_calls.append(
-                    ToolExecution.from_dict_args(
-                        tool_name=str(attrs.get("tool_name", "")),
-                        arguments={},
-                        result_summary=str(attrs.get("result_summary", "")),
-                        is_error=bool(attrs.get("is_error", False)),
-                    )
-                )
-            elif isinstance(event, IntentClassified):
-                intent_result = IntentResult(
-                    intent=IntentType(event.intent),
-                    confidence=event.confidence,
-                    reasoning=event.reasoning,
-                )
-            elif (
-                isinstance(event, Span)
-                and event.subject == SpanSubject.TURN
-                and event.phase == SpanPhase.START
-            ):
-                turn_start_number = int(event.attributes.get("turn_number", 0) or 0)
-            elif isinstance(event, TurnSummary):
-                turn_summary = event
-            elif isinstance(event, RunError):
-                run_error = event
-
-        # Prefer TurnSummary's text (which already aggregates TextDelta
-        # content and includes pattern-specific post-processing); fall
-        # back to concatenated deltas when TurnSummary was not emitted
-        # (e.g. early pause, run_error).
-        if turn_summary is not None and turn_summary.text:
-            text = turn_summary.text
-        else:
-            text = "".join(text_parts)
-
-        if intent_result is None:
-            # No classification event — synthesize a default so AgentResponse
-            # stays well-typed. Happens on error paths before intent fires.
-            intent_result = IntentResult(
-                intent=IntentType.RESPOND,
-                confidence=0.0,
-                reasoning="no IntentClassified event (run aborted early or errored)",
-            )
-
-        metadata: dict[str, Any] = {"session_id": session_id}
-        if run_error is not None:
-            metadata["error_type"] = run_error.error_type
-            metadata["error_message"] = run_error.message
-
-        tokens_used = turn_summary.tokens_used if turn_summary is not None else 0
-        # Sprint-3 #10 (transparency lens) — pull cost_usd off the
-        # TurnSummary aggregate so the AgentResponse carries the
-        # headline figure as a first-class attribute. Same path that
-        # events_to_response.events_to_response uses; the two
-        # implementations must agree.
-        cost_usd = float(turn_summary.cost_usd or 0.0) if turn_summary is not None else 0.0
-        return AgentResponse.create(
-            text=text,
-            intent=intent_result,
-            tool_calls=tuple(tool_calls),
-            turn_number=turn_start_number,
-            tokens_used=tokens_used,
-            cost_usd=cost_usd,
-            total_tokens=tokens_used,
-            metadata=metadata,
-        )
+            events.append(event)
+        return events_to_response(events, session_id)
 
     async def delegate(
         self,

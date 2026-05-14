@@ -161,6 +161,7 @@ class ResearchAgent(ChatAgent):
         instructions: str | None = None,
         documents: Sequence[Any] | None = None,
         show_outline: Literal["yes", "no", "auto"] = "auto",
+        max_cost_usd: float | None = None,
     ) -> None:
         """Construct a ResearchAgent.
 
@@ -184,6 +185,22 @@ class ResearchAgent(ChatAgent):
                 ``"auto"`` (default) — inject when ≤50 docs and the rendered
                 outline fits in ~5000 chars. ``"yes"`` — always inject (truncated
                 if needed). ``"no"`` — never inject (matches pre-P7 behavior).
+            max_cost_usd: PA11 — hard cost cap honored on the RAG path.
+                When set, the agent tracks accumulated spend across
+                every ``rag.invoke()`` call inside
+                :meth:`_handle_research_streaming` (initial + retry
+                + any future expansions). BEFORE each LLM call, the
+                agent checks the accumulated cost; if adding the call
+                would exceed the cap (using a conservative per-call
+                estimate), the agent emits an
+                :class:`EvidenceInsufficient` event with a
+                ``budget_exceeded`` reason and returns a partial
+                result instead of silently overshooting. ``None`` (the
+                default) preserves pre-PA11 behavior — no cap, the
+                outer agent / tool wrapper is responsible for budget.
+                Must be ``> 0`` when set; ``ValueError`` is raised at
+                construction time on zero/negative values to match
+                the FindingsAgent precedent.
         """
         super().__init__(
             vfs,
@@ -201,6 +218,30 @@ class ResearchAgent(ChatAgent):
         )
         self._rag_top_k = rag_top_k
         self._rag_max_retries = rag_max_retries
+        # PA11 — strict cost ceiling on the RAG path. ``None`` = no cap.
+        # We validate at construction so misconfigured deployments
+        # fail loudly instead of silently overshooting.
+        if max_cost_usd is not None and max_cost_usd <= 0.0:
+            raise ValueError(
+                f"max_cost_usd must be > 0 when set, got {max_cost_usd}. "
+                "Pass None for no cap (the historical default), or a "
+                "positive float (e.g. 0.50 for a 50-cent hard ceiling)."
+            )
+        self._max_cost_usd: float | None = max_cost_usd
+        # Conservative per-call cost estimate used for the pre-call
+        # check. Set to ~$0.01 (~one Sonnet call on a short prompt).
+        # When the headroom is below this we refuse to dispatch
+        # rather than risk overshooting. Tunable via the env-var
+        # KAOS_AGENT_RAG_PER_CALL_ESTIMATE_USD if a partner is on a
+        # much cheaper model.
+        import os as _os
+
+        try:
+            self._rag_per_call_estimate_usd: float = float(
+                _os.environ.get("KAOS_AGENT_RAG_PER_CALL_ESTIMATE_USD", "0.01") or "0.01"
+            )
+        except (TypeError, ValueError):
+            self._rag_per_call_estimate_usd = 0.01
         self._corpus = _unwrap_corpus_arg(corpus)
         self._documents: tuple[Any, ...] = tuple(documents) if documents is not None else ()
         self._show_outline: Literal["yes", "no", "auto"] = show_outline
@@ -608,6 +649,49 @@ class ResearchAgent(ChatAgent):
                 ),
             )
 
+            # PA11 — pre-call cost gate. The RAG path makes up to 2
+            # ``rag.invoke()`` LLM calls (initial + retry on
+            # InsufficientEvidence). We accumulate the per-call cost
+            # in ``rag_cost_accumulator`` and check it BEFORE each
+            # invocation. When the headroom is too small for one more
+            # estimated call we emit ``EvidenceInsufficient`` with a
+            # ``budget_exceeded`` reason and return a partial result.
+            # Mirrors the chat/findings cap-honesty pattern.
+            rag_cost_accumulator: float = 0.0
+            cap = self._max_cost_usd
+            if cap is not None and rag_cost_accumulator + self._rag_per_call_estimate_usd > cap:
+                logger.info(
+                    "research_agent.budget_exceeded: pre-call check refused "
+                    "RAG dispatch — cap=$%.4f, estimated next-call=$%.4f, "
+                    "accumulated=$%.4f",
+                    cap,
+                    self._rag_per_call_estimate_usd,
+                    rag_cost_accumulator,
+                )
+                yield emitter.emit(
+                    EvidenceInsufficient,
+                    reason=(
+                        f"RAG cost cap reached (cap=${cap:.4f}, "
+                        f"per-call estimate=${self._rag_per_call_estimate_usd:.4f}). "
+                        "Refusing to dispatch the initial retrieval call to "
+                        "avoid overshooting the budget. Raise max_cost_usd "
+                        "or accept this as a budget-bounded refusal."
+                    ),
+                    what_would_resolve=(
+                        f"Increase max_cost_usd (currently ${cap:.4f}) "
+                        f"to at least ${self._rag_per_call_estimate_usd * 2:.4f} "
+                        "for a single RAG round."
+                    ),
+                )
+                yield emitter.emit(
+                    TextDelta,
+                    content=(
+                        "I cannot answer this question within the configured "
+                        f"cost cap of ${cap:.4f}. Raise the cap and re-run."
+                    ),
+                )
+                return
+
             # Emit a tool call event for the RAG query
             rag_query_span = emitter.span_start(
                 SpanSubject.TOOL_CALL,
@@ -641,9 +725,14 @@ class ResearchAgent(ChatAgent):
             # around the same pipeline that throw usage on the floor.
             rag_invocation = await rag.invoke(question=decorated_question, documents=corpus)
             result = rag_invocation.output
+            # PA11 — accumulate actual spend from the invocation usage.
+            # Read the real cost (not the estimate) so the retry-gate
+            # below uses true headroom.
+            _initial_usage = InvocationUsage.from_invocation(rag_invocation)
+            rag_cost_accumulator += float(getattr(_initial_usage, "cost_usd", 0.0) or 0.0)
             yield emit_usage_observed(
                 emitter,
-                InvocationUsage.from_invocation(rag_invocation),
+                _initial_usage,
                 source="rag-query",
             )
 
@@ -832,7 +921,30 @@ class ResearchAgent(ChatAgent):
 
                 # Retry: use what_would_resolve to drive a second retrieval attempt
                 retried = False
-                if refusal.what_would_resolve and isinstance(corpus, dict) and self._corpus is None:
+                # PA11 — pre-retry cost gate. If the headroom is too
+                # small for another RAG call, skip the retry and let
+                # the final insufficient-evidence path fire as usual.
+                # This bounds total RAG spend to ~1 call when the
+                # caller's cap is tight.
+                can_afford_retry = True
+                if cap is not None and (
+                    rag_cost_accumulator + self._rag_per_call_estimate_usd > cap
+                ):
+                    can_afford_retry = False
+                    logger.info(
+                        "research_agent.retry_skipped: cost cap would be "
+                        "exceeded by retry — cap=$%.4f, accumulated=$%.4f, "
+                        "per-call estimate=$%.4f",
+                        cap,
+                        rag_cost_accumulator,
+                        self._rag_per_call_estimate_usd,
+                    )
+                if (
+                    can_afford_retry
+                    and refusal.what_would_resolve
+                    and isinstance(corpus, dict)
+                    and self._corpus is None
+                ):
                     retry_query = refusal.what_would_resolve
                     logger.debug(
                         "research_agent.retry: retrying with query=%r, current_corpus_size=%d",
@@ -890,9 +1002,14 @@ class ResearchAgent(ChatAgent):
                             documents=corpus,
                         )
                         retry_result = retry_invocation.output
+                        # PA11 — accumulate the retry's actual spend so a
+                        # future third-call path (if added) sees the
+                        # cumulative total.
+                        _retry_usage = InvocationUsage.from_invocation(retry_invocation)
+                        rag_cost_accumulator += float(getattr(_retry_usage, "cost_usd", 0.0) or 0.0)
                         yield emit_usage_observed(
                             emitter,
-                            InvocationUsage.from_invocation(retry_invocation),
+                            _retry_usage,
                             source="rag-query",
                         )
 
