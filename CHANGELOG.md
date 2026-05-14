@@ -7,7 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_No entries yet for the next version._
+### Added
+- **PA5: `AgentChatTool` auto-hydrates VFS artifact references from the user
+  message.** Upstream tools (e.g. `kaos-pdf-parse`) return manifest URIs
+  like `kaos://artifacts/<id>`; the natural follow-up message "what's in
+  that doc?" now triggers a VFS read of the artifact body into
+  `SessionMemory.DOCUMENTS` before the chat pattern dispatches. The new
+  `kaos_agents.runtime.artifact_hydration` module scans incoming messages
+  for `kaos://artifacts/<id>` URIs, `artifact://<id>` shorthand, and
+  `ArtifactManifest` JSON blobs; resolves them via `runtime.artifacts`;
+  and injects bodies respecting the standard inline-threshold tiers
+  (inline < 16 KB, summary < 256 KB, handle-only above). Already-hydrated
+  artifacts are detected via `MemoryItem.metadata["hydrated_artifact_id"]`
+  and skipped on subsequent turns. Hydration is best-effort: any failure
+  is logged at WARNING and the turn proceeds. The chat tool's
+  `structuredContent` payload now carries an `hydrated_artifacts: list[…]`
+  field when hydration fired, so observers can see which references were
+  picked up.
+
+### Changed
+- **PA10: pytest marker definitions clarified.** Every custom marker used
+  under `tests/` (`unit`, `integration`, `live`, `network`, `slow`,
+  `benchmark`) was already registered in
+  `[tool.pytest.ini_options].markers` and `--strict-markers` is enabled,
+  so collection has been clean of `PytestUnknownMarkWarning` since the
+  initial OSS release. This update sharpens the marker descriptions
+  (e.g. `live` requires real API keys vs. `network` which only requires
+  outbound HTTP) and adds a comment block documenting the single source
+  of truth.
 
 ## [0.1.0a1] — 2026-05-13
 
