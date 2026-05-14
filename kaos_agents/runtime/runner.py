@@ -994,13 +994,17 @@ def _mint_session_id() -> str:
 
 
 def _resolve_vfs(runtime: KaosRuntime | None) -> VirtualFileSystem:
-    """Get VFS from runtime, falling back to in-memory VFS."""
+    """Get VFS from runtime, falling back to the kaos-core disk-backed default.
+
+    The disk-backed default matches ``kaos_core.KaosRuntime`` and
+    ``kaos_core.vfs.core.VirtualFileSystem`` — both default to
+    ``StorageBackend.DISK`` rooted at ``.kaos-vfs/``. Callers that need an
+    in-memory VFS (most commonly tests) should construct one explicitly
+    and pass it via ``KaosRuntime(vfs=...)`` or ``Runner(vfs=...)``.
+    """
     if runtime is not None and hasattr(runtime, "vfs") and runtime.vfs is not None:
         return runtime.vfs
 
-    from kaos_core.types.enums import StorageBackend
     from kaos_core.vfs.core import VirtualFileSystem
-    from kaos_core.vfs.models import VFSConfig
 
-    config = VFSConfig(default_backend=StorageBackend.MEMORY)
-    return VirtualFileSystem(config=config)
+    return VirtualFileSystem()
