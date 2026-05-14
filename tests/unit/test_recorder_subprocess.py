@@ -229,8 +229,13 @@ print(result.answer)
 
         # The subprocess JSONL should have been stitched into the
         # main JSONL. Read the main JSONL and assert.
-        main_jsonl = out_dir / "kc6_subprocess_e2e.jsonl"
-        assert main_jsonl.exists()
+        # PA18: the recorder now appends a UTC timestamp suffix to
+        # the filename so consecutive attempts of the same test get
+        # distinct files; glob to pick up whichever timestamped
+        # variant exists.
+        matches = list(out_dir.glob("kc6_subprocess_e2e*.jsonl"))
+        assert len(matches) == 1, f"expected exactly one capture, found {matches}"
+        main_jsonl = matches[0]
         lines = [json.loads(line) for line in main_jsonl.read_text().splitlines()]
 
         # Schema-v4 streaming: first line is the at-start header,
