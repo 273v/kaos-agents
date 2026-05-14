@@ -1,57 +1,44 @@
-"""Assert the three event → :class:`AgentResponse` drain paths agree.
+"""Assert the event → :class:`AgentResponse` drain paths agree.
 
-KC17-P1-4 / PA14 (issue #166). Three parallel drain implementations
-exist in the codebase, with an unenforced "must agree" invariant
-called out in :mod:`kaos_agents.runtime.runner` (Sprint-3 #10
-landed cost accounting across all three at once):
+KC17-P1-4 / PA14 (issue #166). The codebase historically carried
+two parallel drain implementations, with an unenforced "must agree"
+invariant called out in :mod:`kaos_agents.runtime.runner`:
 
-1. ``Runner.turn`` — :mod:`kaos_agents.runtime.runner` lines 570-650.
-   Drains events from ``Runner.run()`` and reconstructs the
-   :class:`AgentResponse` inline.
-2. ``KaosAgent.turn`` — :mod:`kaos_agents.base.agent` lines 117-139.
-   The default ABC implementation: drains events from ``self.run()``
-   and delegates to :func:`events_to_response`.
-3. ``events_to_response`` — :mod:`kaos_agents.runtime.events_to_response`.
-   The standalone helper consumed by path 2.
+1. ``Runner.turn`` — :mod:`kaos_agents.runtime.runner` (inline drain
+   plus reconstruction of :class:`AgentResponse`).
+2. ``events_to_response`` — :mod:`kaos_agents.runtime.events_to_response`
+   (the standalone helper consumed by ``KaosAgent.turn``).
 
-Strictly speaking only paths 1 and 3 are independent — path 2 calls
-path 3 — but all three are exercised here so a future change to path 2
-that breaks the delegation also fails loudly.
+PA14 consolidates them: ``Runner.turn`` now collects events into a
+list and delegates to :func:`events_to_response`. There is one
+canonical drain. This test still exercises all three entry points
+(``Runner.turn``, ``KaosAgent.turn``, and the helper directly) so a
+future change that breaks the delegation fails loudly.
 
-Consolidation of the three into a single drain is deferred to
-0.1.0a2 under PA14 (#166). This test is **additive only** — it
-guards the invariant in the interim and gives the future
-consolidation PR a known-good behavioral contract to refactor
-against.
+# Resolved divergences (D1 / D2 / D3)
 
-# Known divergences (Sprint-3 #10 leftovers)
+Pre-PA14 the two paths disagreed on three default-shaped axes. The
+PA14 consolidation aligned all three on the canonical
+``Runner.turn`` behavior, and the corresponding tests below are now
+asserted to PASS rather than xfail:
 
-Reading the three implementations side-by-side surfaced three real
-divergences in the *defaults* the helpers populate. These are
-documented here and marked ``xfail`` so CI stays green while the
-issues are tracked for the 0.1.0a2 consolidation:
-
-- **D1 ``RunError`` metadata**: ``Runner.turn`` injects
-  ``error_type`` and ``error_message`` into ``response.metadata``
-  when a :class:`RunError` event was seen; the helper drops the
-  ``RunError`` entirely (it never looks at it). The consolidation
-  must decide which is canonical.
+- **D1 ``RunError`` metadata**: when a :class:`RunError` event
+  fires, ``metadata.error_type`` and ``metadata.error_message`` are
+  populated. (Helper now mirrors Runner.turn.)
 - **D2 default ``IntentResult.reasoning``**: when no
-  :class:`IntentClassified` fires, ``Runner.turn`` substitutes
-  ``"no IntentClassified event (run aborted early or errored)"``;
-  the helper substitutes the empty string. Same intent and
-  confidence on both paths — only the reasoning string differs.
+  :class:`IntentClassified` fires, ``intent.reasoning`` is the
+  descriptive sentinel
+  ``"no IntentClassified event (run aborted early or errored)"``.
 - **D3 empty ``TurnSummary.text`` fallback**: when a
-  :class:`TurnSummary` event fires with ``text=""``,
-  ``Runner.turn`` falls back to the concatenated :class:`TextDelta`
-  content; the helper trusts the empty string from the
-  TurnSummary. This matters for partial / errored turns that emit
-  TextDeltas before an early TurnSummary.
+  :class:`TurnSummary` event fires with ``text=""``, the drain
+  falls back to concatenated :class:`TextDelta` content. Matters
+  for partial / errored turns that emit TextDeltas before an
+  early TurnSummary.
 
-The streams in ``DIVERGENT_*`` constants below exercise each
-divergence under ``pytest.mark.xfail(strict=True)``. The convergent
-``EQUIVALENT_STREAMS`` corpus covers the happy paths where all
-three drains agree byte-for-byte.
+The convergent ``EQUIVALENT_STREAMS`` corpus covers the happy paths
+where all three drains agree byte-for-byte; the per-divergence
+tests below pin the canonical behavior so any future regression
+fails loudly.
 """
 
 from __future__ import annotations
@@ -473,27 +460,18 @@ async def test_three_drains_agree_on_normalized_response(
 
 
 # --------------------------------------------------------------------------
-# Divergence assertions — each is xfail(strict=True) so a future
-# consolidation PR that aligns the three paths will *un*-xfail and
-# the test author will be forced to delete the marker.
+# Canonical-behavior assertions for the consolidated drain. Each was
+# an xfail divergence pre-PA14; now they assert the agreed canonical
+# behavior across all three drain entry points.
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "D1 known divergence (PA14 / #166): Runner.turn injects "
-        "error_type/error_message into AgentResponse.metadata when a "
-        "RunError fires; events_to_response does not. The 0.1.0a2 "
-        "consolidation must pick one canonical behavior."
-    ),
-)
-async def test_d1_run_error_metadata_diverges() -> None:
-    """Runner.turn surfaces RunError; events_to_response drops it.
+async def test_d1_run_error_surfaces_in_metadata() -> None:
+    """PA14 canonical: a :class:`RunError` populates ``metadata.error_*``.
 
-    When this stops failing, the three paths have converged on
-    error metadata — delete the xfail and the divergence is
-    closed.
+    All three drain entry points surface ``error_type`` and
+    ``error_message`` so callers can distinguish abnormal turns
+    from clean ones without walking the event stream.
     """
     em = _emitter()
     err = em.emit(
@@ -505,56 +483,55 @@ async def test_d1_run_error_metadata_diverges() -> None:
     events = [err]
 
     response_a = await _drain_runner_turn(events, SESSION_ID)
+    response_b = await _drain_agent_turn(events, SESSION_ID)
     response_c = _drain_helper(events, SESSION_ID)
 
-    meta_a = dict(response_a.metadata)
-    meta_c = dict(response_c.metadata)
-    # If/when the helper learns to surface RunError, this assertion holds.
-    assert meta_a.get("error_type") == meta_c.get("error_type"), (
-        f"Runner.turn metadata.error_type={meta_a.get('error_type')!r}; "
-        f"events_to_response metadata.error_type={meta_c.get('error_type')!r}"
-    )
+    for label, resp in (
+        ("Runner.turn", response_a),
+        ("KaosAgent.turn", response_b),
+        ("events_to_response", response_c),
+    ):
+        meta = dict(resp.metadata)
+        assert meta.get("error_type") == "ToolTimeout", (
+            f"{label}: expected error_type=ToolTimeout, got {meta.get('error_type')!r}"
+        )
+        assert meta.get("error_message") == "tool fetch timed out", (
+            f"{label}: expected error_message='tool fetch timed out', "
+            f"got {meta.get('error_message')!r}"
+        )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "D2 known divergence (PA14 / #166): when no IntentClassified "
-        "event fires, Runner.turn substitutes a descriptive reasoning "
-        "string ('no IntentClassified event...'); events_to_response "
-        "substitutes the empty string. Same intent + confidence on "
-        "both. The 0.1.0a2 consolidation must align them."
-    ),
-)
-async def test_d2_default_intent_reasoning_diverges() -> None:
-    """No IntentClassified → different default reasoning across paths."""
+async def test_d2_default_intent_reasoning_is_canonical() -> None:
+    """PA14 canonical: when no :class:`IntentClassified` fires, the
+    drain populates ``intent.reasoning`` with the descriptive sentinel
+    so partial / errored turns are distinguishable from "classifier
+    returned an empty reasoning string"."""
     events = _stream_minimal_turn_summary()
+    expected = "no IntentClassified event (run aborted early or errored)"
     response_a = await _drain_runner_turn(events, SESSION_ID)
+    response_b = await _drain_agent_turn(events, SESSION_ID)
     response_c = _drain_helper(events, SESSION_ID)
-    assert response_a.intent.reasoning == response_c.intent.reasoning, (
-        f"Runner.turn intent.reasoning={response_a.intent.reasoning!r}; "
-        f"events_to_response intent.reasoning={response_c.intent.reasoning!r}"
-    )
+    for label, resp in (
+        ("Runner.turn", response_a),
+        ("KaosAgent.turn", response_b),
+        ("events_to_response", response_c),
+    ):
+        assert resp.intent.reasoning == expected, (
+            f"{label}: expected intent.reasoning={expected!r}, got {resp.intent.reasoning!r}"
+        )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "D3 known divergence (PA14 / #166): when a TurnSummary fires "
-        "with empty text, Runner.turn falls back to concatenated "
-        "TextDelta content; events_to_response trusts the empty "
-        "string. Matters for partial / errored turns. The 0.1.0a2 "
-        "consolidation must align them."
-    ),
-)
-async def test_d3_empty_turn_summary_text_diverges() -> None:
-    """TurnSummary.text='' → Runner falls back to deltas; helper doesn't."""
+async def test_d3_empty_turn_summary_text_falls_back_to_deltas() -> None:
+    """PA14 canonical: when a :class:`TurnSummary` fires with empty
+    text, the drain falls back to the concatenated :class:`TextDelta`
+    content (preserves partial / errored output).
+    """
     em = _emitter()
     turn_start = em.span_start(SpanSubject.TURN, name="turn.x", attributes={"turn_number": 1})
     delta_a = em.emit(TextDelta, content="streamed ")
     delta_b = em.emit(TextDelta, content="content")
     turn_complete = em.span_complete(SpanSubject.TURN, span_id=turn_start.span_id)
-    # Note: text="" — the divergence trigger.
+    # Note: text="" — the fallback trigger.
     summary = em.emit(
         TurnSummary,
         text="",
@@ -565,7 +542,13 @@ async def test_d3_empty_turn_summary_text_diverges() -> None:
     events = [turn_start, delta_a, delta_b, turn_complete, summary]
 
     response_a = await _drain_runner_turn(events, SESSION_ID)
+    response_b = await _drain_agent_turn(events, SESSION_ID)
     response_c = _drain_helper(events, SESSION_ID)
-    assert response_a.text == response_c.text, (
-        f"Runner.turn text={response_a.text!r}; events_to_response text={response_c.text!r}"
-    )
+    for label, resp in (
+        ("Runner.turn", response_a),
+        ("KaosAgent.turn", response_b),
+        ("events_to_response", response_c),
+    ):
+        assert resp.text == "streamed content", (
+            f"{label}: expected text='streamed content' (delta fallback), got {resp.text!r}"
+        )

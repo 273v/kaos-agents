@@ -14,6 +14,7 @@ from typing import Any
 from uuid import uuid4
 
 from kaos_agents.base.event import KaosEvent
+from kaos_agents.types.budget import UNLIMITED_BUDGET, CostBudget
 from kaos_agents.types.tool_call import ToolExecution
 from kaos_agents.types.usage import ZERO_USAGE, InvocationUsage
 
@@ -35,6 +36,15 @@ class TurnInvocation:
     will be tightened to the concrete types as those phases land —
     ContextVar isolation and downstream consumers do not care about the
     exact static type today.
+
+    PA12 — the internal cost accumulator is now a :class:`CostBudget`
+    (``cost_budget``) instead of a bare ``float``. ``cost_usd`` is
+    still exposed as a top-level attribute for backwards compatibility
+    with every event emitter and TurnSummary builder, but its value is
+    read from ``cost_budget.spent_usd`` on each mutation so the typed
+    value is the source of truth. A bare-float overwrite (``inv.cost_usd
+    = X``) still works for old call sites, and is mirrored into the
+    backing budget by the ``__setattr__`` hook below.
     """
 
     # Identity
@@ -54,6 +64,11 @@ class TurnInvocation:
     tool_executions: tuple[ToolExecution, ...] = ()
     events: tuple[KaosEvent, ...] = ()
     usage: InvocationUsage = ZERO_USAGE
+    # PA12 — backing CostBudget (frozen value type). Public ``cost_usd``
+    # below is a mirror of ``cost_budget.spent_usd`` so existing callers
+    # that read the float still work. Defaults to ``UNLIMITED_BUDGET``
+    # (cap = inf) when the turn isn't running under a hard cost cap.
+    cost_budget: CostBudget = UNLIMITED_BUDGET
     cost_usd: float = 0.0
     children: tuple[TurnInvocation, ...] = ()
     escalations: tuple[KaosEvent, ...] = ()  # tightens to EscalationRequired in Phase 4
@@ -83,10 +98,42 @@ class TurnInvocation:
 
         Parent usage and cost are accumulated automatically so the
         parent TurnSummary reflects the full subtree.
+
+        PA12 — the cost accumulation goes through the typed
+        :class:`CostBudget` (``self.cost_budget = self.cost_budget.spend(...)``)
+        rather than a raw ``+=`` on a float. The float mirror
+        ``self.cost_usd`` is kept in sync via the ``__setattr__`` hook
+        so existing readers keep working. The wire-surface
+        :attr:`AgentResponse.cost_usd` and ``TurnSummary.cost_usd``
+        contracts (Sprint-3 #10) are unaffected — they continue to
+        read the float.
         """
         self.children = (*self.children, child)
         self.usage = self.usage + child.usage
-        self.cost_usd = self.cost_usd + child.cost_usd
+        # PA12 — typed accumulation. The bare-float mirror is updated
+        # by the cost_budget setattr-hook so external readers of
+        # ``inv.cost_usd`` keep working.
+        self.cost_budget = self.cost_budget.spend(child.cost_usd)
+
+    def spend(self, amount_usd: float) -> None:
+        """Charge ``amount_usd`` against the turn's cost budget.
+
+        PA12 — typed counterpart to the historical ``inv.cost_usd +=
+        amount`` pattern. Use this from emitter / hook code so the
+        cost flows through :class:`CostBudget` (and downstream
+        budget-aware policies like
+        :class:`~kaos_agents.runtime.escalation.DefaultEscalationPolicy`
+        see consistent ``fraction_spent`` / ``exceeded`` signals).
+        """
+        self.cost_budget = self.cost_budget.spend(amount_usd)
+
+    @property
+    def budget_exceeded(self) -> bool:
+        """True when the turn's :class:`CostBudget` has been
+        exhausted. ``UNLIMITED_BUDGET`` (the default) always returns
+        False — only a turn constructed with an explicit finite cap
+        can report exceeded."""
+        return self.cost_budget.exceeded
 
     def finalize(
         self,
@@ -100,6 +147,46 @@ class TurnInvocation:
         self.output = output
         self.error = error
         self.finished_at = datetime.now(UTC)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """PA12 — keep ``cost_usd`` and ``cost_budget.spent_usd`` in sync.
+
+        The two-way mirror exists because:
+
+        1. ``cost_usd: float`` is a long-standing public attribute
+           read by emitters, TurnSummary builders, and tests.
+        2. ``cost_budget: CostBudget`` is the new typed source of
+           truth (PA12).
+
+        When a caller writes ``cost_usd`` directly we mirror into the
+        budget; when ``cost_budget`` is replaced we mirror its
+        ``spent_usd`` into the float. Either path keeps the two
+        attributes coherent so downstream readers never see drift.
+        """
+        if name == "cost_usd":
+            # Bare-float write — mirror into the typed budget. Keep
+            # the same cap so a write doesn't accidentally drop the
+            # ceiling.
+            object.__setattr__(self, "cost_usd", float(value))
+            # Don't recurse: read cost_budget via object.__getattribute__
+            # to avoid the slot-init bootstrap chicken-and-egg.
+            try:
+                current = object.__getattribute__(self, "cost_budget")
+            except AttributeError:
+                current = UNLIMITED_BUDGET
+            if current.spent_usd != float(value):
+                object.__setattr__(
+                    self,
+                    "cost_budget",
+                    CostBudget(total_usd=current.total_usd, spent_usd=float(value)),
+                )
+            return
+        if name == "cost_budget":
+            object.__setattr__(self, "cost_budget", value)
+            # Mirror spent into the public float.
+            object.__setattr__(self, "cost_usd", float(value.spent_usd))
+            return
+        object.__setattr__(self, name, value)
 
 
 # Per-task active TurnInvocation. Set at the top of AgentLoop.forward(),
