@@ -438,8 +438,13 @@ async def record_live_test(
 ) -> AsyncIterator[_Capture]:
     """Async context manager that captures every Call._execute during the block.
 
-    On exit, writes a JSONL file at ``out_dir/<sanitized-nodeid>.jsonl``
-    with one header line + one line per recorded Invocation.
+    On exit, writes a JSONL file at
+    ``out_dir/<sanitized-nodeid>__<YYYYMMDDTHHMMSSZ>.jsonl`` with one
+    header line + one line per recorded Invocation. The UTC timestamp
+    suffix gives every attempt of the same test its own file so a flaky
+    outlier capture isn't overwritten by the next passing run — see PA18
+    where the original 0.621 Jaccard Sonnet outlier was lost to the
+    previous ``"w"`` truncate-on-open behaviour.
 
     The capture is best-effort: a serialization error on one
     Invocation does not stop the others from being recorded, and a
@@ -467,12 +472,19 @@ async def record_live_test(
     # ------------------------------------------------------------------
     # __aenter__ work: open the JSONL, write the header, start streaming.
     # ------------------------------------------------------------------
-    start_ts = datetime.datetime.now(datetime.UTC).isoformat()
+    start_dt = datetime.datetime.now(datetime.UTC)
+    start_ts = start_dt.isoformat()
     start_perf = time.perf_counter()
     repo_root = _find_repo_root(out_dir)
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    fname = _sanitize_nodeid(test_nodeid) + ".jsonl"
+    # PA18: filename carries the UTC start timestamp so consecutive
+    # attempts of the same test get separate JSONL files. Without this
+    # suffix the recorder opened the path in ``"w"`` truncate mode and
+    # silently overwrote the previous attempt's capture — costing us
+    # the original Sonnet-4-6 Jaccard 0.621 outlier evidence.
+    timestamp_part = start_dt.strftime("%Y%m%dT%H%M%SZ")
+    fname = f"{_sanitize_nodeid(test_nodeid)}__{timestamp_part}.jsonl"
     out_path = out_dir / fname
     capture.out_path = out_path
 

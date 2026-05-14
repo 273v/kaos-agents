@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -410,6 +411,84 @@ class TestRecordLiveTestRedaction:
         inv_lines = [json.loads(ln) for ln in lines if '"kind":"invocation"' in ln]
         captured = inv_lines[0]["trace"]["inputs"]["message"]
         assert "TRUNCATED 200 chars; sha256=" in captured
+
+
+# ---------------------------------------------------------------------------
+# PA18 — per-attempt rotation: consecutive runs of the same test must
+# produce distinct files, not overwrite each other.
+# ---------------------------------------------------------------------------
+
+
+class TestRecorderPerAttemptRotation:
+    """The recorder must NEVER overwrite a previous attempt's capture.
+
+    Originally the filename was ``<sanitized-nodeid>.jsonl`` and the
+    file handle was opened in ``"w"`` (truncate) mode — so a flaky
+    test's first attempt's capture was silently lost when the next
+    attempt opened the same path. PA18 surfaced this when looking for
+    the original Sonnet-4-6 Jaccard 0.621 outlier — the captures had
+    been overwritten by subsequent re-runs.
+
+    The fix is a UTC start-timestamp suffix on the filename.
+    """
+
+    @pytest.mark.asyncio
+    async def test_consecutive_attempts_produce_distinct_files(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Two back-to-back ``record_live_test`` blocks for the same
+        nodeid must leave two JSONL files on disk, not one."""
+        monkeypatch.delenv("KAOS_RECORDER_FULL_TEXT", raising=False)
+        inv = _FakeInvocation(message="first", output="ok-1")
+        original = _patch_call_execute_to_yield(inv)
+        try:
+            from kaos_llm_core.programs.call import Call
+
+            async with record_live_test("test_pa18_rotation", out_dir=tmp_path):
+                await Call._execute(None, {})  # ty: ignore[invalid-argument-type]
+        finally:
+            _restore_call_execute(original)
+
+        # Force a 1-second gap so the second attempt's UTC timestamp
+        # differs in the seconds field (filename resolution is 1s).
+        time.sleep(1.1)
+
+        inv2 = _FakeInvocation(message="second", output="ok-2")
+        original = _patch_call_execute_to_yield(inv2)
+        try:
+            from kaos_llm_core.programs.call import Call
+
+            async with record_live_test("test_pa18_rotation", out_dir=tmp_path):
+                await Call._execute(None, {})  # ty: ignore[invalid-argument-type]
+        finally:
+            _restore_call_execute(original)
+
+        jsonl_files = sorted(tmp_path.glob("test_pa18_rotation*.jsonl"))
+        assert len(jsonl_files) == 2, (
+            f"expected 2 distinct capture files (one per attempt), "
+            f"got {len(jsonl_files)}: {jsonl_files} — PA18 regression: "
+            f"the second attempt overwrote the first."
+        )
+
+        # Filenames must include the timestamp suffix.
+        for path in jsonl_files:
+            assert "__20" in path.name, (
+                f"capture filename {path.name!r} missing the "
+                f"``__YYYYMMDDTHHMMSSZ`` UTC timestamp suffix that PA18 "
+                f"introduced for per-attempt rotation."
+            )
+
+        # Each file's content reflects its own attempt's invocation —
+        # they're not just two copies of the second attempt.
+        bodies = [path.read_text(encoding="utf-8") for path in jsonl_files]
+        assert "ok-1" in bodies[0] and "ok-1" not in bodies[1], (
+            "first attempt's output bled into the second file"
+        )
+        assert "ok-2" in bodies[1] and "ok-2" not in bodies[0], (
+            "second attempt's output bled into the first file"
+        )
 
 
 # ---------------------------------------------------------------------------
