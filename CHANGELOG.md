@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`ChatAgent` ReAct now drops one bad tool and retries instead of
+  failing the whole turn when a provider rejects a single tool's
+  JSON Schema.** Previously, when OpenAI returned HTTP 400
+  `invalid_function_parameters` for a specific function in the
+  catalog, the broad `except Exception` in
+  `_handle_tool_use_streaming` caught the error, lost ALL tools for
+  the turn, and fell back to `_simple_respond` with no tools — the
+  agent then hallucinated answers or apologized for "the tool layer
+  failed". Now the chat pattern parses the offending function name
+  or `tools[N].function.parameters` index out of the provider error
+  text, drops that single tool from the catalog, and re-instantiates
+  ReAct. Up to 5 schema-rejection drops are tolerated per turn
+  before falling through to the existing `react-fallback` path;
+  loop protection refuses to drop the same tool twice or drain the
+  list to empty. Non-schema exceptions (rate limits, network) still
+  fall through directly. The shared parser lives at
+  `kaos_agents/patterns/_tool_schema.py` and is exhaustively
+  tested against a verbatim openai:gpt-5.5 400 payload.
+
 ### Added
 - **PA5: `AgentChatTool` auto-hydrates VFS artifact references from the user
   message.** Upstream tools (e.g. `kaos-pdf-parse`) return manifest URIs
