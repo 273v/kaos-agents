@@ -67,6 +67,12 @@ from kaos_agents.events.plan import (
     PlanProposed,
     PlanStepSummary,
 )
+from kaos_agents.events.policy import (
+    CapabilityRequested,
+    GoalChecked,
+    LoopTerminated,
+    ToolPolicyElevated,
+)
 from kaos_agents.events.research import (
     CitationFound,
     EvidenceInsufficient,
@@ -119,21 +125,29 @@ ALL_EVENT_TYPES: tuple[type[KaosEvent], ...] = (
     BudgetExceeded,
     # Control flow
     ToolCallApprovalRequired,
+    # AgenticLoop policy + termination
+    ToolPolicyElevated,
+    CapabilityRequested,
+    GoalChecked,
+    LoopTerminated,
 )
 
 
 __all__ = [
     "ALL_EVENT_TYPES",
     "BudgetExceeded",
+    "CapabilityRequested",
     "CitationFound",
     "EscalationRequired",
     "EventCollector",
     "EventEmitter",
     "EvidenceInsufficient",
+    "GoalChecked",
     "GroundingRefusalTriggered",
     "IntentClassified",
     "KaosEvent",
     "LifecycleEvent",
+    "LoopTerminated",
     "MemoryEvent",
     "MemoryEventKind",
     "PlanProposed",
@@ -148,6 +162,7 @@ __all__ = [
     "ToolCallApprovalRequired",
     "ToolCallArgsDelta",
     "ToolCallSummary",
+    "ToolPolicyElevated",
     "TurnSummary",
     "UsageObserved",
     "active_collector",
