@@ -35,6 +35,12 @@ from kaos_agents.registry.tool_data_type_registry import (
     ToolDataTypeRegistry,
     default_tool_data_type_registry,
 )
+from kaos_agents.registry.tool_group_classifier import (
+    KAOS_TOOL_GROUP_DESCRIPTIONS,
+    RECOGNIZED_TAGS,
+    derive_group,
+    register_kaos_tool_groups,
+)
 from kaos_agents.registry.tool_group_registry import (
     ToolGroupRegistry,
     default_tool_group_registry,
@@ -45,6 +51,8 @@ from kaos_agents.registry.tool_spec_registry import (
 )
 
 __all__ = [
+    "KAOS_TOOL_GROUP_DESCRIPTIONS",
+    "RECOGNIZED_TAGS",
     "AgentToolSpecRegistry",
     "EventRegistry",
     "HookRegistry",
@@ -57,4 +65,6 @@ __all__ = [
     "default_tool_data_type_registry",
     "default_tool_group_registry",
     "default_tool_spec_registry",
+    "derive_group",
+    "register_kaos_tool_groups",
 ]

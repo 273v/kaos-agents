@@ -64,13 +64,19 @@ from kaos_agents.types.providers import (
     ProviderConfig,
 )
 from kaos_agents.types.response import AgentResponse
-from kaos_agents.types.session_tool_set import SessionToolSet
+from kaos_agents.types.session_tool_set import (
+    DEFAULT_ALLOWED_GROUPS,
+    DEFAULT_DENIED_TOOLS,
+    SessionToolSet,
+)
 from kaos_agents.types.tool_call import ToolCallRecord, ToolExecution
 from kaos_agents.types.tool_group import ToolGroup
 from kaos_agents.types.usage import ZERO_USAGE, InvocationUsage
 
 __all__ = [
     "BALANCED",
+    "DEFAULT_ALLOWED_GROUPS",
+    "DEFAULT_DENIED_TOOLS",
     "DEFAULT_SECTIONS",
     "FAST",
     "STRONG",

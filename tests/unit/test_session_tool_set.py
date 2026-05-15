@@ -23,7 +23,12 @@ import pytest
 
 from kaos_agents.context import filter_tools
 from kaos_agents.registry import ToolGroupRegistry
-from kaos_agents.types import SessionToolSet, ToolGroup
+from kaos_agents.types import (
+    DEFAULT_ALLOWED_GROUPS,
+    DEFAULT_DENIED_TOOLS,
+    SessionToolSet,
+    ToolGroup,
+)
 
 # ---------------------------------------------------------------------------
 # Stub tool — minimum interface filter_tools needs
@@ -85,6 +90,80 @@ class TestSessionToolSetValueType:
         a = SessionToolSet(allowed_tools=frozenset({"a", "b"}))
         b = SessionToolSet(allowed_tools=frozenset({"b", "a"}))  # set order
         assert a == b
+
+    def test_auto_narrow_defaults_true(self) -> None:
+        """The bare constructor turns auto_narrow on by default — every
+        new session opts into per-turn planner narrowing unless the
+        caller explicitly sets ``auto_narrow=False``."""
+        assert SessionToolSet().auto_narrow is True
+
+
+class TestSessionToolSetDefaults:
+    """PRD §4 (PR 2): SessionToolSet.default() returns the canonical
+    7-group "research" ceiling + the 4 self-recursive denied tools."""
+
+    def test_default_allowed_groups_is_seven(self) -> None:
+        assert (
+            frozenset(
+                {
+                    "web",
+                    "browser",
+                    "documents",
+                    "citations",
+                    "vfs",
+                    "forensics",
+                    "retrieval",
+                }
+            )
+            == DEFAULT_ALLOWED_GROUPS
+        )
+
+    def test_default_denied_tools_blocks_self_recursive(self) -> None:
+        """The 4 self-recursive kaos-agents tools are denied by default
+        even when the ``agents`` group is opted in."""
+        assert (
+            frozenset(
+                {
+                    "kaos-agent-chat",
+                    "kaos-agent-plan",
+                    "kaos-agent-findings",
+                    "kaos-agent-corpus-filter",
+                }
+            )
+            == DEFAULT_DENIED_TOOLS
+        )
+
+    def test_default_classmethod_returns_canonical_config(self) -> None:
+        ts = SessionToolSet.default()
+        assert ts.allowed_groups == DEFAULT_ALLOWED_GROUPS
+        assert ts.denied_tools == DEFAULT_DENIED_TOOLS
+        assert ts.auto_narrow is True
+        # The default is NOT unrestricted — that's the whole point.
+        assert ts.is_unrestricted is False
+
+    def test_default_is_identity_stable(self) -> None:
+        """SessionToolSet.default() returns the same instance on each
+        call (consistent with SessionToolSet.unrestricted())."""
+        assert SessionToolSet.default() is SessionToolSet.default()
+
+    def test_default_does_not_include_netinfra(self) -> None:
+        """Round-1 decision #1: web is default-on but netinfra is
+        default-off — DNS/WHOIS/cert intel is opt-in for diligence /
+        abuse-investigation workflows."""
+        assert "netinfra" not in SessionToolSet.default().allowed_groups
+
+    def test_default_does_not_include_authoring(self) -> None:
+        """Round-1 decision #4: authoring is opt-in for drafting
+        workflows. A fresh session does not surface PDF / DOCX / PPTX
+        / XLSX writers."""
+        assert "authoring" not in SessionToolSet.default().allowed_groups
+
+    def test_default_does_not_include_programs_or_agents(self) -> None:
+        """programs (LLM-core typed-program + alpha-* extractors) and
+        agents (self-recursive dispatch) are both opt-in."""
+        default_groups = SessionToolSet.default().allowed_groups
+        assert "programs" not in default_groups
+        assert "agents" not in default_groups
 
 
 # ---------------------------------------------------------------------------
