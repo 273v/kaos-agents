@@ -7,6 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0a3] — 2026-05-15
+
+### Added — canonical tool-group taxonomy + SessionToolSet defaults (PRD PR 2)
+
+- **`kaos_agents.registry.tool_group_classifier`** — moves the
+  prefix-pattern taxonomy from `kaos-ui/kaos_ui/agents.py` into
+  kaos-agents proper, where it belongs. Owns the canonical 11-group
+  catalogue used by ceiling enforcement, the per-turn planner, and
+  every SPA tool-policy UI surface.
+  - **`KAOS_TOOL_GROUP_PREFIXES`** — ordered list of
+    `(prefix, group_name)` pairs covering ~150 tools across kaos-source,
+    kaos-pdf, kaos-office, kaos-web, kaos-content, kaos-citations,
+    kaos-core, kaos-llm-core, and kaos-agents itself.
+  - **`KAOS_TOOL_GROUP_DESCRIPTIONS`** — one-paragraph description
+    per group, used as the SessionToolSet UI's group label.
+  - **`classify_tool_group(tool_name)`** — returns the group for a
+    tool name or `None`.
+  - **`register_kaos_tool_groups(runtime, registry=None)`** — walks
+    every tool registered on a runtime, partitions by prefix, and
+    writes one `ToolGroup` per non-empty group into the registry.
+    Returns `{group_name: tool_count}`.
+
+- **`SessionToolSet` ceiling defaults** in
+  `kaos_agents.types.session_tool_set`:
+  - **`DEFAULT_ALLOWED_GROUPS`** — the 7-group "research" preset
+    every fresh session starts with: `web`, `browser`, `documents`,
+    `citations`, `vfs`, `forensics`, `retrieval`. Excludes
+    `netinfra` (DNS/WHOIS — opt-in for diligence), `authoring`
+    (writers — opt-in for drafting), `programs` (kaos-llm-core
+    typed-program + alpha-* — opt-in for power users), and `agents`
+    (self-recursive — opt-in *and* always-denied).
+  - **`DEFAULT_DENIED_TOOLS`** — the 4 self-recursive kaos-agents
+    tools (`kaos-agent-chat`, `kaos-agent-plan`,
+    `kaos-agent-findings`, `kaos-agent-corpus-filter`). Registered
+    in the runtime so power-user topologies can wire them as
+    sub-agents, but denied at the ceiling so accidental opt-in
+    can't trigger infinite recursion.
+  - **`SessionToolSet.auto_narrow: bool = True`** — per-session
+    toggle for the per-turn `TurnToolPolicy` planner. When `True`,
+    the chat router narrows the ceiling to just the groups this
+    message needs (cost + hallucination reduction). When `False`,
+    the full ceiling passes to ReAct.
+  - **`SessionToolSet.default()`** — classmethod returning the
+    canonical fresh-session config (the 7-group ceiling + the 4
+    denied tools + `auto_narrow=True`). Use this instead of
+    `SessionToolSet()` (which returns the unrestricted config) when
+    creating a new session.
+
+Motivated by `kaos-modules/docs/internal/dynamic-tool-planning-prd.md`
+§4 ("PR 2 — kaos-agents default ceiling + ToolGroupRegistry rewrite")
+and the live session bug it documents: a session that asked the
+agent to search the web was unable to because the default ceiling
+omitted `web`. The default ceiling now matches what an 80%-case
+legal-research session expects.
+
+Tests:
+  - 64 new tests in `tests/unit/test_tool_group_classifier.py`
+    pinning the 11-group taxonomy, every tool-name classification,
+    and the `register_kaos_tool_groups` partitioning happy path.
+  - 7 new tests in `tests/unit/test_session_tool_set.py` pinning
+    the `DEFAULT_ALLOWED_GROUPS` / `DEFAULT_DENIED_TOOLS` /
+    `SessionToolSet.default()` / `auto_narrow` defaults.
+
+Purely additive: existing `SessionToolSet()`-without-args still
+returns the unrestricted config (allow-all). Callers that want the
+canonical fresh-session ceiling explicitly call `.default()`.
+
 ## [0.1.0a2] — 2026-05-15
 
 ### Fixed
