@@ -14,6 +14,11 @@ from kaos_agents.planning.plan_execute_planner import (
     PlanStep,
 )
 from kaos_agents.planning.planner import Plan, Planner, PlanResult
+from kaos_agents.planning.policy import (
+    TurnToolPolicy,
+    TurnToolPolicyResult,
+    plan_turn_tool_policy,
+)
 from kaos_agents.planning.react_planner import ReActPlan, ReActPlanner
 from kaos_agents.types.plan import (
     ComposeResult,
@@ -53,4 +58,7 @@ __all__ = [
     "StepType",
     "StopReason",
     "SubAgentSpec",
+    "TurnToolPolicy",
+    "TurnToolPolicyResult",
+    "plan_turn_tool_policy",
 ]

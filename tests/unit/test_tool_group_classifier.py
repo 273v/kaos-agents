@@ -1,30 +1,74 @@
-"""Tests for the canonical KAOS tool-group taxonomy + classifier.
+"""Tests for the derivation-based KAOS tool-group classifier.
 
-PRD `kaos-modules/docs/internal/dynamic-tool-planning-prd.md` §4 (PR 2)
-moves the prefix-pattern taxonomy from kaos-ui into kaos-agents. Pins
-the classification for every tool name a session is realistically
-going to see — a regression here surfaces as planner mis-routing.
+PRD `kaos-modules/docs/internal/dynamic-tool-planning-completion-plan.md`
+§2.3 (v2) defines the 11 groups as derived views over
+``ToolMetadata.category`` + ``capability`` + ``annotations`` + ``tags`` +
+``module_name``. These tests pin the truth-table behavior so a regression
+surfaces here before it breaks the planner / SettingsSheet UI.
 """
 
 from __future__ import annotations
 
 import pytest
+from kaos_core.types.annotations import ToolAnnotations
+from kaos_core.types.enums import ToolCapability, ToolCategory
+from kaos_core.types.metadata import ToolMetadata
 
 from kaos_agents.registry import (
     KAOS_TOOL_GROUP_DESCRIPTIONS,
-    KAOS_TOOL_GROUP_PREFIXES,
+    RECOGNIZED_TAGS,
     ToolGroupRegistry,
-    classify_tool_group,
+    derive_group,
     register_kaos_tool_groups,
 )
 
+# ---------------------------------------------------------------------------
+# Helpers — build a minimal ToolMetadata for each truth-table row
+# ---------------------------------------------------------------------------
 
-class TestPrefixTaxonomy:
-    """Pin every group that's documented as part of the 11-group
-    taxonomy. A drift here breaks downstream UI presets + planner
-    few-shot prompts."""
 
-    def test_eleven_groups_in_descriptions(self) -> None:
+def _meta(
+    *,
+    name: str = "kaos-test-tool",
+    module_name: str = "kaos-source",
+    category: ToolCategory = ToolCategory.DOCUMENT,
+    capability: ToolCapability = ToolCapability.EXTRACT,
+    tags: list[str] | None = None,
+    read_only: bool = True,
+    destructive: bool = False,
+    idempotent: bool = True,
+    open_world: bool = False,
+) -> ToolMetadata:
+    """Build a ToolMetadata with all classification-relevant fields set."""
+    return ToolMetadata(
+        name=name,
+        description="test fixture",
+        category=category,
+        capability=capability,
+        tags=list(tags or []),
+        module_name=module_name,
+        version="0.0.0-test",
+        annotations=ToolAnnotations(
+            readOnlyHint=read_only,
+            destructiveHint=destructive,
+            idempotentHint=idempotent,
+            openWorldHint=open_world,
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# RECOGNIZED_TAGS surface
+# ---------------------------------------------------------------------------
+
+
+class TestRecognizedTags:
+    """The four tags the derivation function reads as narrowing signals."""
+
+    def test_recognized_tags_are_documented(self) -> None:
+        assert frozenset({"browser", "netinfra", "forensics", "retrieval"}) == RECOGNIZED_TAGS
+
+    def test_descriptions_cover_all_11_groups(self) -> None:
         assert set(KAOS_TOOL_GROUP_DESCRIPTIONS) == {
             "web",
             "browser",
@@ -39,158 +83,512 @@ class TestPrefixTaxonomy:
             "agents",
         }
 
-    def test_every_prefix_resolves_to_a_documented_group(self) -> None:
-        documented = set(KAOS_TOOL_GROUP_DESCRIPTIONS)
-        for _prefix, group in KAOS_TOOL_GROUP_PREFIXES:
-            assert group in documented, f"prefix maps to undocumented group {group!r}"
+
+# ---------------------------------------------------------------------------
+# derive_group truth table — one parametrized test per row
+# ---------------------------------------------------------------------------
 
 
-class TestClassifyToolGroup:
-    """Pin classifier output for representative tool names per group."""
+@pytest.mark.parametrize(
+    ("description", "meta", "expected"),
+    [
+        # 1. agents — self-recursive dispatch tools (name allowlist)
+        (
+            "kaos-agent-chat → agents",
+            _meta(
+                name="kaos-agent-chat",
+                module_name="kaos-agents",
+                category=ToolCategory.AGENT,
+                capability=ToolCapability.GENERATE,
+            ),
+            "agents",
+        ),
+        (
+            "kaos-agent-plan → agents",
+            _meta(
+                name="kaos-agent-plan",
+                module_name="kaos-agents",
+                category=ToolCategory.AGENT,
+                capability=ToolCapability.GENERATE,
+            ),
+            "agents",
+        ),
+        (
+            "kaos-agent-findings → agents",
+            _meta(
+                name="kaos-agent-findings",
+                module_name="kaos-agents",
+                category=ToolCategory.AGENT,
+                capability=ToolCapability.EXTRACT,
+            ),
+            "agents",
+        ),
+        (
+            "kaos-agent-corpus-filter → agents",
+            _meta(
+                name="kaos-agent-corpus-filter",
+                module_name="kaos-agents",
+                category=ToolCategory.AGENT,
+                capability=ToolCapability.QUERY,
+            ),
+            "agents",
+        ),
+        # 2. programs — every other kaos-llm-core agent tool
+        (
+            "kaos-llm-core-call → programs",
+            _meta(
+                name="kaos-llm-core-call",
+                module_name="kaos-llm-core",
+                category=ToolCategory.AGENT,
+                capability=ToolCapability.GENERATE,
+            ),
+            "programs",
+        ),
+        (
+            "kaos-llm-core-alpha-date (programs even though deterministic)",
+            _meta(
+                name="kaos-llm-core-alpha-date",
+                module_name="kaos-llm-core",
+                category=ToolCategory.TEXT,
+                capability=ToolCapability.EXTRACT,
+            ),
+            "programs",
+        ),
+        # 3. browser — tagged
+        (
+            "kaos-web-browser-navigate → browser (tag)",
+            _meta(
+                name="kaos-web-browser-navigate",
+                module_name="kaos-web",
+                category=ToolCategory.DOCUMENT,
+                capability=ToolCapability.EXTRACT,
+                tags=["browser"],
+                open_world=True,
+            ),
+            "browser",
+        ),
+        # 4. netinfra — tagged
+        (
+            "kaos-web-dns-lookup → netinfra (tag)",
+            _meta(
+                name="kaos-web-dns-lookup",
+                module_name="kaos-web",
+                category=ToolCategory.INTEGRATION,
+                capability=ToolCapability.QUERY,
+                tags=["netinfra"],
+                open_world=True,
+            ),
+            "netinfra",
+        ),
+        # 5. forensics — tagged (overrides documents)
+        (
+            "kaos-source-pacer-parse → forensics (tag beats DOCUMENT category)",
+            _meta(
+                name="kaos-source-pacer-parse",
+                module_name="kaos-source",
+                category=ToolCategory.DOCUMENT,
+                capability=ToolCapability.EXTRACT,
+                tags=["forensics"],
+                open_world=False,
+            ),
+            "forensics",
+        ),
+        (
+            "kaos-source-discover → forensics (tag, even though it's a discovery tool)",
+            _meta(
+                name="kaos-source-discover",
+                module_name="kaos-source",
+                category=ToolCategory.DOCUMENT,
+                capability=ToolCapability.QUERY,
+                tags=["forensics"],
+                open_world=False,
+            ),
+            "forensics",
+        ),
+        # 6. retrieval — tagged
+        (
+            "kaos-retrieval-bm25 → retrieval (tag)",
+            _meta(
+                name="kaos-retrieval-bm25",
+                module_name="kaos-agents",
+                category=ToolCategory.DATA,
+                capability=ToolCapability.QUERY,
+                tags=["retrieval"],
+                open_world=False,
+            ),
+            "retrieval",
+        ),
+        (
+            "kaos-source-bm25-search → retrieval (tag, cross-repo)",
+            _meta(
+                name="kaos-source-bm25-search",
+                module_name="kaos-source",
+                category=ToolCategory.DATA,
+                capability=ToolCapability.QUERY,
+                tags=["retrieval"],
+                open_world=False,
+            ),
+            "retrieval",
+        ),
+        # 7. citations — module-scoped
+        (
+            "kaos-citations-parse → citations (module)",
+            _meta(
+                name="kaos-citations-parse",
+                module_name="kaos-citations",
+                category=ToolCategory.TEXT,
+                capability=ToolCapability.EXTRACT,
+                read_only=True,
+                open_world=False,
+            ),
+            "citations",
+        ),
+        # 8. vfs — kaos-core UTILITY
+        (
+            "kaos-core-vfs-read → vfs (module + UTILITY)",
+            _meta(
+                name="kaos-core-vfs-read",
+                module_name="kaos-core",
+                category=ToolCategory.UTILITY,
+                capability=ToolCapability.QUERY,
+            ),
+            "vfs",
+        ),
+        (
+            "kaos-core-artifacts-list → vfs (module + UTILITY)",
+            _meta(
+                name="kaos-core-artifacts-list",
+                module_name="kaos-core",
+                category=ToolCategory.UTILITY,
+                capability=ToolCapability.QUERY,
+            ),
+            "vfs",
+        ),
+        # 9. authoring — writer with no destructive side-effects
+        (
+            "kaos-office-write-docx → authoring (GENERATE, not read-only)",
+            _meta(
+                name="kaos-office-write-docx",
+                module_name="kaos-office",
+                category=ToolCategory.DOCUMENT,
+                capability=ToolCapability.GENERATE,
+                read_only=False,
+                destructive=False,
+            ),
+            "authoring",
+        ),
+        (
+            "kaos-pdf-write-merge → authoring (TRANSFORM, not read-only)",
+            _meta(
+                name="kaos-pdf-write-merge",
+                module_name="kaos-pdf",
+                category=ToolCategory.DOCUMENT,
+                capability=ToolCapability.TRANSFORM,
+                read_only=False,
+                destructive=False,
+            ),
+            "authoring",
+        ),
+        # 10. web — openWorld + read-only (after tag carve-outs)
+        (
+            "kaos-source-fr-search → web (openWorld + read-only)",
+            _meta(
+                name="kaos-source-fr-search",
+                module_name="kaos-source",
+                category=ToolCategory.DOCUMENT,
+                capability=ToolCapability.QUERY,
+                open_world=True,
+                read_only=True,
+            ),
+            "web",
+        ),
+        (
+            "kaos-source-fetch-url → web",
+            _meta(
+                name="kaos-source-fetch-url",
+                module_name="kaos-source",
+                category=ToolCategory.DOCUMENT,
+                capability=ToolCapability.EXTRACT,
+                open_world=True,
+                read_only=True,
+            ),
+            "web",
+        ),
+        (
+            "kaos-web-fetch-page → web",
+            _meta(
+                name="kaos-web-fetch-page",
+                module_name="kaos-web",
+                category=ToolCategory.DOCUMENT,
+                capability=ToolCapability.EXTRACT,
+                open_world=True,
+                read_only=True,
+            ),
+            "web",
+        ),
+        (
+            "kaos-citations-cl-search → web (openWorld beats citations module rule)",
+            _meta(
+                name="kaos-citations-cl-search",
+                module_name="kaos-citations",
+                category=ToolCategory.DOCUMENT,
+                capability=ToolCapability.QUERY,
+                open_world=True,
+                read_only=True,
+            ),
+            # Per the rule order: citations comes AFTER tag-based rules but
+            # BEFORE web. So citations-module + read-only lands in citations,
+            # not web. (Confirms ordering.)
+            "citations",
+        ),
+        # 11. documents — DOCUMENT category + read-only + offline
+        (
+            "kaos-pdf-extract-parse → documents",
+            _meta(
+                name="kaos-pdf-extract-parse",
+                module_name="kaos-pdf",
+                category=ToolCategory.DOCUMENT,
+                capability=ToolCapability.EXTRACT,
+                open_world=False,
+                read_only=True,
+            ),
+            "documents",
+        ),
+        (
+            "kaos-office-parse-docx → documents",
+            _meta(
+                name="kaos-office-parse-docx",
+                module_name="kaos-office",
+                category=ToolCategory.DOCUMENT,
+                capability=ToolCapability.EXTRACT,
+                open_world=False,
+                read_only=True,
+            ),
+            "documents",
+        ),
+        # Fallthroughs — tools with no matching rule return None
+        (
+            "MEDIA category + ANALYZE (no rule matches) → None",
+            _meta(
+                module_name="kaos-anomaly",
+                category=ToolCategory.MEDIA,
+                capability=ToolCapability.ANALYZE,
+                open_world=False,
+                read_only=True,
+            ),
+            None,
+        ),
+        (
+            "third-party tool with no metadata signal → None",
+            _meta(
+                name="acme-mystery-tool",
+                module_name="acme-tools",
+                category=ToolCategory.UTILITY,
+                capability=ToolCapability.ANALYZE,
+                open_world=False,
+                read_only=True,
+            ),
+            None,
+        ),
+    ],
+)
+def test_derive_group_truth_table(
+    description: str, meta: ToolMetadata, expected: str | None
+) -> None:
+    actual = derive_group(meta)
+    assert actual == expected, f"{description}: expected {expected!r}, got {actual!r}"
 
-    @pytest.mark.parametrize(
-        ("tool_name", "expected_group"),
-        [
-            # web (network egress)
-            ("kaos-source-fetch-url", "web"),
-            ("kaos-source-fr-search", "web"),
-            ("kaos-source-ecfr-titles", "web"),
-            ("kaos-source-edgar-search", "web"),
-            ("kaos-source-govinfo-search", "web"),
-            ("kaos-source-gleif-search", "web"),
-            ("kaos-web-fetch-page", "web"),
-            ("kaos-web-get-text", "web"),
-            ("kaos-web-search", "web"),
-            ("kaos-web-batch-fetch", "web"),
-            ("kaos-web-crawl-site", "web"),
-            ("kaos-web-discover-urls", "web"),
-            ("kaos-citations-cl-search", "web"),
-            # browser
-            ("kaos-web-browser-navigate", "browser"),
-            ("kaos-web-browser-screenshot", "browser"),
-            # netinfra
-            ("kaos-web-dns-lookup", "netinfra"),
-            ("kaos-web-whois-lookup", "netinfra"),
-            ("kaos-web-tls-inspect", "netinfra"),
-            ("kaos-web-extract-org", "netinfra"),
-            # documents (read-only)
-            ("kaos-pdf-extract-parse", "documents"),
-            ("kaos-pdf-render-page", "documents"),
-            ("kaos-pdf-metadata", "documents"),
-            ("kaos-pdf-search-document", "documents"),
-            ("kaos-office-parse-docx", "documents"),
-            ("kaos-office-get-text", "documents"),
-            ("kaos-office-search", "documents"),
-            ("kaos-office-xlsx-metadata", "documents"),
-            ("kaos-content-extract-blocks", "documents"),
-            # citations
-            ("kaos-citations-parse", "citations"),
-            # vfs
-            ("kaos-core-vfs-read", "vfs"),
-            ("kaos-core-artifacts-list", "vfs"),
-            # forensics (offline byte ops)
-            ("kaos-source-discover", "forensics"),
-            ("kaos-source-describe", "forensics"),
-            ("kaos-source-preview", "forensics"),
-            ("kaos-source-materialize", "forensics"),
-            ("kaos-source-inspect-archive", "forensics"),
-            ("kaos-source-pacer-parse", "forensics"),
-            ("kaos-source-vcard-parse", "forensics"),
-            ("kaos-source-parse-eml", "forensics"),
-            ("kaos-source-parse-mbox", "forensics"),
-            ("kaos-source-email-forensics", "forensics"),
-            ("kaos-source-file-metadata", "forensics"),
-            ("kaos-source-image-metadata", "forensics"),
-            # retrieval
-            ("kaos-agents-retrieval-bm25", "retrieval"),
-            ("kaos-agents-retrieval-synonyms", "retrieval"),
-            ("kaos-source-bm25-search", "retrieval"),
-            ("kaos-nlp-core-bm25-search", "retrieval"),
-            # authoring (writers — opt-in)
-            ("kaos-pdf-write-merge", "authoring"),
-            ("kaos-office-write-docx", "authoring"),
-            ("kaos-office-write-pptx", "authoring"),
-            ("kaos-office-write-xlsx", "authoring"),
-            # programs (kaos-llm-core typed-program + alpha-*)
-            ("kaos-llm-core-call", "programs"),
-            ("kaos-llm-core-react", "programs"),
-            ("kaos-llm-core-alpha-date", "programs"),
-            ("kaos-llm-core-alpha-money", "programs"),
-            # agents (self-recursive — also in DEFAULT_DENIED_TOOLS)
-            ("kaos-agent-chat", "agents"),
-            ("kaos-agent-plan", "agents"),
-            ("kaos-agent-findings", "agents"),
-            ("kaos-agent-corpus-filter", "agents"),
-        ],
-    )
-    def test_tool_name_classifies_to_expected_group(
-        self, tool_name: str, expected_group: str
-    ) -> None:
-        assert classify_tool_group(tool_name) == expected_group, (
-            f"{tool_name!r} did not classify as {expected_group!r}"
+
+# ---------------------------------------------------------------------------
+# Rule ordering — pin the precedence rules
+# ---------------------------------------------------------------------------
+
+
+class TestRuleOrdering:
+    """Pin the precedence rules where two derivation rules could both fire."""
+
+    def test_self_recursive_name_beats_module_name(self) -> None:
+        """`kaos-agent-chat` is in kaos-agents module — both the name
+        allowlist (rule 1) and the kaos-llm-core rule (rule 2) could fire if
+        we got the module wrong. Confirm the name allowlist wins."""
+        meta = _meta(
+            name="kaos-agent-chat",
+            module_name="kaos-agents",  # NOT kaos-llm-core
+            category=ToolCategory.AGENT,
+            capability=ToolCapability.GENERATE,
         )
+        assert derive_group(meta) == "agents"
 
-    def test_unknown_tool_name_returns_none(self) -> None:
-        assert classify_tool_group("totally-unrelated-tool") is None
-        assert classify_tool_group("") is None
+    def test_tag_beats_category(self) -> None:
+        """A tool with `category=DOCUMENT` but `tags=["forensics"]` lands
+        in forensics. Without the tag rule, it would land in documents."""
+        meta = _meta(
+            module_name="kaos-source",
+            category=ToolCategory.DOCUMENT,
+            capability=ToolCapability.EXTRACT,
+            tags=["forensics"],
+            open_world=False,
+            read_only=True,
+        )
+        assert derive_group(meta) == "forensics"
 
-    def test_kaos_source_fr_beats_forensics_ordering(self) -> None:
-        """`kaos-source-fr-*` is online (web) and must NOT be swallowed
-        into forensics by a less-specific `kaos-source-` prefix that
-        appears later in the list."""
-        assert classify_tool_group("kaos-source-fr-search") == "web"
-        assert classify_tool_group("kaos-source-pacer-parse") == "forensics"
+    def test_citations_module_beats_web(self) -> None:
+        """`kaos-citations-cl-search` is openWorld + read-only — under the
+        web rule it would be web. But the citations module rule fires first."""
+        meta = _meta(
+            name="kaos-citations-cl-search",
+            module_name="kaos-citations",
+            category=ToolCategory.DOCUMENT,
+            capability=ToolCapability.QUERY,
+            open_world=True,
+            read_only=True,
+        )
+        assert derive_group(meta) == "citations"
+
+    def test_authoring_beats_documents(self) -> None:
+        """A DOCUMENT-category tool with `capability=GENERATE` + `readOnly=False`
+        is authoring, not documents (which requires `readOnly=True`)."""
+        meta = _meta(
+            module_name="kaos-office",
+            category=ToolCategory.DOCUMENT,
+            capability=ToolCapability.GENERATE,
+            open_world=False,
+            read_only=False,
+            destructive=False,
+        )
+        assert derive_group(meta) == "authoring"
+
+    def test_unknown_extra_tag_passes_through(self) -> None:
+        """Tools may carry tags outside RECOGNIZED_TAGS — those don't affect
+        classification."""
+        meta = _meta(
+            module_name="kaos-pdf",
+            category=ToolCategory.DOCUMENT,
+            capability=ToolCapability.EXTRACT,
+            tags=["experimental", "high-cost"],  # neither is recognized
+            open_world=False,
+            read_only=True,
+        )
+        assert derive_group(meta) == "documents"
 
 
-class _NameOnly:
-    """Stand-in for a KaosTool — exposes only ``metadata.name``,
-    which is the only attribute :func:`register_kaos_tool_groups`
-    actually reads. Avoids building a full ``ToolMetadata`` (which
-    would require category / capability / module_name / version)."""
+# ---------------------------------------------------------------------------
+# register_kaos_tool_groups — runtime walker
+# ---------------------------------------------------------------------------
 
-    def __init__(self, name: str) -> None:
-        self.metadata = type("Meta", (), {"name": name})()
+
+class _NameOnlyTool:
+    """Minimal stand-in for a KaosTool that carries only `metadata`."""
+
+    def __init__(self, meta: ToolMetadata) -> None:
+        self.metadata = meta
 
 
 class _FakeToolsRegistry:
-    """Stand-in for ``runtime.tools`` — only needs
-    :meth:`list_tool_objects`."""
-
-    def __init__(self, tools: list[_NameOnly]) -> None:
+    def __init__(self, tools: list[_NameOnlyTool]) -> None:
         self._tools = tools
 
-    def list_tool_objects(self) -> list[_NameOnly]:
+    def list_tool_objects(self) -> list[_NameOnlyTool]:
         return self._tools
 
 
 class _FakeRuntime:
-    """Stand-in for KaosRuntime — only the ``tools`` attribute is
-    touched."""
-
-    def __init__(self, names: list[str]) -> None:
-        self.tools = _FakeToolsRegistry([_NameOnly(name) for name in names])
+    def __init__(self, tools: list[ToolMetadata]) -> None:
+        self.tools = _FakeToolsRegistry([_NameOnlyTool(m) for m in tools])
 
 
 class TestRegisterKaosToolGroups:
-    """The end-to-end happy path: a runtime with a representative
-    tool inventory partitions into the expected groups."""
+    """End-to-end happy path: a runtime with a representative tool
+    inventory partitions into the expected groups."""
 
-    def test_partitions_a_representative_runtime(self) -> None:
+    def test_representative_runtime_partitions_correctly(self) -> None:
         runtime = _FakeRuntime(
             [
-                "kaos-source-fetch-url",
-                "kaos-source-fr-search",
-                "kaos-source-pacer-parse",
-                "kaos-web-fetch-page",
-                "kaos-web-browser-navigate",
-                "kaos-web-dns-lookup",
-                "kaos-pdf-extract-parse",
-                "kaos-office-write-docx",
-                "kaos-citations-parse",
-                "kaos-core-vfs-read",
-                "kaos-llm-core-alpha-date",
-                "kaos-agent-chat",
-                "totally-unrelated-tool",  # falls outside the taxonomy
+                # web
+                _meta(
+                    name="kaos-source-fetch-url",
+                    module_name="kaos-source",
+                    open_world=True,
+                    read_only=True,
+                ),
+                _meta(
+                    name="kaos-source-fr-search",
+                    module_name="kaos-source",
+                    open_world=True,
+                    read_only=True,
+                ),
+                # browser
+                _meta(
+                    name="kaos-web-browser-navigate",
+                    module_name="kaos-web",
+                    tags=["browser"],
+                    open_world=True,
+                ),
+                # netinfra
+                _meta(
+                    name="kaos-web-dns-lookup",
+                    module_name="kaos-web",
+                    category=ToolCategory.INTEGRATION,
+                    capability=ToolCapability.QUERY,
+                    tags=["netinfra"],
+                    open_world=True,
+                ),
+                # forensics
+                _meta(
+                    name="kaos-source-pacer-parse",
+                    module_name="kaos-source",
+                    tags=["forensics"],
+                ),
+                # documents
+                _meta(name="kaos-pdf-extract-parse", module_name="kaos-pdf"),
+                # citations
+                _meta(
+                    name="kaos-citations-parse",
+                    module_name="kaos-citations",
+                    category=ToolCategory.TEXT,
+                ),
+                # vfs
+                _meta(
+                    name="kaos-core-vfs-read",
+                    module_name="kaos-core",
+                    category=ToolCategory.UTILITY,
+                ),
+                # authoring
+                _meta(
+                    name="kaos-office-write-docx",
+                    module_name="kaos-office",
+                    capability=ToolCapability.GENERATE,
+                    read_only=False,
+                ),
+                # retrieval
+                _meta(
+                    name="kaos-retrieval-bm25",
+                    module_name="kaos-agents",
+                    category=ToolCategory.DATA,
+                    capability=ToolCapability.QUERY,
+                    tags=["retrieval"],
+                ),
+                # programs
+                _meta(
+                    name="kaos-llm-core-call",
+                    module_name="kaos-llm-core",
+                    category=ToolCategory.AGENT,
+                    capability=ToolCapability.GENERATE,
+                ),
+                # agents
+                _meta(
+                    name="kaos-agent-chat",
+                    module_name="kaos-agents",
+                    category=ToolCategory.AGENT,
+                    capability=ToolCapability.GENERATE,
+                ),
+                # falls outside the taxonomy
+                _meta(
+                    name="acme-mystery-tool",
+                    module_name="acme",
+                    category=ToolCategory.MEDIA,
+                    capability=ToolCapability.ANALYZE,
+                ),
             ]
         )
         registry = ToolGroupRegistry()
@@ -199,20 +597,21 @@ class TestRegisterKaosToolGroups:
             registry=registry,
         )
         assert counts == {
-            "web": 3,  # fetch-url + fr-search + fetch-page
+            "web": 2,
             "browser": 1,
             "netinfra": 1,
+            "forensics": 1,
             "documents": 1,
             "citations": 1,
             "vfs": 1,
-            "forensics": 1,  # pacer-parse (discover/etc. not in this stub set)
-            "authoring": 1,  # write-docx
+            "authoring": 1,
+            "retrieval": 1,
             "programs": 1,
             "agents": 1,
         }
-        assert "totally-unrelated-tool" not in [
-            name for group in registry.groups() for name in group.tool_names
-        ]
-        # Every populated group carries the canonical description.
+        # Each populated group carries the canonical description.
         for group in registry.groups():
             assert group.description == KAOS_TOOL_GROUP_DESCRIPTIONS[group.name]
+        # Ungrouped tools never land in the registry.
+        for group in registry.groups():
+            assert "acme-mystery-tool" not in group.tool_names

@@ -103,29 +103,35 @@ class TestSessionToolSetDefaults:
     7-group "research" ceiling + the 4 self-recursive denied tools."""
 
     def test_default_allowed_groups_is_seven(self) -> None:
-        assert frozenset(
-            {
-                "web",
-                "browser",
-                "documents",
-                "citations",
-                "vfs",
-                "forensics",
-                "retrieval",
-            }
-        ) == DEFAULT_ALLOWED_GROUPS
+        assert (
+            frozenset(
+                {
+                    "web",
+                    "browser",
+                    "documents",
+                    "citations",
+                    "vfs",
+                    "forensics",
+                    "retrieval",
+                }
+            )
+            == DEFAULT_ALLOWED_GROUPS
+        )
 
     def test_default_denied_tools_blocks_self_recursive(self) -> None:
         """The 4 self-recursive kaos-agents tools are denied by default
         even when the ``agents`` group is opted in."""
-        assert frozenset(
-            {
-                "kaos-agent-chat",
-                "kaos-agent-plan",
-                "kaos-agent-findings",
-                "kaos-agent-corpus-filter",
-            }
-        ) == DEFAULT_DENIED_TOOLS
+        assert (
+            frozenset(
+                {
+                    "kaos-agent-chat",
+                    "kaos-agent-plan",
+                    "kaos-agent-findings",
+                    "kaos-agent-corpus-filter",
+                }
+            )
+            == DEFAULT_DENIED_TOOLS
+        )
 
     def test_default_classmethod_returns_canonical_config(self) -> None:
         ts = SessionToolSet.default()

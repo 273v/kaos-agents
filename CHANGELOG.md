@@ -9,25 +9,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0a3] — 2026-05-15
 
-### Added — canonical tool-group taxonomy + SessionToolSet defaults (PRD PR 2)
+### Added — derivation-based tool-group taxonomy + SessionToolSet defaults + TurnToolPolicy promotion (PRD PR 2)
 
-- **`kaos_agents.registry.tool_group_classifier`** — moves the
-  prefix-pattern taxonomy from `kaos-ui/kaos_ui/agents.py` into
-  kaos-agents proper, where it belongs. Owns the canonical 11-group
-  catalogue used by ceiling enforcement, the per-turn planner, and
-  every SPA tool-policy UI surface.
-  - **`KAOS_TOOL_GROUP_PREFIXES`** — ordered list of
-    `(prefix, group_name)` pairs covering ~150 tools across kaos-source,
-    kaos-pdf, kaos-office, kaos-web, kaos-content, kaos-citations,
-    kaos-core, kaos-llm-core, and kaos-agents itself.
+The taxonomy and the planner ship together. The taxonomy is the
+foundation; the planner is what surfaces it per-turn to the LLM.
+
+**`kaos_agents.registry.tool_group_classifier`** — owns the canonical
+11-group catalogue used by ceiling enforcement, the per-turn planner,
+and every SPA tool-policy UI surface. Built as a **derivation over
+existing `ToolMetadata` fields**, not a parallel name-prefix taxonomy:
+
+  - **`derive_group(meta: ToolMetadata) -> str | None`** — pure
+    function reading `category`, `capability`, `annotations.openWorldHint`,
+    `annotations.readOnlyHint`, `tags`, and `module_name`. First-match-wins
+    on a small truth table (11 rules; tag-based narrowings take
+    precedence over category-based defaults). Returns `None` for
+    tools that don't fit any group.
+  - **`RECOGNIZED_TAGS = {"browser", "netinfra", "forensics", "retrieval"}`** —
+    the four tag values the derivation reads as narrowing signals.
+    Tools may carry additional free-form tags (`"experimental"`,
+    `"deprecated"`, domain labels) without affecting group assignment.
   - **`KAOS_TOOL_GROUP_DESCRIPTIONS`** — one-paragraph description
-    per group, used as the SessionToolSet UI's group label.
-  - **`classify_tool_group(tool_name)`** — returns the group for a
-    tool name or `None`.
+    per group, used as the SettingsSheet group label.
   - **`register_kaos_tool_groups(runtime, registry=None)`** — walks
-    every tool registered on a runtime, partitions by prefix, and
-    writes one `ToolGroup` per non-empty group into the registry.
+    every tool registered on a runtime, calls `derive_group` on each,
+    and writes one `ToolGroup` per non-empty bucket into the registry.
     Returns `{group_name: tool_count}`.
+
+Why derivation, not prefix patterns: a new tool added in any kaos-*
+repo auto-classifies on the next runtime walk — **zero kaos-agents
+release needed**. Third-party tools self-declare via the standard
+`category` + `capability` + `tags` fields. The 11 groups are derived
+views over existing ground truth, not new ground truth.
+
+**`kaos_agents.planning.policy`** — TurnToolPolicy promoted from the
+kaos-ui single-user-chat example into kaos-agents proper:
+
+  - **`TurnToolPolicy`** frozen value type — `kept_groups` (planner's
+    intersect with ceiling), `dropped_groups` (planner wanted these
+    but the ceiling denied — surfaces in the SPA's "wanted but
+    blocked" UX), `rationale`, `confidence`, `fell_back_to_ceiling`,
+    `cost_usd`, `latency_ms`. The pre-promotion `turn_groups` field
+    survives as a property alias on `kept_groups` for back-compat.
+  - **`plan_turn_tool_policy(**inputs)`** — async entrypoint.
+    Best-effort with abdicate-to-ceiling semantics: low confidence,
+    provider failure, missing `[llm]` extra, or disjoint
+    wanted/ceiling sets all fall back to the full ceiling. Never
+    raises.
+  - **Signature inputs** (PRD round-2 decision #7): `user_message`,
+    `recent_turns`, `corpus_headlines`, **`corpus_kinds: list[str]`**
+    (Magika-style content classification for uploaded files —
+    `["pdf", "spreadsheet", "html"]`), **`session_intent: str | None`**
+    (preset chip selection — `"research"` / `"drafting"` / `"forensics"`),
+    **`raw_turn_groups: list[str] | None`** (last turn's wanted set
+    for cross-turn coherence), `ceiling_groups`, `available_groups`.
+  - **Three-way BM25 disambiguation** in the Signature few-shots
+    (round-2 decision #6): `kaos-source-bm25-search` searches the
+    Free Law Project corpus; `kaos-nlp-core-bm25-search` searches
+    session memory; `kaos-retrieval-bm25` delegates to the
+    RetrievalAgent for broader recall.
+  - The 8 RetrievalAgent tools (`kaos-retrieval-bm25`, `-synonyms`,
+    `-hyde`, `-evaluate`, `-rerank`, `-corpus-info`, `-corpus-manifest`,
+    `-answer`) now carry `tags=["retrieval"]` so they auto-classify
+    into the `retrieval` group.
 
 - **`SessionToolSet` ceiling defaults** in
   `kaos_agents.types.session_tool_set`:
@@ -63,9 +107,19 @@ omitted `web`. The default ceiling now matches what an 80%-case
 legal-research session expects.
 
 Tests:
-  - 64 new tests in `tests/unit/test_tool_group_classifier.py`
-    pinning the 11-group taxonomy, every tool-name classification,
-    and the `register_kaos_tool_groups` partitioning happy path.
+  - 33 new tests in `tests/unit/test_tool_group_classifier.py`
+    pinning the derivation truth table — one parametrized case per
+    rule + ordering tests (tag-beats-category, citations-beats-web,
+    authoring-beats-documents, etc.) + a partitioning happy-path
+    test over a representative 13-tool runtime.
+  - 13 new tests in `tests/unit/test_turn_tool_policy.py` pinning
+    the planner's contract: confident narrowing, ceiling
+    intersection, `dropped_groups` for "wanted but blocked",
+    disjoint-set fallback, low-confidence fallback, threshold
+    override, empty-ceiling short-circuit, provider-exception
+    fallback, `corpus_kinds` / `session_intent` / `raw_turn_groups`
+    passthrough, omitted-input defaults, and frozen-dataclass
+    immutability.
   - 7 new tests in `tests/unit/test_session_tool_set.py` pinning
     the `DEFAULT_ALLOWED_GROUPS` / `DEFAULT_DENIED_TOOLS` /
     `SessionToolSet.default()` / `auto_narrow` defaults.
@@ -73,6 +127,9 @@ Tests:
 Purely additive: existing `SessionToolSet()`-without-args still
 returns the unrestricted config (allow-all). Callers that want the
 canonical fresh-session ceiling explicitly call `.default()`.
+The pre-promotion `app.services.turn_tool_policy` module in
+single-user-chat remains importable until the consumer migrates in
+Stage D.
 
 ## [0.1.0a2] — 2026-05-15
 
