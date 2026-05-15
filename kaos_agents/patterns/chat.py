@@ -28,6 +28,13 @@ from kaos_agents.events import (
     UsageObserved,
     emit_usage_observed,
 )
+from kaos_agents.patterns._tool_schema import (
+    drop_tool_at_index,
+    drop_tool_by_name,
+    extract_invalid_tool_index,
+    extract_invalid_tool_name,
+    is_tool_schema_rejection,
+)
 from kaos_agents.runtime.agent import BaseAgent
 from kaos_agents.types import (
     ZERO_USAGE,
@@ -260,21 +267,67 @@ class ChatAgent(BaseAgent):
             if self._instructions
             else _REACT_INSTRUCTION
         )
-        react = ReAct(
-            ToolTaskSignature,
-            tools=tools,
-            model=self._model_for_role("respond"),
-            max_iterations=self._max_react_iterations,
-            instructions=react_instructions,
-        )
-
+        # FIX-16: when ONE tool's JSON Schema is rejected at the
+        # provider boundary (OpenAI's strict validator is the common
+        # culprit — see FIX-14), drop the offending tool and retry
+        # instead of failing the entire turn with no tools at all.
+        # Cap the retry budget so a pathological catalog can't loop
+        # forever; if every retry still hits a schema error or a
+        # non-schema exception fires, fall through to the existing
+        # react-fallback below.
+        _MAX_SCHEMA_DROPS = 5
+        current_tools = list(tools)
+        already_dropped: set[str] = set()
         try:
+            invocation = None
+            result = None
             t_start = time.monotonic()
-            # ``.invoke()`` returns the full Invocation so we can surface
-            # ``invocation.usage`` for TurnComplete — ``.__call__()``
-            # returns the bare ReActResult and throws usage on the floor.
-            invocation = await react.invoke(question=message, context=context_text)
-            result = invocation.output
+            for attempt in range(_MAX_SCHEMA_DROPS + 1):
+                react = ReAct(
+                    ToolTaskSignature,
+                    tools=current_tools,
+                    model=self._model_for_role("respond"),
+                    max_iterations=self._max_react_iterations,
+                    instructions=react_instructions,
+                )
+                try:
+                    # ``.invoke()`` returns the full Invocation so we can surface
+                    # ``invocation.usage`` for TurnComplete — ``.__call__()``
+                    # returns the bare ReActResult and throws usage on the floor.
+                    invocation = await react.invoke(question=message, context=context_text)
+                    result = invocation.output
+                    break
+                except Exception as exc:
+                    msg = str(exc)
+                    if attempt >= _MAX_SCHEMA_DROPS or not is_tool_schema_rejection(msg):
+                        raise
+                    bad_name = extract_invalid_tool_name(msg)
+                    if bad_name is None:
+                        bad_index = extract_invalid_tool_index(msg)
+                        if bad_index is None:
+                            raise
+                        current_tools, bad_name = drop_tool_at_index(current_tools, bad_index)
+                    else:
+                        current_tools = drop_tool_by_name(current_tools, bad_name)
+                    if bad_name is None or bad_name in already_dropped or not current_tools:
+                        # Re-raise → outer except below runs the
+                        # react-fallback. Cases: index past EOL; the
+                        # same tool failed twice (would loop); last
+                        # tool standing got dropped.
+                        raise
+                    already_dropped.add(bad_name)
+                    logger.warning(
+                        "chat_agent: dropped tool %r due to schema rejection "
+                        "(attempt %d/%d, %d tools remaining): %s",
+                        bad_name,
+                        attempt + 1,
+                        _MAX_SCHEMA_DROPS,
+                        len(current_tools),
+                        exc,
+                    )
+            # Loop must exit via break or raise; defensive guard:
+            if invocation is None or result is None:
+                raise RuntimeError("ReAct retry loop exhausted without success or raise")
             t_total = (time.monotonic() - t_start) * 1000
 
             # Surface model reasoning blocks (Anthropic extended thinking,
