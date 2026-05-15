@@ -2,6 +2,14 @@
 
 from __future__ import annotations
 
+from kaos_agents.planning.goal_check import (
+    GoalCheckInsufficientEvidence,
+    GoalCheckNeedsMoreWork,
+    GoalCheckOutcome,
+    GoalCheckResult,
+    GoalCheckSatisfied,
+    check_goal,
+)
 from kaos_agents.planning.graph import PlanGraph
 from kaos_agents.planning.hierarchical_planner import (
     HierarchicalPlan,
@@ -38,6 +46,11 @@ __all__ = [
     "ComposeResult",
     "Decision",
     "EvalMode",
+    "GoalCheckInsufficientEvidence",
+    "GoalCheckNeedsMoreWork",
+    "GoalCheckOutcome",
+    "GoalCheckResult",
+    "GoalCheckSatisfied",
     "HierarchicalPlan",
     "HierarchicalPlanner",
     "Judgment",
@@ -60,5 +73,6 @@ __all__ = [
     "SubAgentSpec",
     "TurnToolPolicy",
     "TurnToolPolicyResult",
+    "check_goal",
     "plan_turn_tool_policy",
 ]
