@@ -20,6 +20,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from kaos_core import KaosRuntime
 
 from kaos_agents.api.server import create_app
 from kaos_agents.api.settings import KaosAgentsApiSettings
@@ -28,9 +29,15 @@ from kaos_agents.types import IntentResult, IntentType
 
 @pytest.fixture
 def app():
-    """Create a test FastAPI app with no runtime (tool-free)."""
+    """Create a test FastAPI app with an isolated in-memory runtime.
+
+    The disk-backed VFS is the production default for ``create_app()``;
+    tests pass an explicit in-memory runtime via ``KaosRuntime.test_mode()``
+    to keep the working directory free of ``.kaos-vfs/`` artifacts and
+    each test isolated from prior runs.
+    """
     settings = KaosAgentsApiSettings(api_allow_unauth_localhost=True)
-    return create_app(api_settings=settings)
+    return create_app(runtime=KaosRuntime.test_mode(), api_settings=settings)
 
 
 @pytest.fixture
@@ -301,3 +308,40 @@ class TestMessageEndpoints:
 
         assert resp.status_code == 200
         assert resp.headers["content-type"].startswith("text/event-stream")
+
+
+@pytest.mark.unit
+class TestResolveVFS:
+    """``create_app(runtime=None)`` must default to a disk-backed VFS.
+
+    The kaos-core platform decision is "disk-first VFS" — ``KaosRuntime()``
+    and ``VirtualFileSystem()`` both default to ``StorageBackend.DISK``
+    rooted at ``.kaos-vfs/``. ``create_app()`` is one of the construction
+    sites in the kaos-* ecosystem and must follow the same convention so
+    persisted ``SessionMemory`` survives uvicorn restarts.
+
+    Pre-fix this returned an in-memory VFS, silently losing every
+    conversation on restart.
+    """
+
+    def test_default_vfs_is_disk_backed(self, monkeypatch, tmp_path):
+        """No runtime → disk-backed VFS, not in-memory."""
+        from kaos_core.types.enums import StorageBackend
+
+        from kaos_agents.api.server import _resolve_vfs
+
+        monkeypatch.chdir(tmp_path)
+
+        vfs = _resolve_vfs(None)
+        assert vfs.config.default_backend == StorageBackend.DISK
+
+    def test_runtime_vfs_passed_through(self):
+        """Explicit runtime.vfs takes precedence over the default."""
+        from kaos_core.types.enums import StorageBackend
+
+        from kaos_agents.api.server import _resolve_vfs
+
+        rt = KaosRuntime.test_mode()  # in-memory + isolated
+        vfs = _resolve_vfs(rt)
+        assert vfs is rt.vfs
+        assert vfs.config.default_backend == StorageBackend.MEMORY
