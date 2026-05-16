@@ -75,6 +75,7 @@ Cross-reference: `kaos-modules/docs/plans/thin-worker-prompt.md`
 architecture diagram), §4.2 (M2.1 + M2.2 rule text), §4.3 (M3 eval
 case spec).
 
+
 ## [0.1.0a5] — 2026-05-16
 
 ### Fixed — `[/response]` scratchpad-tag leak in respond handler
