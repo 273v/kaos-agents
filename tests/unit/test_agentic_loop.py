@@ -128,17 +128,23 @@ def _check_stub(*outcomes: GoalCheckOutcome):
 
 
 def _worker_stub(*results: WorkerResult):
-    """Patchable worker — returns a sequence of WorkerResults."""
+    """Patchable worker — returns a sequence of WorkerResults.
+
+    Tests must pass at least one result; iterating past the end
+    repeats the last. The ``assert`` narrows the Optional in the
+    overshoot branch (ty otherwise sees ``WorkerResult | None``).
+    """
+    assert results, "_worker_stub requires at least one WorkerResult"
     results_iter = iter(results)
-    last_used = [results[-1] if results else None]
+    last_used: WorkerResult = results[-1]
 
     async def _impl(**_kwargs: Any) -> WorkerResult:
+        nonlocal last_used
         try:
-            r = next(results_iter)
-            last_used[0] = r
-            return r
+            last_used = next(results_iter)
+            return last_used
         except StopIteration:
-            return last_used[0]  # repeat last on overshoot
+            return last_used  # repeat last on overshoot
 
     return _impl
 
