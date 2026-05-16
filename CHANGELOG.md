@@ -7,6 +7,107 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0a4] — 2026-05-15
+
+### Added — AgenticLoop pattern: plan → elevate → execute → check → replan
+
+Closes the "agent gives up because web search is disabled" failure
+mode. The loop sits one level above the existing per-turn
+`TurnToolPolicy` planner, composes a new `GoalChecker` Critic and a
+SessionPolicy with three-tier auto-elevation, and orchestrates plan
+→ ReAct → check → replan iterations until the user's goal is
+satisfied (or a hard guard trips). Working backwards from the
+single failure mode the user named, the design is
+foundation-first: every primitive composes with existing kaos-agents
+machinery (the per-turn planner, TurnToolPolicy, SessionToolSet,
+the event taxonomy).
+
+**`kaos_agents.types.session_policy.SessionPolicy`** — two-tier
+ceiling + loop config:
+
+- `allowed_groups` (working set) + `soft_ceiling` (auto-elevation
+  max). Persona presets — `for_persona("research"|"drafting"|
+  "forensics")` — set documented soft ceilings.
+- Three-tier elevation taxonomy mirroring Claude Code's permission
+  modes: `green-auto` (web, documents, citations, retrieval, vfs,
+  forensics — silent elevation), `yellow-confirm` (browser,
+  authoring, netinfra — inline approval card), `red-blocked`
+  (programs, agents — never auto-elevate).
+- Three independent loop limiters: `max_loop_iterations` (3),
+  `max_loop_cost_usd` ($0.25), `max_loop_wall_clock_seconds` (60s).
+- Immutable updates: `with_added_groups` / `with_removed_groups`;
+  `to_session_tool_set` adapter for downstream `filter_tools`.
+- 38 truth-table tests pin the taxonomy + tier mapping + persona
+  invariants.
+
+**`kaos_agents.planning.goal_check`** — the Critic Signature + a
+three-way discriminated-union output:
+
+- `GoalCheckSatisfied` (loop returns) / `GoalCheckNeedsMoreWork`
+  (loop replans with `next_action` as agent thinking block, NOT
+  fake user message) / `GoalCheckInsufficientEvidence` (corpus
+  lacks; refusal-with-explanation, gray badge — not red).
+- Modeled on Everlaw Deep Dive's `insufficient_evidence` gold-
+  standard refusal UX (competitive doc §18).
+- On provider exception / missing `[llm]` extra, defaults to
+  `needs_more_work` — NEVER to `satisfied` (false satisfaction
+  silently ships a bad answer).
+- 13 contract tests including the canonical "provider exception
+  must default to needs_more_work" regression.
+
+**`kaos_agents.patterns.agentic_loop.run_agentic_turn`** — pure
+async generator that yields the event stream for one user turn.
+Worker is injected as a callable (decouples kaos-agents from any
+specific ReAct implementation; the single-user-chat backend will
+wire its existing `stream_chat` proxy in Stage L).
+
+- 8 contract tests covering: single-iteration happy path, green-
+  auto elevation, yellow-confirm capability request,
+  needs_more_work replan + max_iterations cap, cost_exceeded
+  mid-loop, stuck_no_progress (state-mutation detection), user
+  interrupt (asyncio cancel re-raises after emitting
+  `LoopTerminated(reason="user_interrupt")`), worker-event
+  pass-through.
+- Three-tier elevation logic, three independent limiters,
+  state-mutation stuck-detection.
+
+**`kaos_agents.events.policy`** — four new SSE-streamable events:
+
+- `ToolPolicyElevated` — auto-elevation just happened silently.
+- `CapabilityRequested` — yellow-confirm group needs approval.
+- `GoalChecked` — Critic verdict with `kind` + `next_action` /
+  `missing` / `confidence`.
+- `LoopTerminated` — always the last event, carries
+  `reason` ∈ {satisfied, insufficient_evidence, max_iterations,
+  cost_exceeded, wall_clock_exceeded, stuck_no_progress,
+  user_interrupt} + cumulative cost + wall-clock + elevation count.
+
+Total event taxonomy: **19 types** (was 15).
+
+Design references (competitive landscape research):
+- Harvey Deep Research (`kaos-modules/docs/competitive/landscape.md`
+  §"Harvey AI") — execute-then-show-plan transparency pattern.
+- Everlaw Deep Dive
+  (`kaos-modules/docs/competitive/capabilities/18-refuses-when-uncertain.md`)
+  — three-way discriminated-union output as the trust differentiator.
+- LangGraph cycle optimization — state-mutation stuck-detection
+  (rajatpandit.com/optimizing-langgraph-cycles).
+- Claude Code auto mode — three-tier permission taxonomy
+  (anthropic.com/engineering/claude-code-auto-mode).
+- Pydantic AI usage_limits — three-independent-limiter pattern.
+
+Tests:
+- 38 new SessionPolicy tests
+- 13 new GoalChecker tests
+- 8 new AgenticLoop orchestrator tests
+- 4 new event fixtures added to test_events.py
+- **2424 total unit tests pass** (was 2337); ruff + ty clean.
+
+The loop is NOT yet wired into any consumer — the chat router
+swap is Stage L (single-user-chat backend update). This release
+ships the primitives so the backend can adopt them without
+duplicating the design.
+
 ## [0.1.0a3] — 2026-05-15
 
 ### Added — derivation-based tool-group taxonomy + SessionToolSet defaults + TurnToolPolicy promotion (PRD PR 2)
