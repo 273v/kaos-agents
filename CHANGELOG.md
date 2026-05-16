@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0a5] — 2026-05-16
+
+### Fixed — `[/response]` scratchpad-tag leak in respond handler
+
+`BaseAgent._simple_respond` previously overrode the default
+`JSONCodec` with `ChatCodec()` for the single-output
+`RespondSignature`. The historic justification — Anthropic Sonnet
+4.6 was observed to truncate ~30K-char prompts at ~3K characters
+when the output was JSON-wrapped — does not reproduce on current
+Claude 4.x / GPT-5.x / Gemini 2.5 models, all of which support
+first-class structured output via the provider's JSON-schema /
+function-calling path.
+
+The workaround was leaking visibly to downstream UI surfaces.
+ChatCodec instructs the model with an opener-only `[response]`
+field marker; Haiku 4.5 (and other instruction-tuned models)
+generalize that to XML-style and emit a matching `[/response]`
+closer that `ChatCodec.decode` does not strip. The closer landed
+inside the field value and rendered verbatim in chat UIs.
+
+### Changed
+
+- `kaos_agents/runtime/agent.py` — drop the `ChatCodec()` override
+  in `_simple_respond`. The handler now uses the default
+  `JSONCodec` (native structured output). The historic justification
+  is preserved as a comment with a deprecation note.
+- `kaos_agents/runtime/agent.py` — defense-in-depth scratchpad
+  closer strip (`_STRIP_SCRATCHPAD_RE`) applied to the response
+  text post-decode so a future non-JSON codec regression — or a
+  model that hallucinates closers inside a JSON string value —
+  cannot reach the response body. Conservative regex: only matches
+  whole `[/\w+]` / `</\w+>` lines whose name is a slug.
+
+### Tested
+
+- 2424 unit tests pass (no regressions).
+- 34 BaseAgent + AgenticLoop unit tests verified explicitly.
+- Manual verification: Haiku 4.5 `compare these` against two PDFs
+  no longer emits `[/response]` closer.
+
 ## [0.1.0a4] — 2026-05-15
 
 ### Added — AgenticLoop pattern: plan → elevate → execute → check → replan
