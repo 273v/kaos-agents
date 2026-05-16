@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [0.1.0a6] — 2026-05-16
+
 ### Changed — Strengthen planner + critic Signature docstrings (M2 of thin-worker-prompt.md)
 
 The kaos-agents Signature decision points are the canonical home
