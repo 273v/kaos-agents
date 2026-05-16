@@ -26,6 +26,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from kaos_core import KaosRuntime
 
 from kaos_agents.api.server import create_app
 from kaos_agents.api.settings import KaosAgentsApiSettings
@@ -136,7 +137,7 @@ class TestSSEConnectionSetup:
     @pytest.mark.asyncio
     async def test_sse_setup_under_target(self) -> None:
         """Time from POST to first byte received should be < 100ms (mocked LLM)."""
-        app = create_app(api_settings=_localhost_dev_settings())
+        app = create_app(runtime=KaosRuntime.test_mode(), api_settings=_localhost_dev_settings())
         transport = ASGITransport(app=app)
 
         with _patch_llm():
@@ -170,7 +171,9 @@ class TestAPIColdStart:
         """create_app() to first request response should be < 2s."""
         with _patch_llm():
             t0 = time.perf_counter()
-            app = create_app(api_settings=_localhost_dev_settings())
+            app = create_app(
+                runtime=KaosRuntime.test_mode(), api_settings=_localhost_dev_settings()
+            )
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as client:
                 resp = await client.post("/v1/sessions", json={"session_id": "cold-1"})

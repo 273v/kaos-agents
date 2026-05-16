@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `create_app()` and `Runner` now default to disk-backed VFS
+
+`_resolve_vfs(runtime=None)` in both `kaos_agents/api/server.py` and
+`kaos_agents/runtime/runner.py` was constructing an in-memory
+`VirtualFileSystem` when no runtime was provided. This silently lost
+every persisted conversation on uvicorn restart, contradicting the
+kaos-core platform default (`StorageBackend.DISK` rooted at
+`.kaos-vfs/`).
+
+The fix replaces the explicit in-memory `VFSConfig` with
+`VirtualFileSystem()`, which picks up the kaos-core disk default.
+Matches `KaosRuntime()`, the `kaos-mcp` resource adapter, and the
+rest of the kaos-* ecosystem.
+
+**Behavior change:**
+
+| Caller | Before | After |
+|---|---|---|
+| `create_app(runtime=KaosRuntime(vfs=disk_vfs))` | disk-backed | disk-backed (unchanged) |
+| `create_app(runtime=None)` | **in-memory** (data lost on restart) | **disk-backed** (matches platform default) |
+| `create_app(runtime=KaosRuntime(vfs=mem_vfs))` | in-memory | in-memory (unchanged) |
+| `Runner(agent=..., runtime=None, vfs=None)` | **in-memory** | **disk-backed** |
+
+Callers that explicitly wanted in-memory (most commonly tests) now
+must construct it themselves — `KaosRuntime.test_mode()` is the
+documented pattern in `CLAUDE.md` for kaos-agents test isolation.
+
+Closes #16. New `TestResolveVFS` regression tests in
+`tests/unit/test_api.py` lock in both branches. The `app` fixture
+in `tests/unit/test_api.py` and the two `create_app()` sites in
+`tests/unit/test_streaming_metrics.py` now construct an explicit
+`KaosRuntime.test_mode()` so the test working directory does not
+accumulate `.kaos-vfs/` artifacts on every run.
+
+
 ## [0.1.0a5] — 2026-05-16
 
 ### Fixed — `[/response]` scratchpad-tag leak in respond handler
