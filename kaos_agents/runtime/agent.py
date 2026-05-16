@@ -21,6 +21,7 @@ The 8-step turn (both modes share the same logic):
 
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -62,6 +63,19 @@ from kaos_agents.types.memory import MemoryType
 # Default instruction for the respond handler. Module-level constant
 # so it's auditable and overridable (subclasses can replace self._respond_instruction).
 _DEFAULT_RESPOND_INSTRUCTION = "You are a helpful assistant."
+
+# Defense-in-depth: scratchpad-tag closers that instruction-tuned
+# models (Claude 4.x family, GPT-5.x) hallucinate when given an
+# opener-only field marker. ChatCodec / XMLCodec are no longer used
+# in the respond path, but a closer that bleeds into a JSON string
+# value (or arrives via a future non-JSON codec) is still stripped
+# here so the SSE wire stays clean. The patterns are conservative:
+# only whole bracketed `[/name]` / `</name>` lines that look like
+# field-name slugs (no internal whitespace).
+_STRIP_SCRATCHPAD_RE = re.compile(
+    r"^[ \t]*(?:\[/\w+\]|</\w+>)[ \t]*\n?",
+    re.MULTILINE,
+)
 
 
 class RespondSignature(Signature):
@@ -775,30 +789,33 @@ class BaseAgent(KaosAgent):
         if extra_instruction:
             instructions = f"{instructions} {extra_instruction}"
 
-        # Use ChatCodec instead of the default JSONCodec for the
-        # single-output response signature. Anthropic Sonnet 4.6 was
-        # observed to stop mid-section on ~30K-char inline prompts when
-        # the output is JSON-wrapped (the codec asks for {"response":
-        # "<long memo>"}) — the model decides it's "done" prematurely
-        # because the JSON envelope confuses it. ChatCodec emits the
-        # response as plain text with a single field marker, which the
-        # model treats as a normal completion and runs to natural end.
-        # Confirmed empirically this session: same 5-NDA prompt
-        # truncated at ~3K chars with JSONCodec, ran to ~18K chars
-        # with no envelope. Affects every long-context legal review.
-        from kaos_llm_core.codecs import ChatCodec
-
+        # Use the default JSONCodec (native structured output via the
+        # provider's JSON-schema / function-calling path). The earlier
+        # override to ChatCodec — meant to dodge a 30K → 3K truncation
+        # observed on Sonnet 4.6 with JSON-wrapped long outputs —
+        # leaked `[response]` openers and hallucinated `[/response]`
+        # closers from instruction-tuned models (Haiku 4.5 reliably,
+        # Sonnet/Opus occasionally) into the UI. Modern Claude 4.x /
+        # GPT-5.x / Gemini 2.5 have first-class structured-output
+        # paths that don't truncate this way; if a JSON-side truncation
+        # regresses, file it as a JSONCodec bug in kaos-llm-core rather
+        # than working around it with text scaffolding here.
         call = Call(
             RespondSignature,
             model=self._model_for_role("respond"),
             instructions=instructions,
-            codec=ChatCodec(),
         )
         # ``.invoke()`` returns the full Invocation so we can read
         # ``invocation.usage`` — the bare ``await call(...)`` path is
         # slightly cheaper but throws the usage record on the floor.
         invocation = await call.invoke(message=message, conversation_history=history)
         text = str(getattr(invocation.output, "response", "")) if invocation.output else ""
+        # Defense-in-depth: strip any scratchpad-tag closers that a
+        # non-JSON codec (or a model that hallucinated them inside a
+        # JSON string field) left in the response body. ChatCodec
+        # historically anchored only openers; this guards against the
+        # symptom even if the codec gets reverted.
+        text = _STRIP_SCRATCHPAD_RE.sub("", text).strip()
         return text, InvocationUsage.from_invocation(invocation)
 
 
