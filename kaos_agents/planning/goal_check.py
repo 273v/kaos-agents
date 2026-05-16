@@ -218,6 +218,20 @@ def _build_signature_class() -> type:
             ``needs_more_work`` (the agent has more it could do).
           - Agent's response cites tool results (block_refs, URLs,
             source spans) → strong signal for ``satisfied``.
+          - **Confident-hallucination shortcut (highest-impact case).**
+            Agent's response asserts a specific person's identity,
+            current role/title, recent date, price, legal status, or
+            any other public-record fact, AND ``tool_calls_made`` is
+            empty (no successful tool call produced evidence) →
+            ``needs_more_work`` with ``next_action`` = "search the
+            web for [the asserted fact] before answering". Confident
+            hallucination of look-up-able facts is the single highest-
+            impact failure this critic catches; trust the absence of
+            tool calls more than the model's confidence in the prose.
+            (Counter-cases that are NOT hallucination: pure definition
+            requests like "what is JSON Schema", arithmetic, language
+            tasks, summarization of an already-quoted text — none of
+            those need a tool call.)
 
         Cross-iteration signals (when present):
           - If ``elevation_trail`` shows groups were auto-enabled this

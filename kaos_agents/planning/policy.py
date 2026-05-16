@@ -218,6 +218,18 @@ def _build_signature_class() -> type:
             if the question is "find X in the sheet".
           - ``corpus_kinds`` includes ``"email"`` / ``"archive"`` →
             favor ``forensics``.
+          - **Lookup-beyond-corpus rule.** When ``corpus_headlines``
+            is non-empty AND the question asks about facts that
+            likely go beyond the attached files — names, current
+            roles or titles, public records, recent events, prices,
+            "who is X", "look up Y", "find the source for Z" —
+            include BOTH ``documents`` AND ``web`` in
+            ``wanted_groups``. The agent searches the docs first
+            (cheaper, deterministic); if the answer isn't there, it
+            already has web in scope to escalate without a replan.
+            Symmetric: a doc-only ``wanted_groups`` on a public-fact
+            lookup is the failure mode that produces "I need more
+            information" or confident hallucination.
 
         Session-intent hints (when present):
           - ``"research"`` (default) → prefer ``web`` + ``documents`` +
