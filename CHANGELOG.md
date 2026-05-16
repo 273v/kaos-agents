@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — Strengthen planner + critic Signature docstrings (M2 of thin-worker-prompt.md)
+
+The kaos-agents Signature decision points are the canonical home
+for tool-selection rules and verdict shortcuts; the worker prompt
+on the kaos-ui side is supposed to carry only context. Between
+2026-05-13 and 2026-05-16 the kaos-ui worker prompt accumulated
+~570 tokens of English behavior rules duplicating decisions these
+Signature docstrings already encode. The right reaction was a
+docstring edit + an eval, not a worker-prompt patch. This release
+makes that the path of least resistance.
+
+**`_TurnToolPolicySignature` — lookup-beyond-corpus rule.** Added
+to the docstring's corpus-kinds hints:
+
+  *"When `corpus_headlines` is non-empty AND the question asks
+  about facts that likely go beyond the attached files — names,
+  current roles or titles, public records, recent events, prices,
+  'who is X', 'look up Y', 'find the source for Z' — include BOTH
+  `documents` AND `web` in `wanted_groups`. The agent searches the
+  docs first (cheaper, deterministic); if the answer isn't there,
+  it already has web in scope to escalate without a replan."*
+
+Closes the 2026-05-16 "who teaches 800" → "look up who that is"
+failure where the planner picked documents-only, the agent
+searched the PDF, didn't find the answer, and hallucinated a
+faculty record instead of escalating to web search.
+
+**`_GoalCheckerSignature` — confident-hallucination shortcut.**
+Added to the docstring's concrete shortcuts:
+
+  *"Agent's response asserts a specific person's identity, current
+  role/title, recent date, price, legal status, or any other
+  public-record fact, AND `tool_calls_made` is empty (no successful
+  tool call produced evidence) → `needs_more_work` with
+  `next_action` = 'search the web for [the asserted fact] before
+  answering'. Confident hallucination of look-up-able facts is the
+  single highest-impact failure this critic catches."*
+
+The shortcut explicitly excludes definition / arithmetic / language
+/ summarization tasks that legitimately don't need a tool call.
+The verdict feeds into `AgenticLoop`'s replan path: the critic's
+`next_action` becomes the next iteration's `thinking_note`, so the
+agent gets structured guidance to call web tools without any new
+English in the worker prompt.
+
+### Added — Signature-level live eval suite
+
+`tests/integration/test_signature_evals_live.py` (6 cases, ~$0.0012
+per full run). Each case is sourced from a 2026-05-16 failing
+session — when a future docstring edit regresses a behavior, the
+relevant case fails with a pointer at the right Signature file.
+
+| Layer | Case | Asserts |
+|---|---|---|
+| Planner | `lookup_cfpb_2026_no_corpus` | `wanted_groups ⊇ {"web"}` for "look up the latest CFPB enforcement" |
+| Planner | `who_teaches_800_with_pdf` | `wanted_groups ⊇ {"documents"}` for "who teaches 800" with PDF attached |
+| Planner | `lookup_continuation_with_pdf` | `wanted_groups ⊇ {"documents", "web"}` (the M2.1 rule) |
+| Critic | `hallucinated_person_no_tools` | "J. Bommarito is the lead instructor…" + 0 tool calls → `needs_more_work` with `next_action` naming `search`+`web` |
+| Critic | `clarification_when_docs_attached` | "I need more specific information…" + 0 tool calls → `needs_more_work` with `next_action` naming `search`+`document` |
+| Critic | `grounded_answer_with_tool_call` | "The most recent FR rule on dairy is 90 FR 12345…" + 1 successful tool call → `satisfied` |
+
+`@pytest.mark.live`-marked so the default unit gate stays free.
+
+Cross-reference: `kaos-modules/docs/plans/thin-worker-prompt.md`
+§2.5 (kaos-ui-hack ↔ kaos-agents-Signature mapping), §3 (designed
+architecture diagram), §4.2 (M2.1 + M2.2 rule text), §4.3 (M3 eval
+case spec).
+
 ### Fixed — `create_app()` and `Runner` now default to disk-backed VFS
 
 `_resolve_vfs(runtime=None)` in both `kaos_agents/api/server.py` and
