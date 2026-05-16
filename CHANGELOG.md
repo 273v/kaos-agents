@@ -7,6 +7,308 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `create_app()` and `Runner` now default to disk-backed VFS
+
+`_resolve_vfs(runtime=None)` in both `kaos_agents/api/server.py` and
+`kaos_agents/runtime/runner.py` was constructing an in-memory
+`VirtualFileSystem` when no runtime was provided. This silently lost
+every persisted conversation on uvicorn restart, contradicting the
+kaos-core platform default (`StorageBackend.DISK` rooted at
+`.kaos-vfs/`).
+
+The fix replaces the explicit in-memory `VFSConfig` with
+`VirtualFileSystem()`, which picks up the kaos-core disk default.
+Matches `KaosRuntime()`, the `kaos-mcp` resource adapter, and the
+rest of the kaos-* ecosystem.
+
+**Behavior change:**
+
+| Caller | Before | After |
+|---|---|---|
+| `create_app(runtime=KaosRuntime(vfs=disk_vfs))` | disk-backed | disk-backed (unchanged) |
+| `create_app(runtime=None)` | **in-memory** (data lost on restart) | **disk-backed** (matches platform default) |
+| `create_app(runtime=KaosRuntime(vfs=mem_vfs))` | in-memory | in-memory (unchanged) |
+| `Runner(agent=..., runtime=None, vfs=None)` | **in-memory** | **disk-backed** |
+
+Callers that explicitly wanted in-memory (most commonly tests) now
+must construct it themselves — `KaosRuntime.test_mode()` is the
+documented pattern in `CLAUDE.md` for kaos-agents test isolation.
+
+Closes #16. New `TestResolveVFS` regression tests in
+`tests/unit/test_api.py` lock in both branches. The `app` fixture
+in `tests/unit/test_api.py` and the two `create_app()` sites in
+`tests/unit/test_streaming_metrics.py` now construct an explicit
+`KaosRuntime.test_mode()` so the test working directory does not
+accumulate `.kaos-vfs/` artifacts on every run.
+
+
+## [0.1.0a5] — 2026-05-16
+
+### Fixed — `[/response]` scratchpad-tag leak in respond handler
+
+`BaseAgent._simple_respond` previously overrode the default
+`JSONCodec` with `ChatCodec()` for the single-output
+`RespondSignature`. The historic justification — Anthropic Sonnet
+4.6 was observed to truncate ~30K-char prompts at ~3K characters
+when the output was JSON-wrapped — does not reproduce on current
+Claude 4.x / GPT-5.x / Gemini 2.5 models, all of which support
+first-class structured output via the provider's JSON-schema /
+function-calling path.
+
+The workaround was leaking visibly to downstream UI surfaces.
+ChatCodec instructs the model with an opener-only `[response]`
+field marker; Haiku 4.5 (and other instruction-tuned models)
+generalize that to XML-style and emit a matching `[/response]`
+closer that `ChatCodec.decode` does not strip. The closer landed
+inside the field value and rendered verbatim in chat UIs.
+
+### Changed
+
+- `kaos_agents/runtime/agent.py` — drop the `ChatCodec()` override
+  in `_simple_respond`. The handler now uses the default
+  `JSONCodec` (native structured output). The historic justification
+  is preserved as a comment with a deprecation note.
+- `kaos_agents/runtime/agent.py` — defense-in-depth scratchpad
+  closer strip (`_STRIP_SCRATCHPAD_RE`) applied to the response
+  text post-decode so a future non-JSON codec regression — or a
+  model that hallucinates closers inside a JSON string value —
+  cannot reach the response body. Conservative regex: only matches
+  whole `[/\w+]` / `</\w+>` lines whose name is a slug.
+
+### Tested
+
+- 2424 unit tests pass (no regressions).
+- 34 BaseAgent + AgenticLoop unit tests verified explicitly.
+- Manual verification: Haiku 4.5 `compare these` against two PDFs
+  no longer emits `[/response]` closer.
+
+## [0.1.0a4] — 2026-05-15
+
+### Added — AgenticLoop pattern: plan → elevate → execute → check → replan
+
+Closes the "agent gives up because web search is disabled" failure
+mode. The loop sits one level above the existing per-turn
+`TurnToolPolicy` planner, composes a new `GoalChecker` Critic and a
+SessionPolicy with three-tier auto-elevation, and orchestrates plan
+→ ReAct → check → replan iterations until the user's goal is
+satisfied (or a hard guard trips). Working backwards from the
+single failure mode the user named, the design is
+foundation-first: every primitive composes with existing kaos-agents
+machinery (the per-turn planner, TurnToolPolicy, SessionToolSet,
+the event taxonomy).
+
+**`kaos_agents.types.session_policy.SessionPolicy`** — two-tier
+ceiling + loop config:
+
+- `allowed_groups` (working set) + `soft_ceiling` (auto-elevation
+  max). Persona presets — `for_persona("research"|"drafting"|
+  "forensics")` — set documented soft ceilings.
+- Three-tier elevation taxonomy mirroring Claude Code's permission
+  modes: `green-auto` (web, documents, citations, retrieval, vfs,
+  forensics — silent elevation), `yellow-confirm` (browser,
+  authoring, netinfra — inline approval card), `red-blocked`
+  (programs, agents — never auto-elevate).
+- Three independent loop limiters: `max_loop_iterations` (3),
+  `max_loop_cost_usd` ($0.25), `max_loop_wall_clock_seconds` (60s).
+- Immutable updates: `with_added_groups` / `with_removed_groups`;
+  `to_session_tool_set` adapter for downstream `filter_tools`.
+- 38 truth-table tests pin the taxonomy + tier mapping + persona
+  invariants.
+
+**`kaos_agents.planning.goal_check`** — the Critic Signature + a
+three-way discriminated-union output:
+
+- `GoalCheckSatisfied` (loop returns) / `GoalCheckNeedsMoreWork`
+  (loop replans with `next_action` as agent thinking block, NOT
+  fake user message) / `GoalCheckInsufficientEvidence` (corpus
+  lacks; refusal-with-explanation, gray badge — not red).
+- Modeled on Everlaw Deep Dive's `insufficient_evidence` gold-
+  standard refusal UX (competitive doc §18).
+- On provider exception / missing `[llm]` extra, defaults to
+  `needs_more_work` — NEVER to `satisfied` (false satisfaction
+  silently ships a bad answer).
+- 13 contract tests including the canonical "provider exception
+  must default to needs_more_work" regression.
+
+**`kaos_agents.patterns.agentic_loop.run_agentic_turn`** — pure
+async generator that yields the event stream for one user turn.
+Worker is injected as a callable (decouples kaos-agents from any
+specific ReAct implementation; the single-user-chat backend will
+wire its existing `stream_chat` proxy in Stage L).
+
+- 8 contract tests covering: single-iteration happy path, green-
+  auto elevation, yellow-confirm capability request,
+  needs_more_work replan + max_iterations cap, cost_exceeded
+  mid-loop, stuck_no_progress (state-mutation detection), user
+  interrupt (asyncio cancel re-raises after emitting
+  `LoopTerminated(reason="user_interrupt")`), worker-event
+  pass-through.
+- Three-tier elevation logic, three independent limiters,
+  state-mutation stuck-detection.
+
+**`kaos_agents.events.policy`** — four new SSE-streamable events:
+
+- `ToolPolicyElevated` — auto-elevation just happened silently.
+- `CapabilityRequested` — yellow-confirm group needs approval.
+- `GoalChecked` — Critic verdict with `kind` + `next_action` /
+  `missing` / `confidence`.
+- `LoopTerminated` — always the last event, carries
+  `reason` ∈ {satisfied, insufficient_evidence, max_iterations,
+  cost_exceeded, wall_clock_exceeded, stuck_no_progress,
+  user_interrupt} + cumulative cost + wall-clock + elevation count.
+
+Total event taxonomy: **19 types** (was 15).
+
+Design references (competitive landscape research):
+- Harvey Deep Research (`kaos-modules/docs/competitive/landscape.md`
+  §"Harvey AI") — execute-then-show-plan transparency pattern.
+- Everlaw Deep Dive
+  (`kaos-modules/docs/competitive/capabilities/18-refuses-when-uncertain.md`)
+  — three-way discriminated-union output as the trust differentiator.
+- LangGraph cycle optimization — state-mutation stuck-detection
+  (rajatpandit.com/optimizing-langgraph-cycles).
+- Claude Code auto mode — three-tier permission taxonomy
+  (anthropic.com/engineering/claude-code-auto-mode).
+- Pydantic AI usage_limits — three-independent-limiter pattern.
+
+Tests:
+- 38 new SessionPolicy tests
+- 13 new GoalChecker tests
+- 8 new AgenticLoop orchestrator tests
+- 4 new event fixtures added to test_events.py
+- **2424 total unit tests pass** (was 2337); ruff + ty clean.
+
+The loop is NOT yet wired into any consumer — the chat router
+swap is Stage L (single-user-chat backend update). This release
+ships the primitives so the backend can adopt them without
+duplicating the design.
+
+## [0.1.0a3] — 2026-05-15
+
+### Added — derivation-based tool-group taxonomy + SessionToolSet defaults + TurnToolPolicy promotion (PRD PR 2)
+
+The taxonomy and the planner ship together. The taxonomy is the
+foundation; the planner is what surfaces it per-turn to the LLM.
+
+**`kaos_agents.registry.tool_group_classifier`** — owns the canonical
+11-group catalogue used by ceiling enforcement, the per-turn planner,
+and every SPA tool-policy UI surface. Built as a **derivation over
+existing `ToolMetadata` fields**, not a parallel name-prefix taxonomy:
+
+  - **`derive_group(meta: ToolMetadata) -> str | None`** — pure
+    function reading `category`, `capability`, `annotations.openWorldHint`,
+    `annotations.readOnlyHint`, `tags`, and `module_name`. First-match-wins
+    on a small truth table (11 rules; tag-based narrowings take
+    precedence over category-based defaults). Returns `None` for
+    tools that don't fit any group.
+  - **`RECOGNIZED_TAGS = {"browser", "netinfra", "forensics", "retrieval"}`** —
+    the four tag values the derivation reads as narrowing signals.
+    Tools may carry additional free-form tags (`"experimental"`,
+    `"deprecated"`, domain labels) without affecting group assignment.
+  - **`KAOS_TOOL_GROUP_DESCRIPTIONS`** — one-paragraph description
+    per group, used as the SettingsSheet group label.
+  - **`register_kaos_tool_groups(runtime, registry=None)`** — walks
+    every tool registered on a runtime, calls `derive_group` on each,
+    and writes one `ToolGroup` per non-empty bucket into the registry.
+    Returns `{group_name: tool_count}`.
+
+Why derivation, not prefix patterns: a new tool added in any kaos-*
+repo auto-classifies on the next runtime walk — **zero kaos-agents
+release needed**. Third-party tools self-declare via the standard
+`category` + `capability` + `tags` fields. The 11 groups are derived
+views over existing ground truth, not new ground truth.
+
+**`kaos_agents.planning.policy`** — TurnToolPolicy promoted from the
+kaos-ui single-user-chat example into kaos-agents proper:
+
+  - **`TurnToolPolicy`** frozen value type — `kept_groups` (planner's
+    intersect with ceiling), `dropped_groups` (planner wanted these
+    but the ceiling denied — surfaces in the SPA's "wanted but
+    blocked" UX), `rationale`, `confidence`, `fell_back_to_ceiling`,
+    `cost_usd`, `latency_ms`. The pre-promotion `turn_groups` field
+    survives as a property alias on `kept_groups` for back-compat.
+  - **`plan_turn_tool_policy(**inputs)`** — async entrypoint.
+    Best-effort with abdicate-to-ceiling semantics: low confidence,
+    provider failure, missing `[llm]` extra, or disjoint
+    wanted/ceiling sets all fall back to the full ceiling. Never
+    raises.
+  - **Signature inputs** (PRD round-2 decision #7): `user_message`,
+    `recent_turns`, `corpus_headlines`, **`corpus_kinds: list[str]`**
+    (Magika-style content classification for uploaded files —
+    `["pdf", "spreadsheet", "html"]`), **`session_intent: str | None`**
+    (preset chip selection — `"research"` / `"drafting"` / `"forensics"`),
+    **`raw_turn_groups: list[str] | None`** (last turn's wanted set
+    for cross-turn coherence), `ceiling_groups`, `available_groups`.
+  - **Three-way BM25 disambiguation** in the Signature few-shots
+    (round-2 decision #6): `kaos-source-bm25-search` searches the
+    Free Law Project corpus; `kaos-nlp-core-bm25-search` searches
+    session memory; `kaos-retrieval-bm25` delegates to the
+    RetrievalAgent for broader recall.
+  - The 8 RetrievalAgent tools (`kaos-retrieval-bm25`, `-synonyms`,
+    `-hyde`, `-evaluate`, `-rerank`, `-corpus-info`, `-corpus-manifest`,
+    `-answer`) now carry `tags=["retrieval"]` so they auto-classify
+    into the `retrieval` group.
+
+- **`SessionToolSet` ceiling defaults** in
+  `kaos_agents.types.session_tool_set`:
+  - **`DEFAULT_ALLOWED_GROUPS`** — the 7-group "research" preset
+    every fresh session starts with: `web`, `browser`, `documents`,
+    `citations`, `vfs`, `forensics`, `retrieval`. Excludes
+    `netinfra` (DNS/WHOIS — opt-in for diligence), `authoring`
+    (writers — opt-in for drafting), `programs` (kaos-llm-core
+    typed-program + alpha-* — opt-in for power users), and `agents`
+    (self-recursive — opt-in *and* always-denied).
+  - **`DEFAULT_DENIED_TOOLS`** — the 4 self-recursive kaos-agents
+    tools (`kaos-agent-chat`, `kaos-agent-plan`,
+    `kaos-agent-findings`, `kaos-agent-corpus-filter`). Registered
+    in the runtime so power-user topologies can wire them as
+    sub-agents, but denied at the ceiling so accidental opt-in
+    can't trigger infinite recursion.
+  - **`SessionToolSet.auto_narrow: bool = True`** — per-session
+    toggle for the per-turn `TurnToolPolicy` planner. When `True`,
+    the chat router narrows the ceiling to just the groups this
+    message needs (cost + hallucination reduction). When `False`,
+    the full ceiling passes to ReAct.
+  - **`SessionToolSet.default()`** — classmethod returning the
+    canonical fresh-session config (the 7-group ceiling + the 4
+    denied tools + `auto_narrow=True`). Use this instead of
+    `SessionToolSet()` (which returns the unrestricted config) when
+    creating a new session.
+
+Motivated by `kaos-modules/docs/internal/dynamic-tool-planning-prd.md`
+§4 ("PR 2 — kaos-agents default ceiling + ToolGroupRegistry rewrite")
+and the live session bug it documents: a session that asked the
+agent to search the web was unable to because the default ceiling
+omitted `web`. The default ceiling now matches what an 80%-case
+legal-research session expects.
+
+Tests:
+  - 33 new tests in `tests/unit/test_tool_group_classifier.py`
+    pinning the derivation truth table — one parametrized case per
+    rule + ordering tests (tag-beats-category, citations-beats-web,
+    authoring-beats-documents, etc.) + a partitioning happy-path
+    test over a representative 13-tool runtime.
+  - 13 new tests in `tests/unit/test_turn_tool_policy.py` pinning
+    the planner's contract: confident narrowing, ceiling
+    intersection, `dropped_groups` for "wanted but blocked",
+    disjoint-set fallback, low-confidence fallback, threshold
+    override, empty-ceiling short-circuit, provider-exception
+    fallback, `corpus_kinds` / `session_intent` / `raw_turn_groups`
+    passthrough, omitted-input defaults, and frozen-dataclass
+    immutability.
+  - 7 new tests in `tests/unit/test_session_tool_set.py` pinning
+    the `DEFAULT_ALLOWED_GROUPS` / `DEFAULT_DENIED_TOOLS` /
+    `SessionToolSet.default()` / `auto_narrow` defaults.
+
+Purely additive: existing `SessionToolSet()`-without-args still
+returns the unrestricted config (allow-all). Callers that want the
+canonical fresh-session ceiling explicitly call `.default()`.
+The pre-promotion `app.services.turn_tool_policy` module in
+single-user-chat remains importable until the consumer migrates in
+Stage D.
+
+## [0.1.0a2] — 2026-05-15
+
 ### Fixed
 
 - **`ChatAgent` ReAct now drops one bad tool and retries instead of

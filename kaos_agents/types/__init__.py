@@ -64,15 +64,39 @@ from kaos_agents.types.providers import (
     ProviderConfig,
 )
 from kaos_agents.types.response import AgentResponse
-from kaos_agents.types.session_tool_set import SessionToolSet
+from kaos_agents.types.session_policy import (
+    DEFAULT_ELEVATION_POLICY,
+    DEFAULT_MAX_LOOP_COST_USD,
+    DEFAULT_MAX_LOOP_ITERATIONS,
+    DEFAULT_MAX_LOOP_WALL_CLOCK_SECONDS,
+    DRAFTING_SOFT_CEILING,
+    FORENSICS_SOFT_CEILING,
+    RESEARCH_SOFT_CEILING,
+    ElevationTier,
+    SessionPolicy,
+)
+from kaos_agents.types.session_tool_set import (
+    DEFAULT_ALLOWED_GROUPS,
+    DEFAULT_DENIED_TOOLS,
+    SessionToolSet,
+)
 from kaos_agents.types.tool_call import ToolCallRecord, ToolExecution
 from kaos_agents.types.tool_group import ToolGroup
 from kaos_agents.types.usage import ZERO_USAGE, InvocationUsage
 
 __all__ = [
     "BALANCED",
+    "DEFAULT_ALLOWED_GROUPS",
+    "DEFAULT_DENIED_TOOLS",
+    "DEFAULT_ELEVATION_POLICY",
+    "DEFAULT_MAX_LOOP_COST_USD",
+    "DEFAULT_MAX_LOOP_ITERATIONS",
+    "DEFAULT_MAX_LOOP_WALL_CLOCK_SECONDS",
     "DEFAULT_SECTIONS",
+    "DRAFTING_SOFT_CEILING",
     "FAST",
+    "FORENSICS_SOFT_CEILING",
+    "RESEARCH_SOFT_CEILING",
     "STRONG",
     "ZERO_USAGE",
     "AgentMetadata",
@@ -82,6 +106,7 @@ __all__ = [
     "ComposeResult",
     "DataType",
     "Decision",
+    "ElevationTier",
     "EvalMode",
     "EventMetadata",
     "EvictionPolicy",
@@ -104,6 +129,7 @@ __all__ = [
     "RecipeMetadata",
     "RouteResult",
     "SectionConfig",
+    "SessionPolicy",
     "SessionToolSet",
     "Step",
     "StepStatus",
