@@ -229,6 +229,31 @@ class PlanGraph:
                 results[step_id] = node.get("result")
         return results
 
+    def get_failures(self) -> dict[str, dict[str, Any]]:
+        """Get failure metadata from all FAILED steps.
+
+        Each entry maps ``step_id -> {tool_name, step_type, result}``.
+        The ``result`` field is whatever ``mark_failed`` recorded —
+        an error string for hard tool errors (e.g. "ERROR: timeout"),
+        or a Route-decision message for soft failures (e.g.
+        "Route decided replan: Low confidence (0.45)").
+
+        Used by replanning strategies that need to build structured
+        ``prior_failures`` context for the next ``expand()`` call.
+        Returns an empty dict when no steps have failed (use
+        :meth:`has_failures` for the boolean check).
+        """
+        failures: dict[str, dict[str, Any]] = {}
+        for step_id in self._graph.node_ids():
+            node = self._graph.node(step_id)
+            if node and node.get("status") == StepStatus.FAILED.value:
+                failures[step_id] = {
+                    "tool_name": node.get("tool_name", ""),
+                    "step_type": node.get("step_type", ""),
+                    "result": node.get("result", ""),
+                }
+        return failures
+
     # -- Validation ----------------------------------------------------------
 
     def validate(self) -> list[str]:
