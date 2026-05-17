@@ -37,13 +37,64 @@ class TestRouteContinue:
 
 
 class TestRouteReplan:
-    def test_failure_triggers_replan(self):
+    def test_confident_failure_triggers_replan(self):
+        # matched=False AND confidence >= threshold (default 0.5) →
+        # judge is confident the tool's output is wrong, REPLAN.
         result = route(_judgment(matched=False, confidence=0.8), PlanBudget())
         assert result.decision == Decision.REPLAN
 
     def test_low_confidence_triggers_replan(self):
+        # matched=True AND confidence < threshold → REPLAN
+        # (a different branch — the judge says the result IS satisfactory
+        # but only weakly; replan to seek a stronger verdict).
         result = route(
             _judgment(matched=True, confidence=0.4),
+            PlanBudget(),
+            confidence_threshold=0.5,
+        )
+        assert result.decision == Decision.REPLAN
+
+
+class TestRouteSoftMissContinues:
+    """Pre-0.1.0a9, ``matched=False`` fired REPLAN unconditionally.
+
+    0.1.0a9 splits the branch by judge confidence: a low-confidence
+    rejection ("doesn't match expected but I'm not sure") falls
+    through to CONTINUE so the plan keeps going and the
+    plan-execute synthesiser can surface the partial result.
+
+    Closes the R1-REAL v2 matrix Tests 3 + 7 regression where 3-5
+    successful FR/EDGAR tool calls disappeared because the LLM judge
+    wasn't crisply satisfied with the JSON payload.
+    """
+
+    def test_unmatched_with_low_confidence_continues(self):
+        # matched=False, confidence (0.3) < threshold (0.5) →
+        # CONTINUE (judge is uncertain).
+        result = route(
+            _judgment(matched=False, confidence=0.3),
+            PlanBudget(),
+            confidence_threshold=0.5,
+        )
+        assert result.decision == Decision.CONTINUE
+        assert "low confidence" in result.reason.lower()
+
+    def test_unmatched_at_threshold_replans(self):
+        # Boundary: matched=False, confidence (0.5) == threshold (0.5)
+        # → REPLAN (>= is the cutoff).
+        result = route(
+            _judgment(matched=False, confidence=0.5),
+            PlanBudget(),
+            confidence_threshold=0.5,
+        )
+        assert result.decision == Decision.REPLAN
+
+    def test_unmatched_high_confidence_still_replans(self):
+        # matched=False, confidence=0.9 → judge is confident, REPLAN.
+        # Preserves the pre-0.1.0a9 behavior for the case where the
+        # judge actually has evidence the tool output is wrong.
+        result = route(
+            _judgment(matched=False, confidence=0.9),
             PlanBudget(),
             confidence_threshold=0.5,
         )
