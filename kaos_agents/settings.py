@@ -387,6 +387,28 @@ class KaosAgentSettings(ModuleSettings):
         ),
     )
 
+    # Observability — emit assembled-prompt previews on Span attributes
+    # so a misbehaving turn can be diagnosed without rebuilding the
+    # exact stack trace from logs. Off by default because the previews
+    # add ~1-3 KB per Span and bloat the SSE stream when enabled
+    # everywhere. See ``kaos-modules/docs/plans/
+    # kaos-agents-autonomy-improvement-1.md`` §3.3 for the design.
+    debug_prompts: bool = Field(
+        default=False,
+        description=(
+            "When True, every actor / planner / judge / goal-check Call "
+            "extends its Span attributes with "
+            "{assembled_prompt_preview (<=500 chars), tool_catalog_size, "
+            "tool_names_sample (<=10 names)}. Diagnostic surface for "
+            "the 0.1.0a10 PLAN→tools dispatch fix and for any future "
+            "case where the agent silently degrades without tools. "
+            "Resolves via KAOS_AGENT_DEBUG_PROMPTS env var or per-request "
+            "_meta.kaos_config override; loose os.environ reads at Call "
+            "sites are forbidden (see Configuration Hierarchy in "
+            "kaos-modules/CLAUDE.md)."
+        ),
+    )
+
     model_config = SettingsConfigDict(
         env_prefix="KAOS_AGENT_",
         env_file=".env",
