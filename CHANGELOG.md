@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [0.1.0a8] — 2026-05-16
+
 ### Fixed — disk-backed VFS + parse cache now work on Windows
 
 The 0.1.0a5 disk-VFS-default switch exposed two latent Windows
