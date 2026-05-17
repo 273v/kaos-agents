@@ -602,9 +602,19 @@ class BaseAgent(KaosAgent):
         kaos-agents-autonomy-improvement-1.md`` for the diagnosis.
         """
         # Pattern-mismatch redirect — before the silent-fall-through bug
-        # can fire.
-        redirect_handler = self._detect_pattern_mismatch(intent, emitter)
+        # can fire. The detector returns (handler, mismatch_event) so the
+        # event flows through the generator and reaches downstream
+        # consumers (SSE stream, OTel hook, test event lists). The old
+        # path called ``emitter.emit(PatternMismatch, ...)`` inside the
+        # detector and discarded the return — that only populated active
+        # ``collect_events()`` collectors (unit tests) but never yielded
+        # the event to the run() loop's ``async for`` iterator, so
+        # production stream consumers saw zero ``PatternMismatch`` events
+        # even when the redirect fired.
+        redirect_handler, mismatch_event = self._detect_pattern_mismatch(intent, emitter)
         if redirect_handler is not None:
+            if mismatch_event is not None:
+                yield mismatch_event
             dispatched_redirect = await redirect_handler(message, memory, context_items)
             if len(dispatched_redirect) == 3:
                 response_text, tool_calls, usage = dispatched_redirect
@@ -637,19 +647,26 @@ class BaseAgent(KaosAgent):
         self,
         intent: IntentResult,
         emitter: EventEmitter,
-    ) -> Any:
-        """Return the redirect handler (e.g., ``self._handle_tool_use``)
-        if the per-turn intent demands a handler the agent class hasn't
-        overridden, otherwise ``None``.
+    ) -> tuple[Any, Any]:
+        """Return ``(redirect_handler, mismatch_event)`` when the per-turn
+        intent demands a handler the agent class hasn't overridden, or
+        ``(None, None)`` otherwise.
 
-        Triggers PatternMismatch event emission as a side effect when a
-        mismatch is detected. Kept as an instance method so subclasses
-        that DO override ``_handle_plan`` / ``_handle_research`` (i.e.
-        ``PlanExecuteAgent``, ``ResearchAgent``) get the unmodified
-        dispatch path — ``_handler_is_default`` returns ``False`` for
-        them.
+        The mismatch event is constructed via ``emitter.emit`` so it gets
+        a real sequence number + session/run id + collector push (for
+        ``collect_events()`` consumers), BUT the actual yielding to the
+        stream is the caller's responsibility — ``_dispatch_streaming``
+        yields ``mismatch_event`` before invoking the redirect so the
+        event reaches SSE / OTel / live-test consumers, not just
+        in-process collectors.
 
-        Returns ``None`` when:
+        Kept as an instance method so subclasses that DO override
+        ``_handle_plan`` / ``_handle_research`` (i.e. ``PlanExecuteAgent``,
+        ``ResearchAgent``) get the unmodified dispatch path —
+        ``_handler_is_default`` returns ``False`` for them and the
+        function returns ``(None, None)``.
+
+        Returns ``(None, None)`` when:
         * the intent is satisfied by an overridden handler, OR
         * the intent is not in {PLAN, RESEARCH} (other intents have
           ``BaseAgent``-level handlers that do not silently degrade —
@@ -662,7 +679,7 @@ class BaseAgent(KaosAgent):
             recommended = "research"
             classified = "research"
         else:
-            return None
+            return None, None
 
         agent_pattern = type(self).metadata().pattern
         rationale = (
@@ -675,7 +692,7 @@ class BaseAgent(KaosAgent):
             f"with pattern='{recommended}' for the full PlanExecuteAgent / "
             "ResearchAgent surface."
         )
-        emitter.emit(
+        mismatch_event = emitter.emit(
             PatternMismatch,
             classified_intent=classified,
             agent_pattern=agent_pattern,
@@ -683,7 +700,7 @@ class BaseAgent(KaosAgent):
             fallback_handler="_handle_tool_use",
             rationale=rationale,
         )
-        return self._handle_tool_use
+        return self._handle_tool_use, mismatch_event
 
     def _handler_is_default(self, name: str) -> bool:
         """True when ``type(self).<name>`` is the unmodified

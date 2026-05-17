@@ -25,7 +25,6 @@ from kaos_agents.events import (
     EventEmitter,
     PatternMismatch,
 )
-from kaos_agents.events.collector import collect_events
 from kaos_agents.runtime.agent import BaseAgent
 from kaos_agents.types import IntentResult, IntentType, InvocationUsage, ToolExecution
 from kaos_agents.types.memory import MemoryItem, MemoryType
@@ -151,78 +150,69 @@ class TestHandlerIsDefault:
 class TestDetectPatternMismatch:
     def test_plan_intent_on_chat_agent_emits_mismatch_and_redirects(self) -> None:
         agent = _StubChatAgent()
-        with collect_events() as collector:
-            redirect = agent._detect_pattern_mismatch(_intent(IntentType.PLAN), _emitter())
+        redirect, mismatch = agent._detect_pattern_mismatch(_intent(IntentType.PLAN), _emitter())
 
         # Bound methods don't preserve identity across attribute reads;
         # compare the underlying function instead.
         assert redirect.__func__ is type(agent)._handle_tool_use
-        mismatch_events = [e for e in collector.events if isinstance(e, PatternMismatch)]
-        assert len(mismatch_events) == 1
-        ev = mismatch_events[0]
-        assert ev.classified_intent == "plan"
-        assert ev.agent_pattern == "chat"
-        assert ev.recommended_pattern == "plan"
-        assert ev.fallback_handler == "_handle_tool_use"
-        assert "silently degraded to _handle_respond" in ev.rationale
+        assert isinstance(mismatch, PatternMismatch)
+        assert mismatch.classified_intent == "plan"
+        assert mismatch.agent_pattern == "chat"
+        assert mismatch.recommended_pattern == "plan"
+        assert mismatch.fallback_handler == "_handle_tool_use"
+        assert "silently degraded to _handle_respond" in mismatch.rationale
 
     def test_research_intent_on_chat_agent_emits_mismatch_and_redirects(self) -> None:
         agent = _StubChatAgent()
-        with collect_events() as collector:
-            redirect = agent._detect_pattern_mismatch(_intent(IntentType.RESEARCH), _emitter())
+        redirect, mismatch = agent._detect_pattern_mismatch(
+            _intent(IntentType.RESEARCH), _emitter()
+        )
 
-        # Bound methods don't preserve identity across attribute reads;
-        # compare the underlying function instead.
         assert redirect.__func__ is type(agent)._handle_tool_use
-        mismatch_events = [e for e in collector.events if isinstance(e, PatternMismatch)]
-        assert len(mismatch_events) == 1
-        assert mismatch_events[0].classified_intent == "research"
-        assert mismatch_events[0].recommended_pattern == "research"
+        assert isinstance(mismatch, PatternMismatch)
+        assert mismatch.classified_intent == "research"
+        assert mismatch.recommended_pattern == "research"
 
     def test_plan_intent_on_plan_agent_no_mismatch(self) -> None:
         # _StubPlanAgent overrides _handle_plan → no fall-through → no
         # PatternMismatch event, redirect returns None.
         agent = _StubPlanAgent()
-        with collect_events() as collector:
-            redirect = agent._detect_pattern_mismatch(_intent(IntentType.PLAN), _emitter())
+        redirect, mismatch = agent._detect_pattern_mismatch(_intent(IntentType.PLAN), _emitter())
 
         assert redirect is None
-        mismatch_events = [e for e in collector.events if isinstance(e, PatternMismatch)]
-        assert mismatch_events == []
+        assert mismatch is None
 
     def test_research_intent_on_plan_agent_emits_mismatch(self) -> None:
         # _StubPlanAgent only overrides _handle_plan; _handle_research is
         # still the default → research intent should redirect.
         agent = _StubPlanAgent()
-        with collect_events() as collector:
-            redirect = agent._detect_pattern_mismatch(_intent(IntentType.RESEARCH), _emitter())
+        redirect, mismatch = agent._detect_pattern_mismatch(
+            _intent(IntentType.RESEARCH), _emitter()
+        )
 
-        # Bound methods don't preserve identity across attribute reads;
-        # compare the underlying function instead.
         assert redirect.__func__ is type(agent)._handle_tool_use
-        mismatch_events = [e for e in collector.events if isinstance(e, PatternMismatch)]
-        assert len(mismatch_events) == 1
-        assert mismatch_events[0].agent_pattern == "plan"
+        assert isinstance(mismatch, PatternMismatch)
+        assert mismatch.agent_pattern == "plan"
 
     def test_respond_intent_no_mismatch(self) -> None:
         # IntentType.RESPOND has a real BaseAgent handler — no silent
         # degradation, no mismatch.
         agent = _StubChatAgent()
-        with collect_events() as collector:
-            redirect = agent._detect_pattern_mismatch(_intent(IntentType.RESPOND), _emitter())
+        redirect, mismatch = agent._detect_pattern_mismatch(_intent(IntentType.RESPOND), _emitter())
 
         assert redirect is None
-        assert [e for e in collector.events if isinstance(e, PatternMismatch)] == []
+        assert mismatch is None
 
     def test_tool_use_intent_no_mismatch(self) -> None:
         # IntentType.TOOL_USE always has a path — even BaseAgent's
         # default goes through ReAct via _handle_tool_use.
         agent = _StubChatAgent()
-        with collect_events() as collector:
-            redirect = agent._detect_pattern_mismatch(_intent(IntentType.TOOL_USE), _emitter())
+        redirect, mismatch = agent._detect_pattern_mismatch(
+            _intent(IntentType.TOOL_USE), _emitter()
+        )
 
         assert redirect is None
-        assert [e for e in collector.events if isinstance(e, PatternMismatch)] == []
+        assert mismatch is None
 
 
 # ---------------------------------------------------------------------------
@@ -237,41 +227,42 @@ class TestDispatchStreamingRedirect:
         agent = _StubChatAgent()
         emitter = _emitter()
         events = []
-        with collect_events() as collector:
-            async for ev in agent._dispatch_streaming(
-                _intent(IntentType.PLAN),
-                message="search the federal register for ...",
-                memory=None,  # ty: ignore[invalid-argument-type] — handler stubs ignore it
-                context_items={},
-                emitter=emitter,
-            ):
-                events.append(ev)
+        async for ev in agent._dispatch_streaming(
+            _intent(IntentType.PLAN),
+            message="search the federal register for ...",
+            memory=None,  # ty: ignore[invalid-argument-type] — handler stubs ignore it
+            context_items={},
+            emitter=emitter,
+        ):
+            events.append(ev)
 
         # Redirect fired _handle_tool_use exactly once. _handle_respond
         # was NOT called (that's the pre-0.1.0a10 silent-degradation
         # path we're guarding against).
         assert agent._tool_use_call_count == 1
         assert agent._respond_call_count == 0
-        # PatternMismatch event made it into the stream.
-        mismatch_events = [e for e in collector.events if isinstance(e, PatternMismatch)]
+        # PatternMismatch event made it into the YIELDED stream — not
+        # just an in-process collector. This is the bug 0.1.0a11 fixes:
+        # 0.1.0a10 emitted the event via emitter.emit but never yielded
+        # it, so production SSE/OTel consumers never saw it.
+        mismatch_events = [e for e in events if isinstance(e, PatternMismatch)]
         assert len(mismatch_events) == 1
 
     @pytest.mark.asyncio
     async def test_plan_intent_on_plan_agent_dispatches_to_plan_handler(self) -> None:
         agent = _StubPlanAgent()
         events = []
-        with collect_events() as collector:
-            async for ev in agent._dispatch_streaming(
-                _intent(IntentType.PLAN),
-                message="any",
-                memory=None,  # ty: ignore[invalid-argument-type]
-                context_items={},
-                emitter=_emitter(),
-            ):
-                events.append(ev)
+        async for ev in agent._dispatch_streaming(
+            _intent(IntentType.PLAN),
+            message="any",
+            memory=None,  # ty: ignore[invalid-argument-type]
+            context_items={},
+            emitter=_emitter(),
+        ):
+            events.append(ev)
 
         # _StubPlanAgent overrides _handle_plan → that's what runs.
         # _handle_tool_use is NOT called and no PatternMismatch fires.
         assert agent._plan_call_count == 1
         assert agent._tool_use_call_count == 0
-        assert [e for e in collector.events if isinstance(e, PatternMismatch)] == []
+        assert [e for e in events if isinstance(e, PatternMismatch)] == []

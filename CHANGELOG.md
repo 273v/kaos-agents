@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — ``PatternMismatch`` event now reaches the yielded stream, not just in-process collectors
+
+The 0.1.0a10 release shipped the dispatch redirect correctly (PLAN /
+RESEARCH intent on ``ChatAgent`` redirected through ``_handle_tool_use``
+so real tool calls fired), but the ``PatternMismatch`` typed event was
+invisible to anyone outside the agent process. Root cause:
+``BaseAgent._detect_pattern_mismatch`` called
+``emitter.emit(PatternMismatch, ...)`` and discarded the return value.
+``EventEmitter.emit`` instantiates the event and *only* pushes it to an
+active ``collect_events()`` collector — it does not yield it from the
+``_dispatch_streaming`` async generator. Unit tests opened a collector
+so they passed; production SSE / OTel / live-test consumers iterate the
+generator output and never saw the event. Net: the dispatcher worked
+but its diagnostic was silent.
+
+Fix:
+
+* ``BaseAgent._detect_pattern_mismatch`` now returns
+  ``(redirect_handler, mismatch_event)`` instead of just the handler.
+* ``BaseAgent._dispatch_streaming`` yields the ``mismatch_event``
+  before invoking the redirect handler, so the event flows through
+  the same ``async for`` loop as every other ``KaosEvent``.
+
+Live regression coverage (``@pytest.mark.live``,
+``ANTHROPIC_API_KEY`` required):
+
+* ``tests/integration/test_plan_intent_dispatches_with_tools.py`` —
+  both tests now PASS on Sonnet. Pre-0.1.0a10 ChatAgent + the
+  v2-matrix Test 7 prompt: ``intent=plan/0.97``, ``tools=0``,
+  fabricated answer. Post-0.1.0a11: ``intent=plan/0.95``,
+  ``PatternMismatch=1``, ``tools=2``, real Federal Register
+  document number cited (Regulation S-P), per-turn cost $0.11
+  vs. pre-fix ~$0.005.
+* New ``tests/integration/test_dispatch_extended.py`` — 3 additional
+  live tests proving (a) Haiku 4.5 dispatches identically (model-
+  agnostic), (b) trivial ``RESPOND``-intent prompts do NOT fire
+  ``PatternMismatch`` (gate is selective), and (c) follow-up turns
+  in the same session still dispatch correctly (no state leak).
+
+Also relaxed ``test_plan_pattern_plan_intent_runs_plan_execute_with_tools``
+which asserted ``Span(JUDGE, COMPLETE) >= 1`` — ``Span(JUDGE)`` is
+conditional (fires only when the planner needs semantic re-eval on
+a step that returned ``matched=False``); a clean-execution plan
+against Sonnet + Federal Register tools never triggers it. The test
+now documents the conditional behaviour rather than asserting
+something model-specific.
+
+L8 regression net: full
+``tests/integration/test_planning_live.py`` + 
+``tests/integration/test_router_live.py`` (20 live tests covering
+Wishes #2 / #4 / #5 / #7 / #8 from 0.1.0a8/a9) re-run and pass — the
+dispatcher rewire didn't break the planning loop, judge spans, route
+events, conditional steps, or LLM-based synthesis.
+
 
 ## [0.1.0a10] — 2026-05-17
 
