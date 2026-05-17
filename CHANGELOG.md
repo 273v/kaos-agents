@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — no-evidence refusal gate (P0 hallucination defence)
+
+The chat pattern now refuses to ship an LLM-drafted final answer when
+**every** tool call attempted in the turn returned ``is_error=True``
+AND the user explicitly referenced files (via attached documents,
+filename tokens in the message text, OR filename tokens in the
+agent's own tool-call arguments). Instead the agent emits a
+structured "I tried to read these files, every tool call failed,
+I will NOT fabricate an answer" message and a
+``GroundingRefusalTriggered`` event.
+
+Stage 0.2 of ``kaos-modules/docs/plans/vfs-blind-tools-audit-and-fix-plan.md``.
+Belt-and-suspenders guarantee against a production incident already
+seen in the wild (session ``01KRVYAEA3B1HG95DBAG6H0DJ3``): 5 NDA
+.docx uploads, every ``kaos-office-parse-docx`` returned
+"File not found" because the tools are VFS-blind, and the agent
+fabricated a Delaware-vs-Michigan jurisdiction analysis citing
+files it never read. Violates the 273V kaos-* legal-research bar
+where "confidently wrong" ranks as the WORST failure class.
+
+New API surface:
+
+- ``kaos_agents.grounding.no_evidence_gate`` module
+- ``evaluate_no_evidence_gate(observations, user_message, attached_documents) → NoEvidenceVerdict``
+- ``render_refusal_text(verdict)`` — composes the chat-friendly refusal message
+- ``ToolObservationSummary`` — pattern-independent projection of a tool call's outcome
+- ``NoEvidenceVerdict`` — frozen value type carrying the gate's decision + payload
+- ``extract_referenced_files(message)`` — extracts filename-shaped tokens for the gate (or external callers)
+
+Wired into ``kaos_agents.patterns.chat.ChatAgent`` between the
+trajectory's tool-call emission and the final ``TextDelta``. When
+the gate refuses, the LLM's drafted answer is replaced with the
+honest refusal text and the structured event fires for downstream
+consumers (the SPA's ``ToolCallBlock``, OTel hooks, plan-execute
+replan logic).
+
 
 ## [0.1.0a12] — 2026-05-17
 

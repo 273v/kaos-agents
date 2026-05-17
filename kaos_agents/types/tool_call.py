@@ -50,6 +50,15 @@ class ToolExecution:
     result_summary: str = ""
     is_error: bool = False
 
+    structured_content: dict[str, Any] | None = None
+    """Full ``ToolResult.structuredContent`` dict from the underlying
+    :class:`KaosTool` execution. Carries ``artifact_id`` / ``body_uri``
+    / ``source_uri`` / ``size`` / ``mime_type`` for artifact-emitting
+    tools (Stage C of the no-hardcoded-caps-and-artifact-first-tool-
+    results plan). The SPA's ArtifactCard renders the file inline when
+    this is populated. ``None`` for tools that don't ship structured
+    output or for non-LLM-bridged executions."""
+
     # Timing — set by the agent loop when the tool returns.
     started_at: float | None = None  # time.monotonic() at start
     ended_at: float | None = None  # time.monotonic() at end
@@ -89,6 +98,7 @@ class ToolExecution:
         plan_id: str | None = None,
         step_id: str | None = None,
         metadata: dict[str, Any] | None = None,
+        structured_content: dict[str, Any] | None = None,
     ) -> ToolExecution:
         """Create from a mutable dict (convenience for callers).
 
@@ -109,6 +119,7 @@ class ToolExecution:
             plan_id=plan_id,
             step_id=step_id,
             metadata=metadata or {},
+            structured_content=structured_content,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -131,6 +142,9 @@ class ToolExecution:
             "plan_id": self.plan_id,
             "step_id": self.step_id,
             "metadata": dict(self.metadata),
+            "structured_content": (
+                dict(self.structured_content) if self.structured_content else None
+            ),
         }
 
     def to_summary(self) -> ToolCallSummary:
@@ -184,6 +198,7 @@ class ToolExecution:
         input_tokens: int = 0,
         output_tokens: int = 0,
         ended_at: float | None = None,
+        structured_content: dict[str, Any] | None = None,
     ) -> ToolExecution:
         """Return a new execution with completion fields filled in.
 
@@ -211,6 +226,7 @@ class ToolExecution:
             plan_id=self.plan_id,
             step_id=self.step_id,
             metadata=dict(self.metadata),
+            structured_content=structured_content,
         )
 
 

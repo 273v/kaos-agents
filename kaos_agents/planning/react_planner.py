@@ -232,6 +232,7 @@ class ReActPlanner:
         Read from `tool_results` (NOT `observations` — that field
         does not exist on Iteration).
         """
+        from kaos_agents.patterns.chat import _extract_structured_content
         from kaos_agents.types.tool_call import ToolExecution
 
         result = getattr(invocation, "output", None) or invocation
@@ -252,6 +253,7 @@ class ReActPlanner:
                         arguments=args_tuple,
                         result_summary=(str(obs_result)[:200]) if obs_result else "",
                         is_error=bool(getattr(obs, "is_error", False)),
+                        structured_content=_extract_structured_content(obs_result),
                     )
                 )
         return tuple(execs)

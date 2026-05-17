@@ -20,6 +20,7 @@ from kaos_agents._constants import FALLBACK_RECENT_MESSAGES
 from kaos_agents.actions.tool_bridge import bridge_runtime_tools
 from kaos_agents.events import (
     EventEmitter,
+    GroundingRefusalTriggered,
     KaosEvent,
     Span,
     SpanPhase,
@@ -27,6 +28,11 @@ from kaos_agents.events import (
     TextDelta,
     UsageObserved,
     emit_usage_observed,
+)
+from kaos_agents.grounding.no_evidence_gate import (
+    ToolObservationSummary,
+    evaluate_no_evidence_gate,
+    render_refusal_text,
 )
 from kaos_agents.patterns._tool_schema import (
     drop_tool_at_index,
@@ -83,6 +89,77 @@ if TYPE_CHECKING:
     from kaos_agents.types.providers import ProviderConfig
 
 logger = get_logger(__name__)
+
+
+def _collect_attached_document_names(memory: SessionMemory) -> tuple[str, ...]:
+    """Names of documents attached to the session for the no-evidence gate.
+
+    Pulls from :attr:`MemoryType.DOCUMENTS` items' metadata: each
+    item carries ``manifest`` info (name, body_uri, mime_type) injected
+    by ``runtime.artifact_hydration``. We extract any string-typed
+    ``name`` / ``filename`` field — the gate uses these to decide
+    whether the user's question was specifically about files (and
+    therefore a "zero evidence" outcome should refuse with a clear
+    error rather than fabricate an answer).
+
+    Returns the empty tuple when DOCUMENTS section is absent, empty,
+    or carries no name-bearing metadata.
+    """
+    if not memory.has_section(MemoryType.DOCUMENTS):
+        return ()
+    names: list[str] = []
+    seen: set[str] = set()
+    for item in memory.get(MemoryType.DOCUMENTS):
+        meta = item.metadata or {}
+        for key in ("name", "filename", "title"):
+            value = meta.get(key)
+            if isinstance(value, str) and value and value.lower() not in seen:
+                seen.add(value.lower())
+                names.append(value)
+    return tuple(names)
+
+
+def _extract_structured_content(result: Any) -> dict[str, Any] | None:
+    """Recover the tool's ``structured_content`` dict from the
+    tool-bridge's combined string return value.
+
+    ``actions.tool_bridge`` returns ``f"{text}\n\n{json.dumps(structured)}"``
+    so the ReAct LLM sees both the human-readable text AND the
+    structured payload. The emitter needs the dict back so the wire
+    can carry it (the SPA's ArtifactCard reads
+    ``call.structured_content.artifact_id``). Returns ``None`` when
+    the result doesn't carry a structured dict.
+    """
+    if result is None:
+        return None
+    if isinstance(result, dict):
+        if result.get("error") is True:
+            return None
+        return result
+    if not isinstance(result, str) or not result:
+        return None
+    import json as _json
+
+    stripped = result.strip()
+    if stripped.startswith("{") and stripped.endswith("}"):
+        try:
+            parsed = _json.loads(stripped)
+            if isinstance(parsed, dict) and parsed.get("error") is not True:
+                return parsed
+        except _json.JSONDecodeError:
+            pass
+    sep = "\n\n"
+    idx = result.rfind(sep + "{")
+    if idx != -1:
+        candidate = result[idx + len(sep) :].strip()
+        if candidate.endswith("}"):
+            try:
+                parsed = _json.loads(candidate)
+                if isinstance(parsed, dict) and parsed.get("error") is not True:
+                    return parsed
+            except _json.JSONDecodeError:
+                pass
+    return None
 
 
 class ToolTaskSignature(Signature):
@@ -348,6 +425,7 @@ class ChatAgent(BaseAgent):
                     result_preview = str(obs.result)[:200] if obs.result else ""
                     call_id = obs.tool_call_id or obs.tool_name
                     args_tuple = tuple(sorted(obs.arguments.items())) if obs.arguments else ()
+                    structured_content = _extract_structured_content(obs.result)
                     logger.debug(
                         "chat_agent.tool_call: tool=%s, is_error=%s, result_preview=%r",
                         obs.tool_name,
@@ -364,23 +442,66 @@ class ChatAgent(BaseAgent):
                         },
                     )
                     yield tc_span
+                    complete_attrs: dict[str, Any] = {
+                        "tool_name": obs.tool_name,
+                        "call_id": call_id,
+                        "result_summary": result_preview,
+                        "is_error": obs.is_error,
+                    }
+                    if isinstance(structured_content, dict) and structured_content:
+                        complete_attrs["structured_content"] = structured_content
                     yield emitter.span_complete(
                         SpanSubject.TOOL_CALL,
                         span_id=tc_span.span_id,
                         name=f"tool.{obs.tool_name}",
                         duration_ms=0.0,  # Per-tool timing not available from trajectory
-                        attributes={
-                            "tool_name": obs.tool_name,
-                            "call_id": call_id,
-                            "result_summary": result_preview,
-                            "is_error": obs.is_error,
-                        },
+                        attributes=complete_attrs,
                     )
+
+            # Refuse to ship a fabricated final answer when every
+            # tool call this turn returned an error AND the user
+            # referenced files. See no_evidence_gate for the
+            # production trigger (NDA hallucination incident,
+            # session 01KRVYAEA3B1HG95DBAG6H0DJ3). Critical for
+            # kaos-* legal-research bar — "confidently wrong" is the
+            # worst class of failure; we'd rather refuse loudly than
+            # synthesize a plausible-sounding answer the LLM has zero
+            # evidence for.
+            obs_summaries = [
+                ToolObservationSummary(
+                    tool_name=str(getattr(obs, "tool_name", "") or ""),
+                    is_error=bool(getattr(obs, "is_error", False)),
+                    result_preview=(str(obs.result)[:300] if obs.result else ""),
+                    arguments_preview=(str(getattr(obs, "arguments", "") or "")[:300]),
+                )
+                for iteration in result.trajectory
+                for obs in iteration.tool_results
+            ]
+            attached_docs = _collect_attached_document_names(memory)
+            no_evidence = evaluate_no_evidence_gate(
+                observations=obs_summaries,
+                user_message=message,
+                attached_documents=attached_docs,
+            )
 
             # Emit the final response
             response_text = str(result.answer) if result.outputs and result.answer else ""
             if not response_text and result.trajectory:
                 response_text = result.trajectory[-1].text
+
+            if no_evidence.refuse:
+                logger.warning(
+                    "chat_agent.no_evidence_refusal: tools=%d files=%d",
+                    no_evidence.failed_tool_count,
+                    len(no_evidence.referenced_files),
+                )
+                yield emitter.emit(
+                    GroundingRefusalTriggered,
+                    original_confidence=0.0,
+                    min_confidence=0.0,
+                    reason=no_evidence.reason,
+                )
+                response_text = render_refusal_text(no_evidence)
 
             if response_text:
                 yield emitter.emit(TextDelta, content=response_text)

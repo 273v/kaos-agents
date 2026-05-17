@@ -946,6 +946,7 @@ class AgentLoop(Program):
             arguments = getattr(execution, "arguments", ()) or ()
             is_error = bool(getattr(execution, "is_error", False))
             result_summary = str(getattr(execution, "result_summary", "") or "")
+            structured_content = getattr(execution, "structured_content", None)
 
             tc_span = emitter.span_start(
                 SpanSubject.TOOL_CALL,
@@ -956,16 +957,19 @@ class AgentLoop(Program):
                     "arguments": tuple(arguments),
                 },
             )
+            complete_attrs: dict[str, Any] = {
+                "tool_name": tool_name,
+                "call_id": call_id,
+                "result_summary": result_summary,
+                "is_error": is_error,
+            }
+            if isinstance(structured_content, dict) and structured_content:
+                complete_attrs["structured_content"] = structured_content
             emitter.span_complete(
                 SpanSubject.TOOL_CALL,
                 span_id=tc_span.span_id,
                 name=f"tool.{tool_name}",
-                attributes={
-                    "tool_name": tool_name,
-                    "call_id": call_id,
-                    "result_summary": result_summary,
-                    "is_error": is_error,
-                },
+                attributes=complete_attrs,
             )
 
     def _select_planner_for_intent(self, intent: IntentResult) -> Any | None:
