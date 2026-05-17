@@ -85,6 +85,49 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _extract_structured_content(result: Any) -> dict[str, Any] | None:
+    """Recover the tool's ``structured_content`` dict from the
+    tool-bridge's combined string return value.
+
+    ``actions.tool_bridge`` returns ``f"{text}\n\n{json.dumps(structured)}"``
+    so the ReAct LLM sees both the human-readable text AND the
+    structured payload. The emitter needs the dict back so the wire
+    can carry it (the SPA's ArtifactCard reads
+    ``call.structured_content.artifact_id``). Returns ``None`` when
+    the result doesn't carry a structured dict.
+    """
+    if result is None:
+        return None
+    if isinstance(result, dict):
+        if result.get("error") is True:
+            return None
+        return result
+    if not isinstance(result, str) or not result:
+        return None
+    import json as _json
+
+    stripped = result.strip()
+    if stripped.startswith("{") and stripped.endswith("}"):
+        try:
+            parsed = _json.loads(stripped)
+            if isinstance(parsed, dict) and parsed.get("error") is not True:
+                return parsed
+        except _json.JSONDecodeError:
+            pass
+    sep = "\n\n"
+    idx = result.rfind(sep + "{")
+    if idx != -1:
+        candidate = result[idx + len(sep) :].strip()
+        if candidate.endswith("}"):
+            try:
+                parsed = _json.loads(candidate)
+                if isinstance(parsed, dict) and parsed.get("error") is not True:
+                    return parsed
+            except _json.JSONDecodeError:
+                pass
+    return None
+
+
 class ToolTaskSignature(Signature):
     """Complete the user's request using the available tools.
 
@@ -348,6 +391,7 @@ class ChatAgent(BaseAgent):
                     result_preview = str(obs.result)[:200] if obs.result else ""
                     call_id = obs.tool_call_id or obs.tool_name
                     args_tuple = tuple(sorted(obs.arguments.items())) if obs.arguments else ()
+                    structured_content = _extract_structured_content(obs.result)
                     logger.debug(
                         "chat_agent.tool_call: tool=%s, is_error=%s, result_preview=%r",
                         obs.tool_name,
@@ -364,17 +408,20 @@ class ChatAgent(BaseAgent):
                         },
                     )
                     yield tc_span
+                    complete_attrs: dict[str, Any] = {
+                        "tool_name": obs.tool_name,
+                        "call_id": call_id,
+                        "result_summary": result_preview,
+                        "is_error": obs.is_error,
+                    }
+                    if isinstance(structured_content, dict) and structured_content:
+                        complete_attrs["structured_content"] = structured_content
                     yield emitter.span_complete(
                         SpanSubject.TOOL_CALL,
                         span_id=tc_span.span_id,
                         name=f"tool.{obs.tool_name}",
                         duration_ms=0.0,  # Per-tool timing not available from trajectory
-                        attributes={
-                            "tool_name": obs.tool_name,
-                            "call_id": call_id,
-                            "result_summary": result_preview,
-                            "is_error": obs.is_error,
-                        },
+                        attributes=complete_attrs,
                     )
 
             # Emit the final response
