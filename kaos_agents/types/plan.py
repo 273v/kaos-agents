@@ -43,6 +43,20 @@ class Step:
 
     Immutable after creation. Status updates happen on the PlanGraph
     node properties, not by mutating Step instances.
+
+    Conditional execution (0.1.0a9):
+        ``abort_if`` and ``pivot_to`` together implement R1-REAL Test 3's
+        "if any step reveals the rule was vacated or stayed, abandon
+        the remaining steps and pivot to the litigation status" prompt
+        shape. The Compose loop evaluates ``abort_if`` against prior
+        step outputs (via a small LLM judge — see
+        :class:`~kaos_agents.planning.evaluate_condition.EvaluateConditionSignature`)
+        before running the step; if the condition holds, the step is
+        marked ``SKIPPED`` and its dependents are skipped too.
+        ``pivot_to`` carries an optional follow-up goal so the strategy
+        layer can re-expand on the new objective rather than just
+        bailing. Both default to empty strings (no conditional
+        behavior, preserves pre-0.1.0a9 semantics).
     """
 
     id: str
@@ -53,6 +67,8 @@ class Step:
     expected_output: str = ""
     depends_on: tuple[str, ...] = ()  # Step IDs this depends on
     estimated_latency_ms: int = 0
+    abort_if: str = ""  # natural-language predicate over prior outputs
+    pivot_to: str = ""  # optional follow-up goal if abort_if fires
 
 
 # ---------------------------------------------------------------------------
@@ -129,6 +145,8 @@ class StopReason(StrEnum):
     FAILURE = "failure"
     NEEDS_REPLAN = "needs_replan"  # Route decided REPLAN — strategy should re-expand
     ESCALATED = "escalated"
+    # An abort_if fired with a pivot_to goal — strategy should re-expand on the new goal
+    PIVOTED = "pivoted"
 
 
 @dataclass(slots=True)
