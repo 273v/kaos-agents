@@ -7,6 +7,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — PLAN/RESEARCH intent dispatch no longer silently degrades to ``_handle_respond``
+
+``ChatAgent`` (the default agent for sessions opened with
+``pattern="chat"`` — the FastAPI ``MessageRequest.pattern`` default)
+silently degraded to ``BaseAgent._handle_respond`` when the per-turn
+``IntentExtractor`` returned ``IntentType.PLAN`` or
+``IntentType.RESEARCH``. The handler was a one-line "override in
+PlanExecuteAgent" placeholder that dispatched a plain
+``Call(RespondSignature)`` — no tool catalog, no plan graph, no
+``compose()``. The agent answered confidently from training data;
+``AgenticLoop``'s ``GoalChecker`` correctly diagnosed *"agent
+asserted facts without using available web tools"* and then the
+turn ended anyway. SPA × kaos-agents R1-REAL v2-matrix Tests 3 + 7
+hit this on every Sonnet PLAN-intent run (``intent=plan/0.97``,
+``tools=0``, ``judge_spans=0``, 56 ``citation_found`` events parsed
+from training-data text).
+
+This release closes the dispatch hole at the source. ``BaseAgent``
+now ships:
+
+* A new :meth:`BaseAgent._detect_pattern_mismatch` instance method
+  called from :meth:`BaseAgent._dispatch_streaming` before the
+  fall-through can fire. When the per-turn intent demands
+  ``_handle_plan`` / ``_handle_research`` AND the running agent
+  class hasn't overridden the BaseAgent default, the dispatcher
+  emits a typed :class:`~kaos_agents.events.lifecycle.PatternMismatch`
+  event and redirects to ``_handle_tool_use`` so at least ReAct
+  fires.
+* A new :meth:`BaseAgent._handler_is_default` helper that walks
+  ``type(self).__mro__`` to decide whether a handler is the
+  unmodified ``BaseAgent`` implementation or a subclass override.
+* A new typed event
+  :class:`kaos_agents.events.lifecycle.PatternMismatch` with fields
+  ``{classified_intent, agent_pattern, recommended_pattern,
+  fallback_handler, rationale}``. Registered in
+  :data:`kaos_agents.events.ALL_EVENT_TYPES` + the snake_case
+  type-name registry; SSE and OTel consumers can pattern-match on
+  it. Recommended use: a future ``pattern="auto"`` wrapper would
+  consume this event to switch agents mid-run.
+* A new :attr:`KaosAgentSettings.debug_prompts` field (env var
+  ``KAOS_AGENT_DEBUG_PROMPTS`` per the Configuration Hierarchy in
+  ``kaos-modules/CLAUDE.md`` — *not* an ``os.environ`` read at
+  call sites). Diagnostic surface for the next time the dispatch
+  layer regresses; full Span-attribute coverage lands in a
+  follow-up release.
+
+Tests:
+
+* ``tests/unit/test_pattern_mismatch.py`` — 11 unit tests with
+  stub agents that exercise every branch of the new dispatcher
+  without a live LLM call.
+* ``tests/integration/test_plan_intent_dispatches_with_tools.py``
+  — 2 live regression tests (``@pytest.mark.live``). The
+  bug-guard test boots a ``ChatAgent`` with real Federal Register
+  tools, issues the v2-matrix Test 7 prompt against Sonnet, and
+  asserts (a) exactly one ``PatternMismatch`` event fires + (b)
+  the redirect actually engages at least one tool. The
+  happy-path counter-test instantiates a ``PlanExecuteAgent``
+  and asserts ``PlanProposed`` + ``Span(TOOL_CALL)`` +
+  ``Span(JUDGE)`` all fire.
+* 2531 existing unit tests still pass.
+
+Behaviour unchanged for callers that already opened sessions with
+``pattern="plan"`` / ``pattern="research"`` — those agents override
+the handler and the new detector returns ``None`` for them.
+
+See ``kaos-modules/docs/plans/kaos-agents-autonomy-improvement-1.md``
+for the full diagnosis + fix design, and
+``kaos-modules/docs/plans/kaos-agents-autonomy-roadmap.md`` (the
+parent roadmap) for how this fits the broader autonomy work.
+
 
 ## [0.1.0a9] — 2026-05-17
 

@@ -39,6 +39,7 @@ from kaos_agents.events import (
     KaosEvent,
     MemoryEvent,
     MemoryEventKind,
+    PatternMismatch,
     RunError,
     Span,
     SpanPhase,
@@ -587,7 +588,37 @@ class BaseAgent(KaosAgent):
 
         Default implementation falls back to _dispatch() and yields
         the result as a single TextDelta.
+
+        Pattern-mismatch detection (0.1.0a10): when the per-turn intent
+        demands ``_handle_plan`` or ``_handle_research`` but the
+        running agent class hasn't overridden the base implementation
+        (which silently degrades to ``_handle_respond``), emit a typed
+        ``PatternMismatch`` event and redirect to ``_handle_tool_use``
+        so at least ReAct fires instead of returning a confident
+        training-data answer with zero tool calls. The most common
+        trigger: a session opened with ``pattern="chat"`` (the API
+        default) whose per-turn message classifies as ``PLAN`` or
+        ``RESEARCH``. See ``kaos-modules/docs/plans/
+        kaos-agents-autonomy-improvement-1.md`` for the diagnosis.
         """
+        # Pattern-mismatch redirect — before the silent-fall-through bug
+        # can fire.
+        redirect_handler = self._detect_pattern_mismatch(intent, emitter)
+        if redirect_handler is not None:
+            dispatched_redirect = await redirect_handler(message, memory, context_items)
+            if len(dispatched_redirect) == 3:
+                response_text, tool_calls, usage = dispatched_redirect
+            else:  # pragma: no cover — defensive for pre-Phase-5.0 mocks
+                response_text, tool_calls = dispatched_redirect
+                usage = ZERO_USAGE
+            # Surface the redirected handler's tool calls + text via the
+            # same shape the default path uses below.
+            async for ev in self._yield_dispatched_events(
+                response_text, tool_calls, usage, emitter
+            ):
+                yield ev
+            return
+
         # Default: use the non-streaming handlers and wrap the result.
         # Pre-Phase-5.0 callers (and test mocks) may return a 2-tuple
         # without usage — accept both shapes so we don't force every
@@ -596,9 +627,96 @@ class BaseAgent(KaosAgent):
         if len(dispatched) == 3:
             response_text, tool_calls, usage = dispatched
         else:
-            response_text, tool_calls = dispatched  # type: ignore[misc]
+            response_text, tool_calls = dispatched
             usage = ZERO_USAGE
 
+        async for ev in self._yield_dispatched_events(response_text, tool_calls, usage, emitter):
+            yield ev
+
+    def _detect_pattern_mismatch(
+        self,
+        intent: IntentResult,
+        emitter: EventEmitter,
+    ) -> Any:
+        """Return the redirect handler (e.g., ``self._handle_tool_use``)
+        if the per-turn intent demands a handler the agent class hasn't
+        overridden, otherwise ``None``.
+
+        Triggers PatternMismatch event emission as a side effect when a
+        mismatch is detected. Kept as an instance method so subclasses
+        that DO override ``_handle_plan`` / ``_handle_research`` (i.e.
+        ``PlanExecuteAgent``, ``ResearchAgent``) get the unmodified
+        dispatch path — ``_handler_is_default`` returns ``False`` for
+        them.
+
+        Returns ``None`` when:
+        * the intent is satisfied by an overridden handler, OR
+        * the intent is not in {PLAN, RESEARCH} (other intents have
+          ``BaseAgent``-level handlers that do not silently degrade —
+          RESPOND, CLARIFY, TOOL_USE).
+        """
+        if intent.intent == IntentType.PLAN and self._handler_is_default("_handle_plan"):
+            recommended = "plan"
+            classified = "plan"
+        elif intent.intent == IntentType.RESEARCH and self._handler_is_default("_handle_research"):
+            recommended = "research"
+            classified = "research"
+        else:
+            return None
+
+        agent_pattern = type(self).metadata().pattern
+        rationale = (
+            f"Per-turn intent classified as '{classified}' but agent class "
+            f"{type(self).__name__} (pattern={agent_pattern!r}) does not "
+            f"override _handle_{classified}. Pre-0.1.0a10 BaseAgent would "
+            "have silently degraded to _handle_respond (no tools, no plan, "
+            "training-data answer). Redirecting to _handle_tool_use so "
+            "ReAct fires at minimum. Recommendation: re-open the session "
+            f"with pattern='{recommended}' for the full PlanExecuteAgent / "
+            "ResearchAgent surface."
+        )
+        emitter.emit(
+            PatternMismatch,
+            classified_intent=classified,
+            agent_pattern=agent_pattern,
+            recommended_pattern=recommended,
+            fallback_handler="_handle_tool_use",
+            rationale=rationale,
+        )
+        return self._handle_tool_use
+
+    def _handler_is_default(self, name: str) -> bool:
+        """True when ``type(self).<name>`` is the unmodified
+        :class:`BaseAgent` implementation (i.e., no subclass override).
+
+        Used by :meth:`_detect_pattern_mismatch` — when a handler is
+        the BaseAgent default, the silent-fall-through-to-_handle_respond
+        bug is about to fire and we should redirect instead.
+        """
+        cls_method = getattr(type(self), name, None)
+        base_method = getattr(BaseAgent, name, None)
+        if cls_method is None or base_method is None:
+            return False
+        # Compare underlying functions to see through @classmethod /
+        # bound-method wrappers.
+        return getattr(cls_method, "__func__", cls_method) is getattr(
+            base_method, "__func__", base_method
+        )
+
+    async def _yield_dispatched_events(
+        self,
+        response_text: str,
+        tool_calls: list[ToolExecution],
+        usage: InvocationUsage,
+        emitter: EventEmitter,
+    ) -> AsyncIterator[KaosEvent]:
+        """Emit the standard tool-call / TextDelta / UsageObserved
+        trio for a non-streaming dispatch result.
+
+        Extracted from :meth:`_dispatch_streaming` so the
+        :meth:`_detect_pattern_mismatch` redirect path emits the same
+        event shape as the default path.
+        """
         # Yield tool call events if any
         for tc in tool_calls:
             tc_span = emitter.span_start(

@@ -58,6 +58,7 @@ from kaos_agents.events.emitter import (
 from kaos_agents.events.escalation import EscalationRequired
 from kaos_agents.events.lifecycle import (
     IntentClassified,
+    PatternMismatch,
     RunError,
     TurnSummary,
     UsageObserved,
@@ -120,9 +121,10 @@ ALL_EVENT_TYPES: tuple[type[KaosEvent], ...] = (
     TurnSummary,
     # Memory
     MemoryEvent,
-    # Errors
+    # Errors / pattern signals
     RunError,
     BudgetExceeded,
+    PatternMismatch,
     # Control flow
     ToolCallApprovalRequired,
     # AgenticLoop policy + termination
@@ -150,6 +152,7 @@ __all__ = [
     "LoopTerminated",
     "MemoryEvent",
     "MemoryEventKind",
+    "PatternMismatch",
     "PlanProposed",
     "PlanStepSummary",
     "RunError",

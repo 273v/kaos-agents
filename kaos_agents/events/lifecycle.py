@@ -89,8 +89,59 @@ class RunError(LifecycleEvent):
     recovery_hint: str = ""
 
 
+class PatternMismatch(LifecycleEvent):
+    """The intent classifier picked a pattern the running agent can't dispatch.
+
+    Emitted by :meth:`BaseAgent._handle_plan` /
+    :meth:`BaseAgent._handle_research` when the session-level
+    ``pattern`` field doesn't include the dispatch handler the
+    per-turn intent demands — most commonly ``pattern="chat"`` on
+    the session but the per-turn :class:`~kaos_agents.intent.types.IntentResult`
+    returned :attr:`~kaos_agents.types.intents.IntentType.PLAN` or
+    :attr:`~kaos_agents.types.intents.IntentType.RESEARCH`.
+
+    Pre-0.1.0a10 ``BaseAgent`` silently degraded to
+    :meth:`_handle_respond` in that case, producing training-data
+    answers without tools and masking the dispatch hole behind a
+    confident-looking response. That fall-through is the root cause
+    of the R1-REAL v2-matrix Tests 3 + 7 regression — see
+    ``kaos-modules/docs/plans/kaos-agents-autonomy-improvement-1.md``
+    for the diagnosis.
+
+    Observers should treat this event as a strong "this turn is
+    going to under-perform" signal — the fallback path
+    (:meth:`_handle_tool_use` or :meth:`_handle_respond`) is a
+    degraded mode, not the intended one. Callers can react by
+    re-opening the session with the recommended pattern (e.g., a
+    future ``pattern="auto"`` wrapper would consume this event to
+    switch agents mid-run).
+
+    Fields:
+
+    * ``classified_intent`` — :attr:`~kaos_agents.types.intents.IntentType.value`
+      the classifier returned (e.g., ``"plan"``, ``"research"``).
+    * ``agent_pattern`` — :attr:`~kaos_agents.config.AgentPattern.value`
+      of the running agent (e.g., ``"chat"``).
+    * ``recommended_pattern`` — :attr:`~kaos_agents.config.AgentPattern.value`
+      the agent recommends opening for this kind of intent
+      (e.g., ``"plan"``).
+    * ``fallback_handler`` — name of the handler the runtime fell
+      through to (e.g., ``"_handle_tool_use"``,
+      ``"_handle_respond"``).
+    * ``rationale`` — one-sentence human-readable explanation
+      suitable for surfacing in a UI or log.
+    """
+
+    classified_intent: str = ""
+    agent_pattern: str = ""
+    recommended_pattern: str = ""
+    fallback_handler: str = ""
+    rationale: str = ""
+
+
 __all__ = [
     "IntentClassified",
+    "PatternMismatch",
     "RunError",
     "TurnSummary",
     "UsageObserved",
