@@ -55,7 +55,6 @@ async def compose(
     model: str = DEFAULT_MODEL,
     parallel: bool = True,
     confidence_threshold: float | None = None,
-    deepen_threshold: float | None = None,
     tool_timeout_seconds: float = 60.0,
 ) -> ComposeResult:
     """Execute a plan graph.
@@ -151,8 +150,6 @@ async def compose(
             }
             if confidence_threshold is not None:
                 route_kwargs["confidence_threshold"] = confidence_threshold
-            if deepen_threshold is not None:
-                route_kwargs["deepen_threshold"] = deepen_threshold
             decision = route(judgment, budget, **route_kwargs)
 
             traces.append(
@@ -175,7 +172,7 @@ async def compose(
                 final_stop = StopReason.FAILURE
                 break
 
-            if decision.decision in (Decision.REPLAN, Decision.DEEPEN):
+            if decision.decision == Decision.REPLAN:
                 replan_count += 1
                 budget.record_replan()
                 # Mark the step as failed and skip dependents

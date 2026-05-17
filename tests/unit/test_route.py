@@ -50,15 +50,26 @@ class TestRouteReplan:
         assert result.decision == Decision.REPLAN
 
 
-class TestRouteDeepen:
-    def test_very_low_confidence_triggers_deepen(self):
+class TestRouteLowConfidence:
+    """``Decision.DEEPEN`` was removed in kaos-agents 0.1.0a9 — the
+    branch collapsed to ``Decision.REPLAN`` inside ``compose`` (see
+    pre-0.1.0a9 ``compose.py``: ``if decision in (REPLAN, DEEPEN)``),
+    so the very-low-confidence path now flows through the REPLAN
+    handler with no behavior change for callers. A future ADaPT-style
+    implementation that substep-decomposes the failed step (via
+    ``PlanGraph.insert_subplan``) can re-introduce DEEPEN with
+    distinct semantics."""
+
+    def test_very_low_confidence_now_triggers_replan(self):
+        # Pre-0.1.0a9: ``confidence=0.2`` with ``deepen_threshold=0.3``
+        # would return Decision.DEEPEN. The DEEPEN branch is gone; the
+        # confidence_threshold check below now catches the same case.
         result = route(
             _judgment(matched=True, confidence=0.2),
             PlanBudget(),
             confidence_threshold=0.5,
-            deepen_threshold=0.3,
         )
-        assert result.decision == Decision.DEEPEN
+        assert result.decision == Decision.REPLAN
 
 
 class TestRouteBudget:

@@ -226,7 +226,6 @@ class PlanExecuteAgent(ChatAgent):
             simple_word_threshold=self._settings.simple_goal_word_threshold,
             max_steps=self._max_plan_steps,
             confidence_threshold=self._settings.confidence_threshold,
-            deepen_threshold=self._settings.deepen_threshold,
             tool_timeout_seconds=self._settings.tool_timeout_seconds,
             n_documents=n_documents,
         )
