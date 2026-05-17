@@ -8,6 +8,200 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [0.1.0a9] — 2026-05-17
+
+### Changed — Drop the ``Decision.DEEPEN`` dead-code branch (#34)
+
+``Decision.DEEPEN`` was indistinguishable from ``Decision.REPLAN`` in
+practice. Both branches called ``graph.mark_failed`` +
+``_skip_dependents`` + ``_skip_remaining`` and returned
+``StopReason.NEEDS_REPLAN`` from ``compose`` (the pre-0.1.0a9
+``compose.py`` condition was literally ``if decision.decision in
+(Decision.REPLAN, Decision.DEEPEN)``). DEEPEN was a confusing alias
+rather than a distinct control-flow path, and the unused
+``KAOS_AGENT_DEEPEN_THRESHOLD`` env var contributed to the false
+impression that lowering it would change plan-execute behavior in
+R1-REAL v2 matrix runs (it didn't — those failures fire via the
+``matched=False`` branch instead).
+
+This release removes:
+
+* The ``DEEPEN`` value from ``Decision`` (``kaos_agents/types/plan.py``).
+* ``deepen_threshold`` field on ``KaosAgentSettings`` and the
+  ``KAOS_AGENT_DEEPEN_THRESHOLD`` env var (``settings.py``).
+* ``_DEFAULT_DEEPEN_THRESHOLD`` + the ``deepen_threshold`` argument on
+  ``route()`` (``planning/route.py``), plus the low-confidence branch
+  that returned ``Decision.DEEPEN``. Low-confidence cases now flow
+  through the existing REPLAN branch with no behavior change.
+* The ``deepen_threshold`` pass-through on ``compose``,
+  ``execute_adaptive``, ``execute_decompose``, and
+  ``PlanExecuteAgent._handle_plan_streaming``.
+
+A future ADaPT-style implementation that substep-decomposes the
+failed step (via the existing ``PlanGraph.insert_subplan`` helper)
+can re-introduce DEEPEN with non-trivial semantics. See the docstring
+comments in ``planning/route.py`` for the follow-up path.
+
+### Added — LLM-synthesise plan findings into a narrative answer (#35)
+
+Pre-0.1.0a9, ``_synthesize_results`` in
+``patterns/plan_execute.py`` was a raw f-string dump of
+``{step_id → str(tool_output)[:300]}``. Users saw literal
+``{"results": [{"document_number": ...}]}`` JSON blobs as "the
+answer" to long-horizon plans — accurate structurally but unreadable,
+and never addressing the user's actual question.
+
+New ``kaos_agents/patterns/synthesize.py``:
+
+* ``SynthesizeFindingsSignature`` with docstring rules: (a) lead
+  with the answer, not "I searched..."; (b) cite step ids inline
+  as ``[step-1-2fcdae]`` so the SPA run inspector can link them;
+  (c) preserve uncertainty when ``stop_reason != "success"`` (state
+  the gap explicitly rather than papering over it); (d) refuse JSON
+  dumps; (e) acknowledge all-empty / all-error results without
+  fabricating.
+* ``synthesize_findings(goal, result, *, model, step_descriptions)``
+  uses ``Call.invoke`` for cost accounting — returns
+  ``(narrative, InvocationUsage)``.
+* ``should_attempt_llm_synthesis(result)`` gate so we don't spend
+  tokens on plans where every step errored.
+
+``_handle_plan_streaming`` now calls ``synthesize_findings`` when
+the gate returns True, emits a
+``UsageObserved(source="plan-execute-synthesis")`` so the
+``TurnSummary`` aggregate (and the SPA's per-turn cost line)
+includes the synthesis call, and falls back to the preserved-as-pure
+``_format_plan_response`` formatter on any exception or empty
+narrative. Degraded environments without an LLM client keep the
+0.1.0a7 partial-findings UX recovery for free.
+
+### Added — ``Span(JUDGE, ...)`` and ``Span(ROUTE, ...)`` observability events (#36)
+
+Pre-0.1.0a9 the Evaluate primitive's LLM judge ran invisibly (only
+the final ``Judgment`` appeared in ``ComposeResult.traces``
+``PrimitiveTrace``) and Route decisions were likewise locked inside
+``PrimitiveTrace``. SSE consumers (SPA run inspector, OTel exporter)
+saw no events for either — when ``matched=False`` killed a plan
+there was no way to ask "what did the judge see?" or "what triggered
+REPLAN here?" without reading VFS-persisted ``SessionMemory``.
+
+Surface changes:
+
+* ``SpanSubject`` gains ``JUDGE = "judge"`` and ``ROUTE = "route"``
+  enum values. ``Span`` docstring's attribute-conventions table
+  documents the expected keys for both.
+* ``evaluate_semantic`` accepts optional ``emitter`` + ``step_id``
+  kwargs. When provided, emits a ``Span(JUDGE, START)`` before the
+  Call.invoke with ``{step_id, expected, result_preview}`` (200-char
+  truncation), then either ``Span(JUDGE, COMPLETE)`` on success
+  with ``{matched, confidence, reasoning, mode}`` or
+  ``Span(JUDGE, ERROR)`` on failure. ``emitter=None`` is a no-op
+  for backwards compat.
+* ``compose`` accepts optional ``emitter`` kwarg; emits
+  ``Span(ROUTE, START)`` + ``Span(ROUTE, COMPLETE)`` after every
+  Route decision with ``{step_id, decision, reason,
+  judgment_matched, judgment_confidence, replan_count}``.
+* ``execute_decompose`` / ``execute_adaptive`` / ``execute_direct``
+  thread ``emitter`` through. ``PlanExecuteAgent._handle_plan_streaming``
+  passes its turn emitter into ``execute_adaptive``.
+
+### Changed — Route split: low-confidence judge rejection → CONTINUE (#37)
+
+``route.py``'s ``not judgment.matched`` branch used to fire
+``Decision.REPLAN`` unconditionally. The SPA R1-REAL v2 matrix
+Tests 3 + 7 hit this on every long-horizon plan: 3-5 successful
+FR/EDGAR tool calls → judge says ``matched=False`` on the
+synthesizable JSON payload because the step's free-form
+``expected`` field talked about "the specific rule" while the tool
+returned a list of candidates → plan bails before the synthesiser
+(#35) gets a chance.
+
+This release splits the rejection branch by judge confidence:
+
+* ``matched=False`` AND ``confidence >= confidence_threshold`` →
+  REPLAN. Judge is confident the tool's output is wrong (real
+  failure signal, preserves pre-0.1.0a9 behavior for this case).
+* ``matched=False`` AND ``confidence <  confidence_threshold`` →
+  CONTINUE with a logged warning. Judge says "doesn't match
+  expected but I'm not sure"; let the plan-execute synthesiser
+  frame the result as partial findings.
+
+The ``confidence_threshold`` knob (default 0.5, env
+``KAOS_AGENT_CONFIDENCE_THRESHOLD``) now does double duty — it
+gates both the ``matched=True`` low-confidence REPLAN and the new
+``matched=False`` low-confidence CONTINUE.
+
+``compose.py`` companion change: the ``mark_failed`` branch no
+longer fires on ``not judgment.matched`` alone. Only hard tool
+errors (``act_result.is_error``) mark the step failed. A successful
+tool with a fussy judge stays ``COMPLETED`` — the judgment is
+preserved on the node but the result lives in ``step_results`` so
+the synthesiser (#35) / SPA run inspector can render it.
+
+### Added — Conditional plan steps (``Step.abort_if`` + ``Step.pivot_to``) (#38)
+
+R1-REAL Test 3's prompt shape had no semantic encoding in
+pre-0.1.0a9 plan-execute:
+
+    "Build me a 5-step research plan on CFPB's 1033 open-banking
+    rule, execute it, but if any step reveals the rule was vacated
+    or stayed, abandon the remaining steps and pivot to the
+    litigation status."
+
+This release adds:
+
+* ``Step.abort_if: str`` (natural-language predicate over prior
+  outputs) and ``Step.pivot_to: str`` (optional follow-up goal).
+  Both default to empty strings — backwards compat for every
+  existing caller.
+* ``PlanGraph.add_step`` persists both fields; ``get_step``
+  exposes them.
+* New ``kaos_agents/planning/evaluate_condition.py``:
+  ``EvaluateConditionSignature`` (strict-literal-match rules,
+  default to false, asymmetric cost) +
+  ``evaluate_condition(condition, prior_outputs, *, model,
+  holds_confidence_threshold=0.6)``. Returns ``(False, "")``
+  without an LLM call for empty inputs or on Call exception.
+  Returns ``(True, evidence)`` only when the judge says
+  ``holds=True`` AND ``confidence >= threshold`` (catches LLM
+  hedging).
+* ``compose.py`` runs the abort-if check sequentially across ready
+  steps BEFORE executing them. Steps with a holding condition are
+  marked SKIPPED (evidence becomes the skip reason); dependents
+  skip too. When a skipped step also carries ``pivot_to``, the
+  whole graph stops with the new ``StopReason.PIVOTED``.
+* ``StopReason.PIVOTED = "pivoted"`` new enum value.
+* ``PlanExpandSignature`` docstring gains rule 6 telling the
+  planner to populate ``abort_if`` / ``pivot_to`` when the goal
+  carries stop-or-pivot language. ``GeneratedStep`` pydantic model +
+  ``_parse_steps`` plumb both fields onto ``Step`` instances.
+
+What's NOT in this release: end-to-end "PIVOTED → strategy
+re-expands on pivot_to" wiring. ``execute_decompose`` currently
+propagates ``StopReason.PIVOTED`` to its caller without doing the
+re-expand; the synthesiser surfaces the pivot context and the user
+issues a follow-up turn. Full strategy re-expand is a follow-up.
+
+### Tests
+
+* ``tests/unit/patterns/test_synthesize.py`` — 11 new tests for
+  the LLM synthesiser (formatter rendering, gating logic, end-to-end
+  Call.invoke wiring).
+* ``tests/unit/events/test_judge_route_spans.py`` — 8 new tests
+  for the JUDGE/ROUTE span emission (enum extension, emitter=None
+  backwards compat, START/COMPLETE pair, START/ERROR pair, input
+  truncation, compose signature).
+* ``tests/unit/planning/test_conditional_steps.py`` — 15 new tests
+  for ``Step.abort_if`` / ``Step.pivot_to`` (type defaults,
+  PlanGraph persistence, StopReason enum, formatter invariants,
+  evaluate_condition gating + LLM stub paths).
+* ``tests/unit/test_route.py`` — 3 new ``TestRouteSoftMissContinues``
+  tests for the low-confidence rejection branch (boundary at
+  ``confidence_threshold``, low-confidence → CONTINUE,
+  high-confidence → REPLAN). ``TestRouteDeepen`` renamed to
+  ``TestRouteLowConfidence`` to reflect the DEEPEN removal.
+
+
 ## [0.1.0a8] — 2026-05-16
 
 ### Fixed — disk-backed VFS + parse cache now work on Windows
