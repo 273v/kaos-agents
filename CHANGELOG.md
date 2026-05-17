@@ -7,7 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed — PLAN/RESEARCH intent dispatch no longer silently degrades to ``_handle_respond``
+
+## [0.1.0a10] — 2026-05-17
+
+### Fixed — PLAN/RESEARCH intent dispatch no longer silently degrades to ``_handle_respond`` (#40)
 
 ``ChatAgent`` (the default agent for sessions opened with
 ``pattern="chat"`` — the FastAPI ``MessageRequest.pattern`` default)
