@@ -9,7 +9,7 @@ Composes: evaluate(complexity) → route(direct or decompose)
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from kaos_core.logging import get_logger
 
@@ -129,6 +129,7 @@ async def execute_adaptive(
     parallel: bool = True,
     confidence_threshold: float | None = None,
     tool_timeout_seconds: float = 60.0,
+    emitter: Any = None,
     n_documents: int = 0,
     intent_confidence: float | None = None,
 ) -> ComposeResult:
@@ -167,6 +168,7 @@ async def execute_adaptive(
             model=model,
             budget=budget,
             tool_timeout_seconds=tool_timeout_seconds,
+            emitter=emitter,
         )
 
         # If direct failed, fall back to decomposition
@@ -184,6 +186,7 @@ async def execute_adaptive(
                 parallel=parallel,
                 confidence_threshold=confidence_threshold,
                 tool_timeout_seconds=tool_timeout_seconds,
+                emitter=emitter,
             )
         return result
 
@@ -200,4 +203,5 @@ async def execute_adaptive(
         parallel=parallel,
         confidence_threshold=confidence_threshold,
         tool_timeout_seconds=tool_timeout_seconds,
+        emitter=emitter,
     )

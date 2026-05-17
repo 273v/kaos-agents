@@ -232,6 +232,13 @@ class PlanExecuteAgent(ChatAgent):
             confidence_threshold=self._settings.confidence_threshold,
             tool_timeout_seconds=self._settings.tool_timeout_seconds,
             n_documents=n_documents,
+            # Wishes #7 + #8 — thread the turn emitter so planning
+            # primitives can emit Span(JUDGE, ...) around each
+            # ``evaluate_semantic`` call and Span(ROUTE, COMPLETE) after
+            # every Route decision. SSE consumers (SPA run inspector,
+            # OTel exporter) see judge inputs/outputs + route decisions
+            # live instead of only post-hoc via ComposeResult.traces.
+            emitter=emitter,
         )
 
         # Planning's act.py already reads ``invocation.usage.total_tokens``

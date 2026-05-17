@@ -56,6 +56,7 @@ async def compose(
     parallel: bool = True,
     confidence_threshold: float | None = None,
     tool_timeout_seconds: float = 60.0,
+    emitter: Any = None,
 ) -> ComposeResult:
     """Execute a plan graph.
 
@@ -125,10 +126,16 @@ async def compose(
             if judgment is None:
                 # Structural was inconclusive — step has expected_output that
                 # needs semantic verification. Call the semantic evaluator.
+                # Pass the emitter (if any) so the LLM judge's inputs +
+                # output land in the SSE stream as a Span(JUDGE, ...)
+                # pair (Wish #7 — visible-event observability for the
+                # Evaluate primitive).
                 judgment = await evaluate_semantic(
                     act_result.output,
                     expected,
                     model=model,
+                    emitter=emitter,
+                    step_id=step_id,
                 )
 
             # Update graph.
@@ -180,6 +187,36 @@ async def compose(
                     details={"decision": decision.decision.value, "reason": decision.reason},
                 )
             )
+
+            # Wish #8 — emit a Span(ROUTE, COMPLETE) so SSE consumers
+            # see the decision + judgment that drove it. PrimitiveTrace
+            # stays in ``ComposeResult.traces`` for post-hoc analysis,
+            # but the Span is what the SPA's run inspector renders.
+            if emitter is not None:
+                from kaos_agents.events.spans import SpanSubject
+
+                route_span_id = emitter.span_start(
+                    SpanSubject.ROUTE,
+                    name=f"route.{step_id}",
+                    attributes={
+                        "step_id": step_id,
+                        "judgment_matched": bool(judgment.matched),
+                        "judgment_confidence": float(judgment.confidence),
+                    },
+                ).span_id
+                emitter.span_complete(
+                    SpanSubject.ROUTE,
+                    span_id=route_span_id,
+                    name=f"route.{step_id}",
+                    attributes={
+                        "step_id": step_id,
+                        "decision": decision.decision.value,
+                        "reason": str(decision.reason)[:200],
+                        "judgment_matched": bool(judgment.matched),
+                        "judgment_confidence": float(judgment.confidence),
+                        "replan_count": replan_count,
+                    },
+                )
 
             if decision.decision == Decision.STOP_BUDGET:
                 # Skip remaining steps

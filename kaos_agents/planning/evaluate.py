@@ -128,11 +128,23 @@ async def evaluate_semantic(
     *,
     context: str = "",
     model: str = DEFAULT_MODEL,
+    emitter: Any = None,
+    step_id: str | None = None,
 ) -> Judgment:
     """Evaluate result quality via LLM.
 
     Used when structural evaluation is inconclusive and the step has
     an expected output description that needs semantic comparison.
+
+    When ``emitter`` is provided (caller passes the active
+    :class:`~kaos_agents.events.emitter.EventEmitter` for this turn),
+    a ``Span(SpanSubject.JUDGE, ...)`` pair is emitted around the
+    Call so SSE consumers can see what the LLM judge was asked + how
+    it scored. The span carries ``step_id``, the truncated
+    ``expected``/``result_preview``, and the resulting
+    ``matched``/``confidence``/``reasoning``/``mode`` attributes. When
+    ``emitter`` is None, no events fire (preserves backward compat for
+    direct unit-test callers).
     """
     from kaos_agents._llm_imports import require_llm_core
 
@@ -140,6 +152,25 @@ async def evaluate_semantic(
     from kaos_llm_core import Call
 
     call = Call(EvalSemanticSignature, model=model)
+
+    # Open the JUDGE span before we issue the Call so observers see the
+    # inputs that led to the judgment. Done as a single pair on
+    # COMPLETE/ERROR so duration_ms is filled by the emitter.
+    judge_span_id: str | None = None
+    if emitter is not None:
+        from kaos_agents.events.spans import SpanSubject
+
+        span_attrs: dict[str, Any] = {
+            "step_id": step_id or "",
+            "expected": str(expected)[:200],
+            "result_preview": str(result)[:200],
+        }
+        span = emitter.span_start(
+            SpanSubject.JUDGE,
+            name=f"judge.{step_id}" if step_id else "judge",
+            attributes=span_attrs,
+        )
+        judge_span_id = span.span_id
 
     try:
         # ``invoke`` (not bare ``__call__``) so per-step semantic-eval
@@ -152,15 +183,42 @@ async def evaluate_semantic(
             additional_context=context[:1000],
         )
         output = invocation.output
-        return Judgment(
+        judgment = Judgment(
             matched=output.matched,
             confidence=max(0.0, min(1.0, output.confidence)),
             reasoning=output.reasoning,
             mode=EvalMode.SEMANTIC,
             new_facts=tuple(output.new_facts) if output.new_facts else (),
         )
+        if emitter is not None and judge_span_id is not None:
+            from kaos_agents.events.spans import SpanSubject
+
+            emitter.span_complete(
+                SpanSubject.JUDGE,
+                span_id=judge_span_id,
+                name=f"judge.{step_id}" if step_id else "judge",
+                attributes={
+                    "step_id": step_id or "",
+                    "matched": bool(judgment.matched),
+                    "confidence": float(judgment.confidence),
+                    "reasoning": str(judgment.reasoning)[:200],
+                    "mode": judgment.mode.value,
+                },
+            )
+        return judgment
     except Exception as exc:
         logger.warning("evaluate_semantic failed: %s — marking as unverified", exc)
+        if emitter is not None and judge_span_id is not None:
+            from kaos_agents.events.spans import SpanSubject
+
+            emitter.span_error(
+                SpanSubject.JUDGE,
+                span_id=judge_span_id,
+                name=f"judge.{step_id}" if step_id else "judge",
+                error_type=type(exc).__name__,
+                error_message=str(exc)[:200],
+                attributes={"step_id": step_id or ""},
+            )
         return Judgment(
             matched=False,
             confidence=0.0,

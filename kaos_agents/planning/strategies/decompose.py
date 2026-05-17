@@ -13,7 +13,7 @@ structured failure context and try once more.
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from kaos_core.logging import get_logger
 
@@ -86,6 +86,7 @@ async def execute_decompose(
     parallel: bool = True,
     confidence_threshold: float | None = None,
     tool_timeout_seconds: float = 60.0,
+    emitter: Any = None,
 ) -> ComposeResult:
     """Decompose a goal into a full plan and execute it, with bounded replan.
 
@@ -187,6 +188,7 @@ async def execute_decompose(
             parallel=parallel,
             confidence_threshold=confidence_threshold,
             tool_timeout_seconds=tool_timeout_seconds,
+            emitter=emitter,
         )
 
         # Accumulate any successful step results from this attempt.

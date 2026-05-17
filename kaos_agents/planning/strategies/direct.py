@@ -9,7 +9,7 @@ This is the fast path for tool_use intent. It composes:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from kaos_core.logging import get_logger
 
@@ -34,11 +34,19 @@ async def execute_direct(
     model: str = DEFAULT_MODEL,
     budget: PlanBudget | None = None,
     tool_timeout_seconds: float = 60.0,
+    emitter: Any = None,
 ) -> ComposeResult:
     """Execute a goal directly — one step, no plan graph.
 
     Expands with n=1 (single step), executes it, evaluates the result.
     Suitable for simple tool_use or single-action goals.
+
+    ``emitter`` is accepted for signature parity with
+    :func:`execute_decompose` (so :func:`execute_adaptive` can pass
+    it through uniformly) but unused here: direct-execution does only
+    structural evaluation (no LLM judge to attach a Span(JUDGE, ...)
+    to, and no Route call since success/failure is decided inline by
+    the structural judgment).
     """
     if budget is None:
         budget = PlanBudget()
