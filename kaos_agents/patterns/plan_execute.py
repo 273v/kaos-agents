@@ -33,6 +33,10 @@ from kaos_agents.events import (
     emit_usage_observed,
 )
 from kaos_agents.patterns.chat import ChatAgent
+from kaos_agents.patterns.synthesize import (
+    should_attempt_llm_synthesis,
+    synthesize_findings,
+)
 from kaos_agents.planning.recall import recall
 from kaos_agents.types import (
     ZERO_USAGE,
@@ -379,12 +383,51 @@ class PlanExecuteAgent(ChatAgent):
                 reason=f"Plan budget {kind} exceeded after {result.steps_executed} step(s)",
             )
 
-        # Emit final response text via the pure formatter (kept side-effect
-        # free so tests/unit/test_plan_response_formatter.py can exercise
-        # every branch without spinning up Agent + Runner). Reflection
-        # writes stay inline because they need ``message`` + ``memory``,
-        # which are runtime-scoped.
-        response = _format_plan_response(result)
+        # Emit final response text. Prefer the LLM synthesiser (rich
+        # narrative with inline step-id citations); fall back to the
+        # pure f-string formatter on error or when there's nothing
+        # useful to synthesise. Reflection writes stay inline because
+        # they need ``message`` + ``memory``, which are runtime-scoped.
+        #
+        # The pure ``_format_plan_response`` is preserved (and still
+        # tested in ``tests/unit/test_plan_response_formatter.py``) so
+        # degraded environments without an LLM configured keep the
+        # 0.1.0a7 partial-findings UX recovery for free.
+        if should_attempt_llm_synthesis(result):
+            try:
+                response, synth_usage = await synthesize_findings(
+                    message,
+                    result,
+                    model=self._model_for_role("plan"),
+                    step_descriptions=step_descriptions or None,
+                )
+                # Surface synthesis cost separately so TurnSummary's
+                # cost_usd aggregate includes it (was a hole — pre-
+                # 0.1.0a9 the user-visible response was free in the
+                # cost accounting because it was f-string-only).
+                yield emit_usage_observed(
+                    emitter,
+                    synth_usage,
+                    source="plan-execute-synthesis",
+                )
+                # If LLM synthesis returned empty text fall back rather
+                # than silently emit nothing — the user must always see
+                # something at the end of a plan turn.
+                if not response.strip():
+                    logger.warning(
+                        "plan_execute: LLM synthesis returned empty narrative; "
+                        "falling back to pure formatter"
+                    )
+                    response = _format_plan_response(result)
+            except Exception as exc:
+                logger.warning(
+                    "plan_execute: LLM synthesis failed (%s); falling back to pure formatter",
+                    exc,
+                )
+                response = _format_plan_response(result)
+        else:
+            response = _format_plan_response(result)
+
         if result.stop_reason != StopReason.SUCCESS:
             if result.step_results:
                 memory.add(
