@@ -55,7 +55,7 @@ now documents the conditional behaviour rather than asserting
 something model-specific.
 
 L8 regression net: full
-``tests/integration/test_planning_live.py`` + 
+``tests/integration/test_planning_live.py`` +
 ``tests/integration/test_router_live.py`` (20 live tests covering
 Wishes #2 / #4 / #5 / #7 / #8 from 0.1.0a8/a9) re-run and pass — the
 dispatcher rewire didn't break the planning loop, judge spans, route
