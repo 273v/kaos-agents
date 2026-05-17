@@ -54,6 +54,8 @@ class SpanSubject(StrEnum):
     SUBAGENT = "subagent"  # A delegated sub-agent
     HANDOFF = "handoff"  # Lateral hand-off to another agent
     LLM_CALL = "llm_call"  # One LLM invocation (transport-level)
+    JUDGE = "judge"  # One Evaluate.evaluate_semantic LLM judgment call
+    ROUTE = "route"  # One Route primitive decision (control-flow boundary)
 
 
 @unique
@@ -121,6 +123,16 @@ class Span(LifecycleEvent):
     #   SUBAGENT.COMPLETE    -> {"subagent_name": str, "result_summary": str,
     #                            "tokens_used": int}
     #   HANDOFF.START        -> {"from_agent": str, "to_agent": str, "reason": str}
+    #   JUDGE.START          -> {"step_id": str, "expected": str (<=200 chars),
+    #                            "result_preview": str (<=200 chars)}
+    #   JUDGE.COMPLETE       -> {"step_id": str, "matched": bool,
+    #                            "confidence": float, "reasoning": str (<=200 chars),
+    #                            "mode": "structural" | "semantic"}
+    #   ROUTE.COMPLETE       -> {"step_id": str, "decision": str (Decision.value),
+    #                            "reason": str (<=200 chars),
+    #                            "judgment_matched": bool,
+    #                            "judgment_confidence": float,
+    #                            "replan_count": int}
     attributes: dict[str, Any] = Field(default_factory=dict)
 
 
