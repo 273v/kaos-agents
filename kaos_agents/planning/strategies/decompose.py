@@ -87,6 +87,19 @@ async def execute_decompose(
     )
 
     # 4. Compose
+    #
+    # Compose may return ``StopReason.NEEDS_REPLAN`` when the Route
+    # signal decided REPLAN/DEEPEN mid-execution. An earlier attempt
+    # at this layer (kaos-agents 2026-05-17) added a re-expand loop
+    # here. That loop turned a 1-step-with-tool-call failure into a
+    # 18-step-LLM-only failure because the prior_failures context fed
+    # back into ``expand`` biased the model toward "we tried this,
+    # let's analyse" instead of "we tried this, let's call a tool
+    # differently". The right place to handle replan is the caller
+    # (``plan_execute._handle_plan_streaming``) which can synthesise
+    # ``result.step_results`` into a useful partial-progress report —
+    # see the ``elif result.step_results`` branch in
+    # ``patterns/plan_execute.py``.
     return await compose(
         graph,
         tools=tools or {},
