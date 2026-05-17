@@ -18,7 +18,6 @@ from kaos_core.logging import get_logger
 
 from kaos_agents._constants import (
     PLAN_PRIOR_REFLECTION_COUNT,
-    RESULT_SUMMARY_TRUNCATE,
 )
 from kaos_agents.events import (
     BudgetExceeded,
@@ -339,7 +338,9 @@ class PlanExecuteAgent(ChatAgent):
                         "tool_name": step_tool,
                         "call_id": step_id,
                         "step_id": step_id,
-                        "result_summary": str(step_result)[:RESULT_SUMMARY_TRUNCATE],
+                        "result_summary": str(step_result)[
+                            : self._settings.result_summary_max_chars
+                        ],
                         "is_error": step_is_error,
                     },
                 )
@@ -350,7 +351,7 @@ class PlanExecuteAgent(ChatAgent):
                 name=f"step.{step_id}",
                 attributes={
                     "step_id": step_id,
-                    "result_summary": str(step_result)[:RESULT_SUMMARY_TRUNCATE],
+                    "result_summary": str(step_result)[: self._settings.result_summary_max_chars],
                     "is_error": step_is_error,
                 },
             )

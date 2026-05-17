@@ -34,7 +34,6 @@ from typing import TYPE_CHECKING, Any
 
 from kaos_core.logging import get_logger
 
-from kaos_agents._constants import RESULT_SUMMARY_TRUNCATE
 from kaos_agents.config import Agent, AgentPattern
 from kaos_agents.events import (
     EventEmitter,
@@ -638,7 +637,7 @@ class Runner:
             span_id=sub_span.span_id,
             attributes={
                 "subagent_name": delegated.name,
-                "result_summary": result_text[:RESULT_SUMMARY_TRUNCATE],
+                "result_summary": result_text[: self._settings.result_summary_max_chars],
                 "tokens_used": 0,
             },
         )
