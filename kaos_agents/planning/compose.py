@@ -131,8 +131,28 @@ async def compose(
                     model=model,
                 )
 
-            # Update graph
-            if act_result.is_error or not judgment.matched:
+            # Update graph.
+            #
+            # Pre-0.1.0a9: ``mark_failed`` fired on either
+            # ``act_result.is_error`` (hard tool error) OR
+            # ``not judgment.matched`` (judge said the tool's output
+            # didn't satisfy ``expected``). That conflated two very
+            # different signals and meant a successful tool call whose
+            # JSON the judge wasn't crisply satisfied with disappeared
+            # from ``graph.get_results()`` (which only collects
+            # COMPLETED steps), erasing the partial work the
+            # ``patterns/plan_execute.py`` synthesiser needed to render
+            # findings for the user.
+            #
+            # 0.1.0a9: only hard tool errors mark the step failed. A
+            # successful tool with a fussy judge stays COMPLETED — the
+            # judgment is stored on the node so downstream consumers
+            # can still see ``matched=False``, but the result is
+            # preserved in ``step_results``. The Route primitive then
+            # decides what to do about the negative verdict (see the
+            # confidence-gated REPLAN/CONTINUE branch in
+            # ``route.py``).
+            if act_result.is_error:
                 graph.mark_failed(step_id, act_result.output[:200])
             else:
                 graph.mark_complete(step_id, act_result.output, judgment)

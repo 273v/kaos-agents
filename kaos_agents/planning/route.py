@@ -40,8 +40,13 @@ def route(
     1. Budget exceeded → STOP_BUDGET
     2. Max replans exceeded → STOP_FAILURE (circuit breaker)
     3. Step succeeded with high confidence → CONTINUE
-    4. Step failed → REPLAN
-    5. Step succeeded with low confidence → REPLAN
+    4. Step's tool output rejected by the judge (``matched=False``):
+       * with ``confidence >= confidence_threshold`` → REPLAN
+         (judge confidently flags the result as wrong)
+       * with ``confidence <  confidence_threshold`` → CONTINUE
+         (judge says "doesn't match expected but I'm not sure" — let
+         synthesis surface the partial; logged as a warning)
+    5. Step succeeded with low confidence (matched=True, conf<threshold) → REPLAN
     6. Default → CONTINUE
 
     Args:
@@ -103,11 +108,62 @@ def route(
         logger.debug("route: %s — %s", result.decision.value, result.reason)
         return result
 
-    # 4. Step explicitly failed → replan
+    # 4. Step's tool output rejected by the judge.
+    #
+    # Pre-0.1.0a9 this branch fired unconditionally on ``matched=False``
+    # — any negative judge verdict killed the plan via REPLAN. That was
+    # too strict for long-horizon research plans where the LLM judge
+    # often rejects a perfectly-good FR/EDGAR JSON payload because the
+    # ``expected`` field talked about "the specific rule" while the
+    # tool returned a list of candidate documents. The SPA R1-REAL v2
+    # matrix Tests 3 + 7 hit this regression: 3-5 successful tool calls
+    # → judge says ``matched=False`` on the synthesizable result → plan
+    # bails before the synthesis step gets a chance.
+    #
+    # 0.1.0a9 splits the branch by judge confidence:
+    #
+    # * ``matched=False`` AND ``confidence >= confidence_threshold`` →
+    #   the judge is CONFIDENT the tool's output is wrong. Real failure
+    #   signal; REPLAN.
+    # * ``matched=False`` AND ``confidence < confidence_threshold`` →
+    #   the judge says "doesn't match expected but I'm not sure".
+    #   CONTINUE — the result is still useful and the plan-execute
+    #   synthesiser (added in 0.1.0a9 PR #35) can frame it as partial.
+    #   A warning is logged so operators see how often the judge's
+    #   weak rejection is being overridden.
+    #
+    # Note: ``act_result.is_error`` (hard tool error) is handled
+    # upstream in ``compose.py`` where it short-circuits to
+    # ``graph.mark_failed`` before Route is even called. By the time
+    # we get here, the tool succeeded — only the judge has a complaint.
     if not judgment.matched:
+        if judgment.confidence >= confidence_threshold:
+            result = RouteResult(
+                decision=Decision.REPLAN,
+                reason=(
+                    f"Step rejected (confidence={judgment.confidence:.2f} >= "
+                    f"{confidence_threshold:.2f}): {judgment.reasoning}"
+                ),
+                step_id=step_id,
+            )
+            logger.debug("route: %s — %s", result.decision.value, result.reason)
+            return result
+
+        logger.warning(
+            "route: judge rejected step %s but confidence=%.2f < threshold=%.2f — "
+            "continuing with partial result instead of REPLAN. Reasoning: %s",
+            step_id or "",
+            judgment.confidence,
+            confidence_threshold,
+            judgment.reasoning,
+        )
         result = RouteResult(
-            decision=Decision.REPLAN,
-            reason=f"Step failed: {judgment.reasoning}",
+            decision=Decision.CONTINUE,
+            reason=(
+                f"Judge rejected with low confidence ({judgment.confidence:.2f} < "
+                f"{confidence_threshold:.2f}); continuing with partial result. "
+                f"Reasoning: {judgment.reasoning}"
+            ),
             step_id=step_id,
         )
         logger.debug("route: %s — %s", result.decision.value, result.reason)
