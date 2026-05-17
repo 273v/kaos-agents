@@ -45,6 +45,17 @@ class PlanExpandSignature(Signature):
     * Respect the ``max_steps`` cap from the input.
     * If ``prior_failures`` is non-empty, do not repeat those failed
       approaches — try a different decomposition.
+    * Conditional execution (0.1.0a9): when the goal contains a
+      stop-or-pivot clause — e.g. "if any step reveals X, abandon
+      the remaining steps", "stop once Y is confirmed", "pivot to Z
+      if W is true" — encode it on the affected steps via
+      ``abort_if`` (natural-language predicate over prior outputs)
+      and, optionally, ``pivot_to`` (a follow-up goal the strategy
+      should re-expand on when the predicate fires). Defaults are
+      empty strings — only set them when the goal explicitly
+      requests conditional behavior. Putting the predicate on every
+      late step (so step 2..N each carry it) is fine — Compose
+      evaluates them sequentially and stops at the first match.
     """
 
     goal: str = InputField(description="The goal to accomplish.")
@@ -67,7 +78,13 @@ class PlanExpandSignature(Signature):
             "``input_description`` (str, what input to provide), "
             "``expected_output`` (str, what output to expect), "
             "``depends_on`` (list[int], step numbers this depends on; "
-            "empty list for no deps)."
+            "empty list for no deps), "
+            "``abort_if`` (str, natural-language predicate that, if it "
+            "holds over prior step outputs, causes this step (and its "
+            "dependents) to be skipped; empty string for no condition), "
+            "``pivot_to`` (str, optional follow-up goal to pursue when "
+            "``abort_if`` fires; empty string if abandonment is the "
+            "intended behavior)."
         )
     )
 
@@ -148,6 +165,8 @@ class GeneratedStep(BaseModel):
     input_description: str = ""
     expected_output: str = ""
     depends_on: list[int] = Field(default_factory=list)
+    abort_if: str = ""
+    pivot_to: str = ""
 
 
 def _validate_raw_steps(raw_steps: list[Any]) -> list[GeneratedStep]:
@@ -221,6 +240,8 @@ def _parse_steps(
                 input_spec={"description": input_desc} if input_desc else {},
                 expected_output=expected,
                 depends_on=deps,
+                abort_if=gen.abort_if,
+                pivot_to=gen.pivot_to,
             )
         )
 

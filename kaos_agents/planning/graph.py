@@ -61,6 +61,8 @@ class PlanGraph:
             result=None,
             judgment=None,
             latency_ms=step.estimated_latency_ms,
+            abort_if=step.abort_if,
+            pivot_to=step.pivot_to,
         )
         for dep_id in step.depends_on:
             if dep_id in self._graph:
@@ -89,6 +91,8 @@ class PlanGraph:
                 "result",
                 "judgment",
                 "latency_ms",
+                "abort_if",
+                "pivot_to",
             )
         }
 

@@ -83,6 +83,8 @@ async def compose(
     replan_count = 0
     final_stop = StopReason.SUCCESS
 
+    pivot_goal: str | None = None
+
     while not graph.is_complete():
         ready = graph.get_ready_steps()
 
@@ -95,6 +97,76 @@ async def compose(
                 logger.warning("compose: deadlock — no ready steps, no failures")
                 final_stop = StopReason.FAILURE
             break
+
+        # Conditional execution (0.1.0a9 — Wish #4). For each ready
+        # step that carries a non-empty ``abort_if`` predicate, query
+        # the small condition-judge against the already-completed step
+        # results. When the predicate holds:
+        #
+        #   * mark the step SKIPPED with the evidence stamped as its
+        #     "result" (visible to the synthesiser / SPA run inspector);
+        #   * if the step also carries a ``pivot_to`` follow-up goal,
+        #     stash it and break out of the loop with stop_reason
+        #     ``PIVOTED`` so the strategy layer can re-expand on the
+        #     new objective;
+        #   * always skip dependents — they were predicated on this
+        #     step running too.
+        #
+        # ``abort_if`` is checked sequentially even when ``parallel=True``
+        # because the check itself is one cheap LLM call; running them in
+        # parallel would buy us microseconds at the cost of a more
+        # complex skip-vs-execute reconciliation.
+        prior_results = graph.get_results()
+        if prior_results:
+            from kaos_agents.planning.evaluate_condition import evaluate_condition
+
+            survivors: list[str] = []
+            for step_id in ready:
+                step_props = graph.get_step(step_id)
+                abort_if = (step_props or {}).get("abort_if") or ""
+                if not abort_if:
+                    survivors.append(step_id)
+                    continue
+                holds, evidence = await evaluate_condition(
+                    abort_if,
+                    prior_results,
+                    model=model,
+                )
+                if not holds:
+                    survivors.append(step_id)
+                    continue
+                # Mark the step skipped with the abort context as its
+                # "result" so the synthesiser can render "Step X was
+                # skipped because: <evidence>". ``mark_skipped`` already
+                # prefixes the reason with "SKIPPED:" — we add the
+                # "abort_if" qualifier so observers can distinguish
+                # this from dependent-skip cases.
+                graph.mark_skipped(
+                    step_id,
+                    f"abort_if fired: {evidence}" if evidence else "abort_if fired",
+                )
+                _skip_dependents(graph, step_id)
+                pivot_to_goal = (step_props or {}).get("pivot_to") or ""
+                if pivot_to_goal:
+                    pivot_goal = pivot_to_goal
+                    logger.info(
+                        "compose: step %s aborted with pivot_to=%s — breaking for "
+                        "PIVOTED stop_reason",
+                        step_id,
+                        pivot_to_goal[:80],
+                    )
+            ready = survivors
+            # If pivot_to fired, stop the whole graph now; the strategy
+            # layer will see PIVOTED and re-expand on pivot_goal.
+            if pivot_goal is not None:
+                _skip_remaining(graph)
+                final_stop = StopReason.PIVOTED
+                break
+            # If every ready step was aborted (no survivors), advance
+            # the loop — graph.get_ready_steps() will return the next
+            # level (or trigger the deadlock branch above).
+            if not ready:
+                continue
 
         # Execute ready steps (parallel or sequential)
         if parallel and len(ready) > 1:
