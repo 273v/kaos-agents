@@ -8,6 +8,134 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [0.1.0a7] — 2026-05-17
+
+### Fixed — Surface partial findings when plan-execute stops early (#28)
+
+When a plan-execute run terminated with ``stop_reason != SUCCESS`` but
+``step_results`` was non-empty (``NEEDS_REPLAN`` past max replans,
+``MAX_COST``, ``MAX_STEPS``, ``MAX_WALL_CLOCK``, ``FAILURE``), the
+``_handle_plan_streaming`` branch emitted only the terse line
+``"Plan execution stopped: <reason>. Completed N steps."`` and
+silently dropped every tool result the agent had already produced.
+
+R1-REAL SPA verification matrix v2, Tests 3 & 7 (2026-05-17) exposed
+this: long-horizon Federal Register / EDGAR research runs fired 3–5
+real tools across multiple plan steps, hit ``NEEDS_REPLAN`` at the
+Route ``matched=False`` branch, and surfaced the terse status text
+with zero findings to the user.
+
+Now the same runs emit:
+
+```
+_Plan stopped early (reason: needs_replan, 3 step(s) completed).
+Partial findings:_
+
+Plan completed with the following results:
+
+**step-1-2fcdae**: Found 9 Federal Register document(s)…
+{ "results": [ { "document_number": "2024-30494", "title": "EDGAR
+Filer Access and Account Management" … } ] }
+```
+
+The response-formatting logic moved from inline branches inside
+``_handle_plan_streaming`` to a pure
+``_format_plan_response(result: ComposeResult) -> str`` helper so the
+four termination branches (success-with-results, success-empty,
+stopped-with-partials, stopped-empty) are unit-testable without
+spinning up an Agent. The error-only-results fallback (``"Plan
+completed but results were empty or all errored."``) is preserved
+across the success and stopped-early branches.
+
+Behavior change is purely additive — the existing
+"Plan execution stopped: …" wording is still emitted for the
+no-progress case so callers can distinguish "stopped with partial
+work" from "stopped with nothing".
+
+### Added — Working replan loop in ``execute_decompose`` (#30)
+
+``execute_decompose`` previously executed exactly one Compose call. When
+Compose returned ``NEEDS_REPLAN``, the strategy propagated it as-is
+even though ``compose.py`` line 188 documented the gap (``"Return
+NEEDS_REPLAN so the strategy layer can re-expand"``). No strategy
+wired the re-expand up.
+
+This release adds a bounded replan loop with regression guards:
+
+* **Re-expand only when nothing succeeded.** If the current attempt
+  produced any successful step results, the loop exits so the caller's
+  response formatter surfaces the partials. Re-planning on partial
+  success historically biased the LLM toward LLM-only "analysis" steps
+  (turned a 1-step / 2-tool-call plan into an 18-step / 0-tool-call
+  plan in the prior failed attempt).
+* **Cumulative ``step_results``.** The final ``ComposeResult`` carries
+  the union of every attempt's successful step results so the
+  formatter can synthesise them.
+* **Structured ``prior_failures``.** New
+  ``PlanGraph.get_failures() -> dict[step_id, {tool_name, step_type,
+  result}]`` helper feeds a new
+  ``_format_prior_failures`` formatter that emits only FAILED entries
+  plus an explicit "prefer direct tool calls over LLM-only analysis"
+  hint. Successful tool output is structurally impossible to feed back.
+* **``NEEDS_REPLAN`` → ``MAX_REPLANS`` promotion.** When
+  ``budget.replans`` exhausts on a run that never converged, the final
+  ``stop_reason`` is rewritten so callers can distinguish "ran out of
+  retries" from "control-flow signal the strategy never wired up".
+
+Loop bound: one initial attempt + up to ``budget.max_replans`` retries
+(default ``KAOS_AGENT_PLAN_MAX_REPLANS=3``). Cumulative cost / token /
+wall-clock budgets still apply across attempts via the shared
+``PlanBudget`` instance.
+
+The existing ``tests/integration/test_strategies_live.py::
+TestDecomposeStrategy::test_multi_step_goal`` accepts ``MAX_REPLANS``
+in addition to ``NEEDS_REPLAN`` / ``FAILURE`` / ``SUCCESS``.
+
+### Added — ``corpus_attached`` / ``corpus_size`` signal in ``IntentSignature`` (#29)
+
+When a session has documents attached, indirect references like
+``"summarize that"``, ``"the file"``, ``"extract terms from the
+PDF"``, or bare verbs like ``"summarize"`` silently routed to ``CHAT``
+pre-release — the intent classifier had no signal that a corpus was
+attached and treated the message as conversational. The agent then
+answered from training data instead of the attached document (SPA
+R1-REAL UX-C2).
+
+New surface:
+
+* ``IntentSignature`` gains two new ``InputField``s:
+  ``corpus_attached: bool`` (default ``False``) and
+  ``corpus_size: int`` (default ``0``, ``ge=0``).
+* The Signature docstring gains rule 6: *"When ``corpus_attached=true``
+  and the message refers to documents indirectly (pronouns / 'the
+  file' / 'extract terms' / bare follow-ups), prefer
+  ``pattern=RESEARCH``."*
+* ``IntentExtractor.forward`` accepts and coerces the new kwargs and
+  threads them into the inner ``Call.invoke``.
+* ``AgentLoop.prepare_turn`` computes the count from
+  ``SessionMemory.section_item_count(DOCUMENTS)`` via a new
+  ``_corpus_size_from_memory`` static helper and passes both fields
+  into ``IntentExtractor.invoke`` on every turn.
+
+Backwards compatible: every existing caller continues to pass
+``False`` / ``0`` by default; the new docstring rule only fires when
+the classifier sees ``corpus_attached=true``. Applications that call
+``IntentExtractor.invoke`` directly (bypassing ``AgentLoop``) see no
+change unless they opt in.
+
+### Tests
+
+* ``tests/unit/test_plan_response_formatter.py`` — 11 new tests across
+  4 classes for the formatter branches.
+* ``tests/unit/planning/test_decompose_replan.py`` — 17 new tests across
+  4 classes for the replan loop, including explicit regression
+  coverage for the "any tool call succeeded → don't retry" guard.
+* ``tests/unit/intent/test_extractor.py`` — 7 new tests across two
+  classes for the IntentExtractor / IntentSignature corpus inputs.
+* ``tests/unit/loop/test_agent_loop.py`` — 7 new tests for
+  ``_corpus_size_from_memory`` and the prepare_turn threading path.
+
+
 ## [0.1.0a6] — 2026-05-16
 
 ### Changed — Strengthen planner + critic Signature docstrings (M2 of thin-worker-prompt.md)
