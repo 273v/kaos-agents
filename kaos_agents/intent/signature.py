@@ -48,6 +48,20 @@ class IntentSignature(Signature):
     5. Constraints are about *how the goal must be satisfied*: deadlines,
        budgets, jurisdictions, output format, style, scope. Goal restating
        does not count.
+    6. When ``corpus_attached=true`` (the session has documents in
+       memory) and the message refers to those documents indirectly
+       (pronouns like "that", "those", "these", "it"; or "the file",
+       "the document", "that PDF", "the attached", "the corpus"; or
+       short follow-ups like "summarize" / "what does it say" /
+       "extract terms") → set ``pattern=RESEARCH`` (grounded
+       Q&A / extraction over the corpus). The downstream agent will
+       route to ``search_memory(DOCUMENTS)`` and produce cited
+       findings. Do NOT pick ``CHAT`` for such references — the
+       previous SPA regression (R1-REAL UX-C2, 2026-05-17) was
+       exactly this: a follow-up "summarize that" with an attached
+       PDF routed to CHAT, the agent had no corpus context in the
+       prompt, and confidently answered from training data instead
+       of the attached document.
     """
 
     # inputs
@@ -65,6 +79,28 @@ class IntentSignature(Signature):
         description=(
             "Optional calibration examples for the domain (paper §3.5). "
             'Format: "input -> goal" strings, one per line.'
+        ),
+    )
+    corpus_attached: bool = InputField(
+        default=False,
+        description=(
+            "True when the session has one or more documents attached "
+            "in memory (SessionMemory.DOCUMENTS section). The agent "
+            "loop computes this from the live memory snapshot and "
+            "passes it in so the classifier can resolve indirect "
+            "document references (rule 6). Default ``False`` keeps "
+            "behavior unchanged for sessions with no attached corpus."
+        ),
+    )
+    corpus_size: int = InputField(
+        default=0,
+        ge=0,
+        description=(
+            "Number of documents currently in SessionMemory.DOCUMENTS. "
+            "Calibration signal for rule 6 — single-document sessions "
+            "tend to use 'the file' / 'it'; multi-document corpora "
+            "tend to use 'the docs' / 'these'. Default ``0`` (no "
+            "corpus) keeps behavior unchanged."
         ),
     )
 

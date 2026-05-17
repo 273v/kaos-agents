@@ -242,6 +242,116 @@ class TestPrepareTurn:
 
 
 # ---------------------------------------------------------------------------
+# _corpus_size_from_memory + IntentExtractor.invoke kwarg threading
+# ---------------------------------------------------------------------------
+
+
+def _capturing_extractor(intent: IntentResult) -> tuple[IntentExtractor, list[dict[str, Any]]]:
+    """Like ``_stub_extractor`` but records every ``invoke`` kwargs dict
+    into a list the test can assert on. Returns ``(extractor, captures)``."""
+    extractor = IntentExtractor()
+    captures: list[dict[str, Any]] = []
+
+    async def _invoke(**kwargs: Any) -> Invocation:
+        captures.append(kwargs)
+        return Invocation(
+            client=None,
+            model="anthropic:claude-haiku-4-5",
+            context=None,
+            output=intent,
+            trace=None,
+            usage=TokenUsage(),
+        )
+
+    extractor.invoke = _invoke  # ty: ignore[invalid-assignment]
+    return extractor, captures
+
+
+class _FakeMemory:
+    """Minimal SessionMemory stand-in for ``_corpus_size_from_memory``.
+
+    AgentLoop only touches ``has_section`` + ``section_item_count`` for
+    the helper; everything else stays unused on the prepare_turn path
+    (Phase 2 hydration is pass-through, the loop accepts whatever
+    SessionMemory the caller provided).
+    """
+
+    def __init__(self, *, has_documents: bool, count: int = 0) -> None:
+        self._has = has_documents
+        self._count = count
+        self.turn_count = 0
+
+    def has_section(self, section: Any) -> bool:
+        from kaos_agents.types.memory import MemoryType
+
+        return section == MemoryType.DOCUMENTS and self._has
+
+    def section_item_count(self, section: Any) -> int:
+        from kaos_agents.types.memory import MemoryType
+
+        if section == MemoryType.DOCUMENTS and self._has:
+            return self._count
+        return 0
+
+
+class TestCorpusSizeFromMemory:
+    """Pure-function coverage for the static helper."""
+
+    def test_none_memory_returns_zero(self) -> None:
+        assert AgentLoop._corpus_size_from_memory(None) == 0
+
+    def test_memory_without_documents_section_returns_zero(self) -> None:
+        mem = _FakeMemory(has_documents=False)
+        assert AgentLoop._corpus_size_from_memory(mem) == 0  # ty: ignore[invalid-argument-type]
+
+    def test_memory_with_empty_documents_section_returns_zero(self) -> None:
+        mem = _FakeMemory(has_documents=True, count=0)
+        assert AgentLoop._corpus_size_from_memory(mem) == 0  # ty: ignore[invalid-argument-type]
+
+    def test_memory_with_documents_returns_count(self) -> None:
+        mem = _FakeMemory(has_documents=True, count=7)
+        assert AgentLoop._corpus_size_from_memory(mem) == 7  # ty: ignore[invalid-argument-type]
+
+
+class TestPrepareTurnThreadsCorpusInputs:
+    """End-to-end (prepare_turn) coverage: corpus_attached + corpus_size
+    must reach ``IntentExtractor.invoke``."""
+
+    async def test_no_memory_passes_false_and_zero(self) -> None:
+        intent = _intent()
+        extractor, captures = _capturing_extractor(intent)
+        loop = AgentLoop(intent_extractor=extractor)
+        trigger = MCPToolTrigger("hi", session_id="s-no-mem")
+        await loop.prepare_turn(trigger)
+        assert len(captures) == 1
+        assert captures[0]["corpus_attached"] is False
+        assert captures[0]["corpus_size"] == 0
+
+    async def test_memory_with_corpus_passes_true_and_count(self) -> None:
+        intent = _intent()
+        extractor, captures = _capturing_extractor(intent)
+        mem = _FakeMemory(has_documents=True, count=3)
+        loop = AgentLoop(intent_extractor=extractor, memory=mem)  # ty: ignore[invalid-argument-type]
+        trigger = MCPToolTrigger("summarize that", session_id="s-corpus")
+        await loop.prepare_turn(trigger)
+        assert len(captures) == 1
+        assert captures[0]["corpus_attached"] is True
+        assert captures[0]["corpus_size"] == 3
+
+    async def test_memory_with_empty_corpus_passes_false_and_zero(self) -> None:
+        # has_section=True but section_item_count=0 (e.g., a session
+        # that uploaded a file then cleared it).
+        intent = _intent()
+        extractor, captures = _capturing_extractor(intent)
+        mem = _FakeMemory(has_documents=True, count=0)
+        loop = AgentLoop(intent_extractor=extractor, memory=mem)  # ty: ignore[invalid-argument-type]
+        trigger = MCPToolTrigger("hi", session_id="s-empty-corpus")
+        await loop.prepare_turn(trigger)
+        assert captures[0]["corpus_attached"] is False
+        assert captures[0]["corpus_size"] == 0
+
+
+# ---------------------------------------------------------------------------
 # forward — happy paths
 # ---------------------------------------------------------------------------
 

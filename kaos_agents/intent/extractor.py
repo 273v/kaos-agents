@@ -125,6 +125,12 @@ class IntentExtractor(Program):
         * ``message`` — required: the user's natural-language request.
         * ``recent_messages`` — optional: flattened conversation context.
         * ``domain_examples`` — optional: calibration examples (paper §3.5).
+        * ``corpus_attached`` — optional, default ``False``: whether the
+          session has documents in memory (SessionMemory.DOCUMENTS).
+          When ``True`` the classifier prefers RESEARCH for indirect
+          document references (IntentSignature rule 6).
+        * ``corpus_size`` — optional, default ``0``: document count in
+          the corpus, calibration signal for rule 6.
 
         The projection is non-destructive: the IntentSignature output's
         fields land verbatim on the IntentResult, plus ``raw_input`` is
@@ -140,10 +146,14 @@ class IntentExtractor(Program):
         message = kwargs["message"]
         recent_messages = kwargs.get("recent_messages", "")
         domain_examples = kwargs.get("domain_examples", "")
+        corpus_attached = bool(kwargs.get("corpus_attached", False))
+        corpus_size = int(kwargs.get("corpus_size", 0))
         invocation = await self._call.invoke(
             message=message,
             recent_messages=recent_messages,
             domain_examples=domain_examples,
+            corpus_attached=corpus_attached,
+            corpus_size=corpus_size,
         )
         return _project_signature_output(invocation.output, raw_input=message)
 
