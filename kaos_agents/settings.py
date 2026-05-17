@@ -409,6 +409,40 @@ class KaosAgentSettings(ModuleSettings):
         ),
     )
 
+    # Stage B4 — caps promoted from kaos_agents/_constants.py to typed,
+    # env-overridable settings (per the
+    # no-hardcoded-caps-and-artifact-first-tool-results plan, principle 4).
+    # These are LLM-context guards and UI-preview limits, not data-loss caps —
+    # the artifact tier system in kaos-core handles the data-loss case.
+    result_summary_max_chars: int = Field(
+        default=200,
+        ge=1,
+        description=(
+            "Max chars for step/tool result summaries in events and memory. "
+            "Was RESULT_SUMMARY_TRUNCATE; promoted to settings in 0.1.0a12. "
+            "Env override: KAOS_AGENT_RESULT_SUMMARY_MAX_CHARS."
+        ),
+    )
+    eval_result_max_chars: int = Field(
+        default=2_000,
+        ge=1,
+        description=(
+            "Max chars for the result text passed to the semantic evaluator "
+            "LLM. Was EVAL_RESULT_MAX_CHARS; promoted to settings in 0.1.0a12. "
+            "Env override: KAOS_AGENT_EVAL_RESULT_MAX_CHARS."
+        ),
+    )
+    rerank_passage_max_chars: int = Field(
+        default=2_000,
+        ge=1,
+        description=(
+            "Max chars per passage fed to the cross-encoder reranker. "
+            "Was _RERANK_PASSAGE_TRUNCATE in kaos_agents/tools/retrieval.py; "
+            "promoted to settings in 0.1.0a12. "
+            "Env override: KAOS_AGENT_RERANK_PASSAGE_MAX_CHARS."
+        ),
+    )
+
     model_config = SettingsConfigDict(
         env_prefix="KAOS_AGENT_",
         env_file=".env",

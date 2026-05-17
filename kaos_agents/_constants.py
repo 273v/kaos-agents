@@ -11,17 +11,15 @@ from __future__ import annotations
 
 # --- Truncation limits for LLM context and log display ---
 
-RESULT_SUMMARY_TRUNCATE = 200
-"""Max chars for step/tool result summaries in events and memory."""
+# Stage B4: RESULT_SUMMARY_TRUNCATE + EVAL_RESULT_MAX_CHARS promoted to
+# KaosAgentSettings.result_summary_max_chars / .eval_result_max_chars
+# (env override: KAOS_AGENT_*) per the no-hardcoded-caps plan principle 4.
 
 REFLECTION_GOAL_TRUNCATE = 100
 """Max chars for goal text in reflection memory entries."""
 
 SYNTHESIS_RESULT_TRUNCATE = 300
 """Max chars for per-step results in plan synthesis."""
-
-EVAL_RESULT_MAX_CHARS = 2000
-"""Max chars for result text passed to the semantic evaluator LLM."""
 
 EVAL_CONTEXT_MAX_CHARS = 1000
 """Max chars for additional context passed to the semantic evaluator LLM."""

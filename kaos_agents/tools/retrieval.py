@@ -837,8 +837,9 @@ class EvaluateCoverageTool(KaosTool):
         )
 
 
-_RERANK_PASSAGE_TRUNCATE = 2000  # Max chars per passage for cross-encoder
 _RERANK_MIN_CANDIDATES = 5  # Don't rerank fewer than this
+# Stage B4: per-passage truncation moved to KaosAgentSettings.rerank_passage_max_chars
+# (env override: KAOS_AGENT_RERANK_PASSAGE_MAX_CHARS).
 
 
 class RerankTool(KaosTool):
@@ -969,9 +970,13 @@ class RerankTool(KaosTool):
             )
             reranker = CrossEncoderReranker.load()
 
+            from kaos_agents.settings import KaosAgentSettings
+
+            settings = KaosAgentSettings.from_context(context)
+            passage_truncate = settings.rerank_passage_max_chars
             retrieval_results = [
                 RetrievalResult(
-                    text=c.content[:_RERANK_PASSAGE_TRUNCATE],
+                    text=c.content[:passage_truncate],
                     score=c.score,
                     doc_id=c.item_id,
                 )

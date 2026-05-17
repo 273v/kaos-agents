@@ -8,6 +8,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [0.1.0a12] — 2026-05-17
+
+### Changed — promote LLM-context caps to env-overridable settings
+
+Stage B4 (partial) of the cross-package
+`no-hardcoded-caps-and-artifact-first-tool-results` plan in the
+kaos-modules monorepo. Moves three module-level constants out of
+`_constants.py` and `tools/retrieval.py` into typed fields on
+`KaosAgentSettings`, per the plan's architectural principle 4
+("Typed module settings"). These caps are LLM-context guards and
+UI-preview limits, not data-loss caps — the artifact tier system in
+kaos-core handles the data-loss case — but they're configuration and
+should be env-overridable per deployment.
+
+**New settings fields** (`KaosAgentSettings`, env prefix
+`KAOS_AGENT_`):
+
+| Field | Default | Was |
+|---|---|---|
+| `result_summary_max_chars` | 200 | `RESULT_SUMMARY_TRUNCATE` in `_constants.py` |
+| `eval_result_max_chars` | 2000 | `EVAL_RESULT_MAX_CHARS` in `_constants.py` |
+| `rerank_passage_max_chars` | 2000 | `_RERANK_PASSAGE_TRUNCATE` in `tools/retrieval.py` |
+
+Env-var overrides:
+
+```bash
+export KAOS_AGENT_RESULT_SUMMARY_MAX_CHARS=400
+export KAOS_AGENT_EVAL_RESULT_MAX_CHARS=4000
+export KAOS_AGENT_RERANK_PASSAGE_MAX_CHARS=4000
+```
+
+**Call-site migrations** (no behavior change at default values):
+
+- `runtime/runner.py:641` — `result_text[:RESULT_SUMMARY_TRUNCATE]`
+  → `result_text[: self._settings.result_summary_max_chars]`; import
+  dropped.
+- `patterns/plan_execute.py:341, 352` — same `str(step_result)`
+  truncation now uses `self._settings.result_summary_max_chars`;
+  import dropped.
+- `tools/retrieval.py:974` — `RerankTool.execute` now resolves
+  `KaosAgentSettings.from_context(context).rerank_passage_max_chars`
+  at call time, so per-request `_meta.kaos_config` overrides take
+  effect.
+
+**Deletions** (no behavior change at default values):
+
+- `kaos_agents/_constants.py`: `RESULT_SUMMARY_TRUNCATE` +
+  `EVAL_RESULT_MAX_CHARS` deleted (replaced with an explanatory
+  comment pointing at `KaosAgentSettings`).
+- `kaos_agents/tools/retrieval.py`: `_RERANK_PASSAGE_TRUNCATE` deleted
+  (replaced with explanatory comment).
+
+### Deferred to a follow-up release
+
+`ArtifactToCorpusHook` (Stage B4 part 2) — the auto-promote-text-ish-
+artifacts-into-SessionMemory.DOCUMENTS hook. The hook is a new
+feature that deserves its own design iteration: dedupe semantics,
+mime-type policy, and per-session cost implications need shakedown
+before flipping `auto_corpus_from_artifacts=True` becomes the
+default. Stage C (kaos-ui SPA artifact rendering) does NOT depend on
+the hook — Stage C reads `artifact_id` from
+`ToolCallSummary.structured_content` which is already produced by
+Stage B2 (kaos-source 0.1.0a7) and Stage B3 (kaos-web 0.1.0a5).
+
+### Constants audit
+
+```bash
+$ git grep -E 'RESULT_SUMMARY_TRUNCATE|EVAL_RESULT_MAX_CHARS|_RERANK_PASSAGE_TRUNCATE' kaos_agents/
+# Only doc-string mentions in settings.py + an explanatory comment in
+# _constants.py; no production callsites.
+```
+
+### Dependencies
+
+No version pin changes.
+
+
 ## [0.1.0a11] — 2026-05-17
 
 ### Fixed — ``PatternMismatch`` event now reaches the yielded stream, not just in-process collectors (#42)
