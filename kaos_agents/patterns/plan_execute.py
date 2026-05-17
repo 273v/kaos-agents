@@ -44,7 +44,7 @@ from kaos_agents.types import (
     ToolExecution,
 )
 from kaos_agents.types.memory import MemoryType
-from kaos_agents.types.plan import StopReason
+from kaos_agents.types.plan import ComposeResult, StopReason
 
 if TYPE_CHECKING:
     from kaos_core.base.context import KaosContext
@@ -380,21 +380,25 @@ class PlanExecuteAgent(ChatAgent):
                 reason=f"Plan budget {kind} exceeded after {result.steps_executed} step(s)",
             )
 
-        # Emit final response text
-        if result.stop_reason == StopReason.SUCCESS and result.step_results:
-            response = _synthesize_results(result.step_results)
-        elif result.stop_reason == StopReason.SUCCESS:
-            response = "Plan completed but no results were produced."
-        else:
-            response = (
-                f"Plan execution stopped: {result.stop_reason.value}. "
-                f"Completed {result.steps_executed} steps."
-            )
-            memory.add(
-                MemoryType.REFLECTION,
-                f"Plan failed ({result.stop_reason.value}) for goal: {message[:100]}. "
-                f"Steps completed: {result.steps_executed}.",
-            )
+        # Emit final response text via the pure formatter (kept side-effect
+        # free so tests/unit/test_plan_response_formatter.py can exercise
+        # every branch without spinning up Agent + Runner). Reflection
+        # writes stay inline because they need ``message`` + ``memory``,
+        # which are runtime-scoped.
+        response = _format_plan_response(result)
+        if result.stop_reason != StopReason.SUCCESS:
+            if result.step_results:
+                memory.add(
+                    MemoryType.REFLECTION,
+                    f"Plan stopped early ({result.stop_reason.value}) for goal: "
+                    f"{message[:100]}. Steps completed: {result.steps_executed}.",
+                )
+            else:
+                memory.add(
+                    MemoryType.REFLECTION,
+                    f"Plan failed ({result.stop_reason.value}) for goal: {message[:100]}. "
+                    f"Steps completed: {result.steps_executed}.",
+                )
 
         if response:
             yield emitter.emit(TextDelta, content=response)
@@ -474,3 +478,47 @@ def _synthesize_results(results: dict[str, Any]) -> str:
     if parts:
         return "Plan completed with the following results:\n\n" + "\n\n".join(parts)
     return "Plan completed but results were empty or all errored."
+
+
+def _format_plan_response(result: ComposeResult) -> str:
+    """Render the user-visible response text for a finished ComposeResult.
+
+    Pure function: depends only on the ``ComposeResult``, no I/O. Kept
+    side-effect free so the four branches (success-with-results,
+    success-empty, stopped-with-partials, stopped-empty) are unit
+    testable without spinning up an Agent.
+
+    Branch coverage:
+
+    * ``stop_reason == SUCCESS`` + non-empty ``step_results`` →
+      ``_synthesize_results(...)`` directly.
+    * ``stop_reason == SUCCESS`` + empty ``step_results`` →
+      ``"Plan completed but no results were produced."``
+    * ``stop_reason != SUCCESS`` + non-empty ``step_results`` → prepend
+      a ``_Plan stopped early (reason: X, N step(s) completed). Partial
+      findings:_`` notice then the synthesized findings. This is the
+      branch that previously emitted only the terse status line and
+      discarded everything the agent actually did (R1-REAL v2 matrix
+      Tests 3 & 7, 2026-05-17 — long-horizon FR/EDGAR research ran 3-5
+      tools then surfaced "Plan execution stopped: needs_replan.
+      Completed 3 steps." with zero findings to the user).
+    * ``stop_reason != SUCCESS`` + empty ``step_results`` → bare
+      ``"Plan execution stopped: <reason>. Completed N steps."``
+      (preserved for the no-progress case so callers can distinguish
+      "stopped with partial work" from "stopped with nothing").
+    """
+    if result.stop_reason == StopReason.SUCCESS:
+        if result.step_results:
+            return _synthesize_results(result.step_results)
+        return "Plan completed but no results were produced."
+
+    if result.step_results:
+        return (
+            f"_Plan stopped early (reason: {result.stop_reason.value}, "
+            f"{result.steps_executed} step(s) completed). Partial findings:_\n\n"
+            + _synthesize_results(result.step_results)
+        )
+    return (
+        f"Plan execution stopped: {result.stop_reason.value}. "
+        f"Completed {result.steps_executed} steps."
+    )
