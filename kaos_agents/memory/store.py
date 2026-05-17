@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import urllib.parse
 from pathlib import Path
 
 from kaos_core.logging import get_logger
@@ -30,10 +31,38 @@ logger = get_logger(__name__)
 # VFS path prefix for all agent sessions
 _SESSION_PREFIX = "kaos-agents/sessions"
 
+# Characters that are safe in a single path component on every OS we
+# target (Linux/macOS/Windows). Anything outside this set gets percent-
+# encoded by `_safe_component` so the disk-backed VFS can materialise the
+# directory on Windows, where ``:`` / ``<`` / ``>`` / ``"`` / ``|`` /
+# ``?`` / ``*`` are reserved. Hex digits in percent-escapes are uppercase
+# (urllib default) so the encoding is canonical and round-trips cleanly.
+_SAFE_PATH_CHARS = "-_.~"
+
+
+def _safe_component(name: str) -> str:
+    """Encode ``name`` so it can be used as one VFS path component on any OS.
+
+    Tenant-scoped session ids use ``<tenant>:<session>`` (see
+    ``scope_session_id``), and the ``:`` is reserved on the Windows
+    filesystem (alternate data streams). The disk backend would happily
+    write ``./.kaos-vfs/.../sessions/<tenant>:<session>/memory.json`` on
+    POSIX and fail with ``NotADirectoryError`` on Windows. Percent-
+    encoding via :func:`urllib.parse.quote` keeps the disk path valid
+    everywhere; the encoding is bijective so ``_unsafe_component``
+    recovers the original ``session_id`` for ``list_sessions``.
+    """
+    return urllib.parse.quote(name, safe=_SAFE_PATH_CHARS)
+
+
+def _unsafe_component(encoded: str) -> str:
+    """Inverse of :func:`_safe_component` — recover the original id."""
+    return urllib.parse.unquote(encoded)
+
 
 def _session_path(session_id: str) -> str:
     """VFS path for a session's memory snapshot."""
-    return f"{_SESSION_PREFIX}/{session_id}/memory.json"
+    return f"{_SESSION_PREFIX}/{_safe_component(session_id)}/memory.json"
 
 
 def _session_graph_path(session_id: str) -> str:
@@ -41,10 +70,10 @@ def _session_graph_path(session_id: str) -> str:
 
     Track 3 chunk B1 — the per-session knowledge graph persists alongside
     the JSON memory snapshot. Both files live under
-    ``{_SESSION_PREFIX}/{session_id}/`` so a session is one directory in
-    VFS that carries everything (memory + graph).
+    ``{_SESSION_PREFIX}/{_safe_component(session_id)}/`` so a session is
+    one directory in VFS that carries everything (memory + graph).
     """
-    return f"{_SESSION_PREFIX}/{session_id}/graph.ttl"
+    return f"{_SESSION_PREFIX}/{_safe_component(session_id)}/graph.ttl"
 
 
 async def _atomic_write(vfs: VirtualFileSystem, path: str, data: bytes) -> None:
@@ -295,12 +324,16 @@ class SessionStore:
     async def list_sessions(self) -> list[str]:
         """List all saved session IDs."""
         paths = await self._vfs.list(f"{_SESSION_PREFIX}/")
-        # Extract session_id from paths like "kaos-agents/sessions/{id}/memory.json"
+        # Extract session_id from paths like
+        # "kaos-agents/sessions/{encoded_id}/memory.json". The directory
+        # name is percent-encoded by _safe_component so the disk-backed
+        # VFS can land it on Windows; we decode here to return the
+        # caller-supplied session_id verbatim.
         session_ids = []
         for path in paths:
             parts = path.strip("/").split("/")
             if len(parts) >= 3 and parts[-1] == "memory.json":
-                session_ids.append(parts[-2])
+                session_ids.append(_unsafe_component(parts[-2]))
         return session_ids
 
     async def load_or_create(

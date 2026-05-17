@@ -7,7 +7,13 @@ from kaos_core.vfs.core import VirtualFileSystem
 
 from kaos_agents.errors import SessionCorruptedError, SessionNotFoundError
 from kaos_agents.memory.session import SessionMemory
-from kaos_agents.memory.store import SessionStore
+from kaos_agents.memory.store import (
+    SessionStore,
+    _safe_component,
+    _session_graph_path,
+    _session_path,
+    _unsafe_component,
+)
 from kaos_agents.types.memory import MemoryType
 
 
@@ -352,3 +358,80 @@ class TestMultiTurnPersistence:
         assert final.section_item_count(MemoryType.FINDINGS) == 5
         # Messages may have been evicted if over budget, but some should remain
         assert final.section_item_count(MemoryType.MESSAGES) > 0
+
+
+class TestSessionPathEncoding:
+    """Cross-platform safety for the on-disk path component.
+
+    Tenant-scoped session ids use ``<tenant>:<session>`` and ``:`` is a
+    reserved character on the Windows filesystem (NTFS alternate data
+    streams). The disk backend would write ``./.kaos-vfs/.../<tenant>:
+    <session>/memory.json`` happily on POSIX and fail with
+    ``NotADirectoryError`` on Windows. ``_safe_component`` percent-
+    encodes the reserved set so the on-disk path is valid on every
+    OS we target; ``_unsafe_component`` is its inverse so
+    ``list_sessions`` returns the caller-supplied id verbatim.
+    """
+
+    def test_plain_id_is_unchanged(self) -> None:
+        assert _safe_component("plain-id_1.2~3") == "plain-id_1.2~3"
+
+    def test_colon_is_encoded(self) -> None:
+        # The tenant-scoping separator must not survive into the path
+        # because Windows rejects ``:`` in filename components.
+        assert _safe_component("tenant:session") == "tenant%3Asession"
+        assert ":" not in _safe_component("tenant:session")
+
+    def test_windows_reserved_chars_are_encoded(self) -> None:
+        # Per https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file
+        for ch in '<>:"|?*\\':
+            encoded = _safe_component(f"a{ch}b")
+            assert ch not in encoded, f"{ch!r} must be percent-encoded in {encoded!r}"
+
+    def test_roundtrip(self) -> None:
+        for original in (
+            "plain",
+            "tenant:session",
+            "with spaces",
+            "with/slash",
+            "weird<>chars",
+            "1234567890abcdef:my-session",
+        ):
+            assert _unsafe_component(_safe_component(original)) == original
+
+    def test_session_path_uses_safe_component(self) -> None:
+        path = _session_path("575525f04c94:my-session")
+        assert ":" not in path
+        assert path == "kaos-agents/sessions/575525f04c94%3Amy-session/memory.json"
+
+    def test_session_graph_path_uses_safe_component(self) -> None:
+        path = _session_graph_path("575525f04c94:my-session")
+        assert ":" not in path
+        assert path == "kaos-agents/sessions/575525f04c94%3Amy-session/graph.ttl"
+
+    async def test_save_load_with_tenant_scoped_id(self, store: SessionStore) -> None:
+        # The exact ``<hex>:<name>`` shape the API tier produces.
+        # On Windows this used to fail with NotADirectoryError; the
+        # safe-component encoding fixes it without changing the
+        # caller-supplied id.
+        scoped_id = "575525f04c94:my-session"
+        mem = SessionMemory(scoped_id)
+        mem.add(MemoryType.MESSAGES, "tenant-scoped hello")
+        mem.end_turn()
+        await store.save(mem)
+
+        loaded = await store.load(scoped_id)
+        assert loaded.session_id == scoped_id
+        assert loaded.section_item_count(MemoryType.MESSAGES) == 1
+
+    async def test_list_sessions_returns_decoded_ids(self, store: SessionStore) -> None:
+        # The directory on disk is encoded but list_sessions must
+        # return the original id, not the percent-escaped form.
+        scoped_id = "575525f04c94:list-me"
+        mem = SessionMemory(scoped_id)
+        mem.add(MemoryType.MESSAGES, "hello")
+        await store.save(mem)
+
+        ids = await store.list_sessions()
+        assert scoped_id in ids
+        assert "575525f04c94%3Alist-me" not in ids
