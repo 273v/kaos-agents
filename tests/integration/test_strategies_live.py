@@ -73,6 +73,11 @@ class TestDecomposeStrategy:
             StopReason.SUCCESS,
             StopReason.FAILURE,
             StopReason.NEEDS_REPLAN,
+            # 0.1.0a7: decompose now promotes NEEDS_REPLAN → MAX_REPLANS
+            # when the replan budget is exhausted, so live runs that
+            # never converge surface as MAX_REPLANS rather than the
+            # generic NEEDS_REPLAN status the strategy used to leak.
+            StopReason.MAX_REPLANS,
         )
 
 
@@ -106,6 +111,11 @@ class TestAdaptiveStrategy:
             StopReason.SUCCESS,
             StopReason.FAILURE,
             StopReason.NEEDS_REPLAN,
+            # 0.1.0a7: decompose now promotes NEEDS_REPLAN → MAX_REPLANS
+            # when the replan budget is exhausted, so live runs that
+            # never converge surface as MAX_REPLANS rather than the
+            # generic NEEDS_REPLAN status the strategy used to leak.
+            StopReason.MAX_REPLANS,
         )
 
     async def test_budget_respected(self):
