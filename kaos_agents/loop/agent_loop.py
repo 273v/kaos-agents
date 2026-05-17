@@ -273,10 +273,20 @@ class AgentLoop(Program):
         # 5. Classify intent. Use the kaos-llm-core Call surface via
         #    ``IntentExtractor.invoke`` so callers get the full
         #    Invocation (trace, usage) for cost attribution.
+        #
+        #    ``corpus_attached`` + ``corpus_size`` feed
+        #    IntentSignature rule 6 (indirect document references
+        #    when a corpus is attached → RESEARCH). Computed from the
+        #    live SessionMemory.DOCUMENTS snapshot so the classifier
+        #    can resolve "summarize that" / "the file" / "extract
+        #    terms" follow-ups without losing corpus context.
+        corpus_size = self._corpus_size_from_memory(memory)
         intent_invocation = await self._intent_extractor.invoke(
             message=message,
             recent_messages=self._recent_messages_summary(memory),
             domain_examples="",
+            corpus_attached=corpus_size > 0,
+            corpus_size=corpus_size,
         )
         intent: IntentResult = intent_invocation.output
 
@@ -663,6 +673,27 @@ class AgentLoop(Program):
         empty string keeps the extractor's signature happy.
         """
         return ""
+
+    @staticmethod
+    def _corpus_size_from_memory(memory: SessionMemory | None) -> int:
+        """Document count from ``SessionMemory.DOCUMENTS`` for the
+        IntentExtractor's ``corpus_attached`` / ``corpus_size`` inputs.
+
+        Returns ``0`` when memory is ``None`` or has no DOCUMENTS
+        section, which makes ``corpus_attached`` evaluate to ``False``
+        upstream and preserves the pre-existing behavior for sessions
+        with no attached corpus.
+
+        Cheap (single ``section_item_count`` call, no I/O); safe to run
+        on every turn.
+        """
+        from kaos_agents.types.memory import MemoryType
+
+        if memory is None:
+            return 0
+        if not memory.has_section(MemoryType.DOCUMENTS):
+            return 0
+        return int(memory.section_item_count(MemoryType.DOCUMENTS))
 
     # ------------------------------------------------------------------
     # Phase 4.D wiring helpers

@@ -281,6 +281,83 @@ class TestIntentExtractorForward:
         assert invocation.output.raw_input == "hi"
 
 
+class TestIntentExtractorCorpusAttached:
+    """Verify ``corpus_attached`` / ``corpus_size`` thread cleanly into
+    the inner Call.invoke kwargs.
+
+    The projection layer is unaffected — these are pure inputs to the
+    IntentSignature (rule 6) and do not appear on the IntentResult. The
+    LLM is responsible for honoring rule 6 ("indirect document
+    references with corpus attached → RESEARCH"); these tests only
+    verify the wiring, not the model behavior. Live tests in
+    tests/integration/intent/ cover the model behavior with real LLM
+    calls.
+    """
+
+    @pytest.mark.asyncio
+    async def test_defaults_when_not_passed(self):
+        ex = IntentExtractor()
+        sig_out = _make_signature()
+        mock = _stub_call_with(ex, sig_out)
+        await ex.forward(message="hello")
+        await_args = mock.await_args
+        assert await_args is not None
+        kwargs = await_args.kwargs
+        # Defaults preserve pre-existing behavior for sessions with no
+        # attached corpus.
+        assert kwargs["corpus_attached"] is False
+        assert kwargs["corpus_size"] == 0
+
+    @pytest.mark.asyncio
+    async def test_passes_corpus_attached_true_with_size(self):
+        ex = IntentExtractor()
+        sig_out = _make_signature()
+        mock = _stub_call_with(ex, sig_out)
+        await ex.forward(message="summarize that", corpus_attached=True, corpus_size=3)
+        await_args = mock.await_args
+        assert await_args is not None
+        kwargs = await_args.kwargs
+        assert kwargs["corpus_attached"] is True
+        assert kwargs["corpus_size"] == 3
+
+    @pytest.mark.asyncio
+    async def test_corpus_inputs_coerced_to_bool_and_int(self):
+        # Defensive coercion — callers might hand back numpy ints or
+        # truthy/falsy non-bool sentinels; forward() must normalise so
+        # the Signature validator never sees an unexpected type.
+        ex = IntentExtractor()
+        sig_out = _make_signature()
+        mock = _stub_call_with(ex, sig_out)
+        await ex.forward(message="x", corpus_attached=1, corpus_size="5")
+        await_args = mock.await_args
+        assert await_args is not None
+        kwargs = await_args.kwargs
+        assert kwargs["corpus_attached"] is True
+        assert isinstance(kwargs["corpus_attached"], bool)
+        assert kwargs["corpus_size"] == 5
+        assert isinstance(kwargs["corpus_size"], int)
+
+
+class TestIntentSignatureCorpusInputs:
+    """The Signature itself must accept the new inputs with defaults."""
+
+    def test_defaults_when_omitted(self):
+        sig = _make_signature()
+        assert sig.corpus_attached is False
+        assert sig.corpus_size == 0
+
+    def test_accepts_corpus_attached_true(self):
+        sig = _make_signature(corpus_attached=True, corpus_size=12)
+        assert sig.corpus_attached is True
+        assert sig.corpus_size == 12
+
+    def test_corpus_size_must_be_non_negative(self):
+        # ``ge=0`` on the InputField — a negative count is a programming
+        # error, surface it rather than silently coercing.
+        with pytest.raises(Exception):  # noqa: B017 (pydantic ValidationError)
+            _make_signature(corpus_size=-1)
+
+
 class TestProjectSignatureOutput:
     """Direct tests for the projection helper used by IntentExtractor.forward."""
 
