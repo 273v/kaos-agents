@@ -128,7 +128,6 @@ async def execute_adaptive(
     max_steps: int = 8,
     parallel: bool = True,
     confidence_threshold: float | None = None,
-    deepen_threshold: float | None = None,
     tool_timeout_seconds: float = 60.0,
     n_documents: int = 0,
     intent_confidence: float | None = None,
@@ -184,7 +183,6 @@ async def execute_adaptive(
                 max_steps=max_steps,
                 parallel=parallel,
                 confidence_threshold=confidence_threshold,
-                deepen_threshold=deepen_threshold,
                 tool_timeout_seconds=tool_timeout_seconds,
             )
         return result
@@ -201,6 +199,5 @@ async def execute_adaptive(
         max_steps=max_steps,
         parallel=parallel,
         confidence_threshold=confidence_threshold,
-        deepen_threshold=deepen_threshold,
         tool_timeout_seconds=tool_timeout_seconds,
     )

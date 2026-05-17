@@ -148,12 +148,6 @@ class KaosAgentSettings(ModuleSettings):
         le=1.0,
         description="Below this confidence, Route triggers REPLAN.",
     )
-    deepen_threshold: float = Field(
-        default=0.3,
-        ge=0.0,
-        le=1.0,
-        description="Below this confidence, Route triggers DEEPEN instead of REPLAN.",
-    )
 
     # Planning: budget defaults — sized for realistic agentic tasks in 2026.
     # A real M&A deal-room review or regulatory research task can easily

@@ -96,7 +96,6 @@ class Decision(StrEnum):
 
     CONTINUE = "continue"  # Proceed to next ready step
     REPLAN = "replan"  # Current plan is invalid, re-expand
-    DEEPEN = "deepen"  # Current step too complex, expand into substeps
     ESCALATE = "escalate"  # Ask user for input
     STOP_SUCCESS = "stop_success"  # Goal achieved
     STOP_BUDGET = "stop_budget"  # Budget exhausted

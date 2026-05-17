@@ -24,7 +24,6 @@ logger = get_logger(__name__)
 # Defaults derived from settings to avoid duplication.
 # In production, callers should pass settings values explicitly.
 _DEFAULT_CONFIDENCE_THRESHOLD: float = _Settings.model_fields["confidence_threshold"].default
-_DEFAULT_DEEPEN_THRESHOLD: float = _Settings.model_fields["deepen_threshold"].default
 
 
 def route(
@@ -33,7 +32,6 @@ def route(
     *,
     replan_count: int = 0,
     confidence_threshold: float = _DEFAULT_CONFIDENCE_THRESHOLD,
-    deepen_threshold: float = _DEFAULT_DEEPEN_THRESHOLD,
     step_id: str | None = None,
 ) -> RouteResult:
     """Make a control flow decision based on judgment and budget.
@@ -43,7 +41,7 @@ def route(
     2. Max replans exceeded → STOP_FAILURE (circuit breaker)
     3. Step succeeded with high confidence → CONTINUE
     4. Step failed → REPLAN
-    5. Low confidence → DEEPEN or REPLAN based on threshold
+    5. Step succeeded with low confidence → REPLAN
     6. Default → CONTINUE
 
     Args:
@@ -51,11 +49,21 @@ def route(
         budget: Current resource consumption and limits.
         replan_count: How many times we've replanned (for circuit breaker).
         confidence_threshold: Below this, consider replanning.
-        deepen_threshold: Below this, deepen instead of replan.
         step_id: Which step triggered this decision (for logging).
 
     Returns:
         RouteResult with decision and rationale.
+
+    Note:
+        The DEEPEN decision and its ``deepen_threshold`` argument were
+        removed in kaos-agents 0.1.0a9 — both branches collapsed to the
+        same ``REPLAN`` behavior in ``compose`` (see compose.py:178 on
+        ``main`` pre-0.1.0a9: ``if decision.decision in (Decision.REPLAN,
+        Decision.DEEPEN)``), so DEEPEN was a confusing alias rather than
+        a distinct control-flow path. A future ADaPT-style implementation
+        that substep-decomposes the failed step (via
+        ``PlanGraph.insert_subplan``) can re-introduce the distinction
+        with non-trivial semantics.
     """
     # Validate confidence is in [0, 1] — catch upstream bugs early
     if not 0.0 <= judgment.confidence <= 1.0:
@@ -105,17 +113,7 @@ def route(
         logger.debug("route: %s — %s", result.decision.value, result.reason)
         return result
 
-    # 5. Low confidence — deepen or replan
-    if judgment.confidence < deepen_threshold:
-        result = RouteResult(
-            decision=Decision.DEEPEN,
-            reason=f"Very low confidence ({judgment.confidence:.2f}): "
-            f"step may be too complex. Decomposing into substeps.",
-            step_id=step_id,
-        )
-        logger.debug("route: %s — %s", result.decision.value, result.reason)
-        return result
-
+    # 5. Step succeeded but low confidence → replan
     if judgment.confidence < confidence_threshold:
         result = RouteResult(
             decision=Decision.REPLAN,
