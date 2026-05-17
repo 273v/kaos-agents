@@ -441,8 +441,15 @@ def _cache_key(file_path: Path, chunk_size: int) -> str:
     ``contract.pdf`` → ``contract-final.pdf`` doesn't repay the parse
     cost. Including ``chunk_size`` means flipping ``--chunk-size`` is
     a clean miss instead of returning stale chunks at the wrong grain.
+
+    The separator is ``-`` rather than ``:`` so the key is safe to use
+    as a single Windows filename component — ``:`` is a reserved
+    character on NTFS (alternate data streams), and the cache key is
+    composed directly into ``<cache>/blobs/<key>.json``. Hex digits
+    plus ``-`` plus decimal digits stays within the safe set on every
+    OS we target.
     """
-    return f"{_hash_file_bytes(file_path)}:{chunk_size}"
+    return f"{_hash_file_bytes(file_path)}-{chunk_size}"
 
 
 def _cache_paths(cache_dir: Path, key: str) -> tuple[Path, Path]:

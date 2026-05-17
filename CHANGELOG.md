@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — disk-backed VFS + parse cache now work on Windows
+
+The 0.1.0a5 disk-VFS-default switch exposed two latent Windows
+filesystem bugs that the prior in-memory default had masked. Both
+fixes percent-encode (or substitute) the offending separator so the
+on-disk path component is valid on every OS we target.
+
+- **`SessionStore` session paths.** Tenant-scoped session ids use
+  ``<tenant>:<session>`` (see ``scope_session_id``), and the ``:``
+  is a reserved character on the Windows filesystem (NTFS alternate
+  data streams). The disk backend would write
+  ``./.kaos-vfs/.../sessions/<tenant>:<session>/memory.json``
+  happily on POSIX and fail with ``NotADirectoryError [WinError 267]``
+  on Windows. New ``_safe_component`` helper in
+  ``kaos_agents.memory.store`` percent-encodes the reserved set
+  via :func:`urllib.parse.quote` so the directory name is valid on
+  every OS; ``_unsafe_component`` is its inverse so
+  ``list_sessions`` returns the caller-supplied id verbatim. The
+  session id passed to ``save`` / ``load`` / ``exists`` / ``delete``
+  / ``list_sessions`` is unchanged.
+- **`kaos-agent chat` parse cache.** The cache key was
+  ``f"{sha256}:{chunk_size}"`` and was composed directly into a
+  filename (``<cache>/blobs/<key>.json``). On Windows the ``:``
+  broke the write silently, so the second run of the same corpus
+  found zero cached blobs and re-parsed every file. Separator is
+  now ``-`` (hex + dash + decimal stays within the safe set on
+  every OS). Existing local caches will miss once and rebuild.
+
+8 new regression tests in
+``tests/unit/test_store.py::TestSessionPathEncoding`` lock in the
+encoding invariants for ``:``, the full Windows reserved set
+(``< > : " | ? * \``), the roundtrip, and a tenant-scoped
+``save → load → list_sessions`` cycle. The existing 5
+``TestCacheRoundTrip`` cases continue to pass.
+
+Closes the kaos-agents CI Windows-x64 / Python 3.13 failures
+observed on PRs #19, #25, and #27 (``tests/unit/test_api_auth.py``
+``TestTenantScoping::test_same_tenant_round_trip``,
+``TestAuthBypassedEndpointsStillWork::test_send_message_with_token_200``,
+and ``tests/unit/test_cli_chat.py::TestCacheRoundTrip::test_hit_matches_miss``).
+
 
 ## [0.1.0a7] — 2026-05-17
 
