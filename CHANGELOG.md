@@ -7,7 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed — ``PatternMismatch`` event now reaches the yielded stream, not just in-process collectors
+
+## [0.1.0a11] — 2026-05-17
+
+### Fixed — ``PatternMismatch`` event now reaches the yielded stream, not just in-process collectors (#42)
 
 The 0.1.0a10 release shipped the dispatch redirect correctly (PLAN /
 RESEARCH intent on ``ChatAgent`` redirected through ``_handle_tool_use``
