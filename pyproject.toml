@@ -38,7 +38,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  "kaos-core>=0.1.0a6,<0.2",
+  "kaos-core>=0.1.0a10,<0.2",
   "kaos-content[markdown,html]>=0.1.0a6,<0.2",
   "kaos-graph>=0.1.0a3,<0.2",
   "kaos-nlp-core>=0.1.0a3,<0.2",

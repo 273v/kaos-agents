@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0a14] — 2026-05-17
+
+### Changed
+
+- **kaos-core floor raised to `>=0.1.0a10`** to pick up the URI
+  contract redesign (file://, vfs://, `context.default_vfs_namespace`).
+  Pass-through for kaos-agents internals — no synthetic bare-name
+  resolver calls in the agent runtime. See
+  `kaos-modules/docs/plans/uri-contract-redesign.md`.
+
 ## [0.1.0a13] — 2026-05-17
 
 ### Added — no-evidence refusal gate (P0 hallucination defence)
