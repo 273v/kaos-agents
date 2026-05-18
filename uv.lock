@@ -11,7 +11,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-05-15T02:54:05.530191246Z"
+exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
 exclude-newer-span = "PT72H"
 
 [options.exclude-newer-package]
@@ -1265,7 +1265,7 @@ wheels = [
 
 [[package]]
 name = "kaos-ml-core"
-version = "0.1.0a2"
+version = "0.1.0a3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "joblib" },
@@ -1276,13 +1276,13 @@ dependencies = [
     { name = "scikit-learn" },
     { name = "scipy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/93/e7/3b3315a5663baefaef8dcc294a08fd43dd25a3fd4954706264b59ad4d9cc/kaos_ml_core-0.1.0a2.tar.gz", hash = "sha256:cb3dde238dc043230c0d92ae2222d83b9d5db5ae2e37ae543dab2e26e69cc710", size = 225445, upload-time = "2026-05-11T01:12:10.12Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fc/69/25996dbe2ed3f949d61cd250a2dfd6cb9e73bc98dadc964081d161ec2206/kaos_ml_core-0.1.0a3.tar.gz", hash = "sha256:9f28dc50710932be00323d3fa3b99fee4bd292b17494cd7b174394e3aaf83f59", size = 213442, upload-time = "2026-05-16T21:05:30.155Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b1/ce/99b24f5e1001fd15d66d5b64493ea854735617976d86b19a351e5535a9c2/kaos_ml_core-0.1.0a2-cp313-abi3-macosx_11_0_arm64.whl", hash = "sha256:e4e81ce57a6acc496dd25452d2ce9a449f8c6086fe52b0584fc7e2d48c8c9f6b", size = 235048, upload-time = "2026-05-11T01:12:02.442Z" },
-    { url = "https://files.pythonhosted.org/packages/61/3e/18d2c810fb4c4e45f5a8c77889841c014a51513017b0aa7ceb8357b43c4c/kaos_ml_core-0.1.0a2-cp313-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:99e8b59dea35e57495ecb067fd43db2ffd040c2d2c87c0b4e90b380779b86046", size = 243024, upload-time = "2026-05-11T01:12:04.116Z" },
-    { url = "https://files.pythonhosted.org/packages/67/34/e5de86e21cb7017e26e3f61cbadd5bca170117fcc7516047002d7d01d2a1/kaos_ml_core-0.1.0a2-cp313-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:b1b1bd9f4fcd597a1ad449f1a0171214aa50db5f36965ce57acb5f36c922e904", size = 248617, upload-time = "2026-05-11T01:12:05.698Z" },
-    { url = "https://files.pythonhosted.org/packages/ef/97/34697d9875b5b3b7f7a6866bccec2702a208cff5a0242e6258724da86de3/kaos_ml_core-0.1.0a2-cp313-abi3-win_amd64.whl", hash = "sha256:13e7360e8b2a12934ded2beebba543b0371e1a2129ee470e25cce74e8c661202", size = 158096, upload-time = "2026-05-11T01:12:07.409Z" },
-    { url = "https://files.pythonhosted.org/packages/89/9d/a66ce407c76eb8b6637062bf3e886bbb0d0a4000efb9f179b8d07eed0f85/kaos_ml_core-0.1.0a2-cp313-abi3-win_arm64.whl", hash = "sha256:d8dd80c423cb7e406b4f55410460bc4b15bb6eb82d8230e1cde2706ca138514c", size = 156522, upload-time = "2026-05-11T01:12:08.909Z" },
+    { url = "https://files.pythonhosted.org/packages/5e/67/5e74b7836b0f2b8cdbd478646e973ae25e570685f637ead71e2bfabef76a/kaos_ml_core-0.1.0a3-cp313-abi3-macosx_11_0_arm64.whl", hash = "sha256:1fee5aba2938b6f7f0c9caa5b1b42c4a41f992a4936985e21b563883619feb2a", size = 234993, upload-time = "2026-05-16T21:05:21.815Z" },
+    { url = "https://files.pythonhosted.org/packages/78/7b/b559870e54cb2b948a6e9365418d349d050adda8d7bb0ae5bec059c8e850/kaos_ml_core-0.1.0a3-cp313-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:c7c3616d51dd29668b3d062abde7ee02ddd771d44f331a069b3031dd9a8afc42", size = 243018, upload-time = "2026-05-16T21:05:23.217Z" },
+    { url = "https://files.pythonhosted.org/packages/96/c7/cddd0eb430aae8084463f93993538f3c76b25a7f3a896604b7a40898c35e/kaos_ml_core-0.1.0a3-cp313-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:27960d2ec41bbf46cb33005b132a521a639f4aa8fe2cc14f2ef96e14c36d6baa", size = 248613, upload-time = "2026-05-16T21:05:24.465Z" },
+    { url = "https://files.pythonhosted.org/packages/e5/98/2674b614c6fa8ae30a71c4bb59228ac705ad1a8727195a65c227ed423b0c/kaos_ml_core-0.1.0a3-cp313-abi3-win_amd64.whl", hash = "sha256:7c848b4b6a070b4a9f15f4014a36914aba2f07bb712b3c25d296d20e2f5279b6", size = 158092, upload-time = "2026-05-16T21:05:26.368Z" },
+    { url = "https://files.pythonhosted.org/packages/15/4c/703853984949b036b1a733f022d18c6172d8da820b6067813284e1ed8cdf/kaos_ml_core-0.1.0a3-cp313-abi3-win_arm64.whl", hash = "sha256:02ddb227b5ae254e0e6bb0256857eb22ea76a54adf08b3491b587b4427787a7a", size = 156543, upload-time = "2026-05-16T21:05:28.118Z" },
 ]
 
 [[package]]
