@@ -11,7 +11,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-05-15T02:54:05.530191246Z"
+exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
 exclude-newer-span = "PT72H"
 
 [options.exclude-newer-package]
@@ -1338,16 +1338,16 @@ pptx = [
 
 [[package]]
 name = "kaos-pdf"
-version = "0.1.0a2"
+version = "0.1.0a6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "kaos-content", extra = ["images", "layout", "markdown"] },
     { name = "kaos-core" },
     { name = "pypdfium2" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/85/f2/dee3b93e4b407a5f4c2de14ab7ec0aa47c42ef1c3a0114f9a3c1b2584958/kaos_pdf-0.1.0a2.tar.gz", hash = "sha256:5f7ef5da746d93358e7438495de400609f1b82165c64e7383b417d1ee4d9e801", size = 61301, upload-time = "2026-05-08T12:43:10.191Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e4/5d/08f55e6929e9dbaa8bbf03b3606dd440bf5e3866b59a3c979e2796b6f869/kaos_pdf-0.1.0a6.tar.gz", hash = "sha256:f81f4e1545ff34a6e1ec8aa71fe01e1b88c869563bae80eb874fe5bac7342504", size = 67123, upload-time = "2026-05-18T03:07:09.132Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c6/19/993ebcf2aef590bb6388315a98f5d309dd861e12c714875453ac8d88e899/kaos_pdf-0.1.0a2-py3-none-any.whl", hash = "sha256:e880e1886291331acf68f4b562e7a42c7eae93d06f320735d4baabc8cccb68d6", size = 65441, upload-time = "2026-05-08T12:43:08.689Z" },
+    { url = "https://files.pythonhosted.org/packages/af/3f/cab1b4bf815711b15b8ada2e4df3d8d8e6d5f5f574368d5dbac8158bb386/kaos_pdf-0.1.0a6-py3-none-any.whl", hash = "sha256:4424f1a7d2d46d38962ea88ea1375d283c5967848ce5750068258292e016b490", size = 69637, upload-time = "2026-05-18T03:07:07.877Z" },
 ]
 
 [[package]]
