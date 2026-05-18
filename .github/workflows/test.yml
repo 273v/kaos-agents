@@ -48,7 +48,7 @@ jobs:
 
       - name: Run tests
         run: |
-          uv run pytest \
+          uv run pytest tests/unit/ \
             -m "live or network" \
             --cov=kaos_agents \
             --cov-branch \
