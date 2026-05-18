@@ -262,7 +262,7 @@ class TestInvariantsRealOutputs:
 
         contains_citation = StepInvariant(
             name="must-cite",
-            predicate=lambda text: "v." in text or "§" in text,
+            predicate=lambda text: "v." in text or "§" in text,  # ty: ignore[unsupported-operator]
             message_on_violation="Output must reference a case (X v. Y) or statute (§ ...).",
         )
         output = (
@@ -281,7 +281,7 @@ class TestInvariantsRealOutputs:
 
         contains_citation = StepInvariant(
             name="must-cite",
-            predicate=lambda text: "v." in text or "§" in text,
+            predicate=lambda text: "v." in text or "§" in text,  # ty: ignore[unsupported-operator]
             message_on_violation="Output must reference a case (X v. Y) or statute (§ ...).",
         )
         output = "Judicial review is the foundation of constitutional adjudication."
@@ -295,12 +295,12 @@ class TestInvariantsRealOutputs:
 
         inv1 = StepInvariant(
             name="non-empty",
-            predicate=lambda t: bool(t and t.strip()),
+            predicate=lambda t: bool(t and t.strip()),  # ty: ignore[unresolved-attribute]
             message_on_violation="Output must not be empty.",
         )
         inv2 = StepInvariant(
             name="under-500-chars",
-            predicate=lambda t: len(t) < 500,
+            predicate=lambda t: len(t) < 500,  # ty: ignore[invalid-argument-type]
             message_on_violation="Output must be under 500 chars.",
         )
         output = "Short."

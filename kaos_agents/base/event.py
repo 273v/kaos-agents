@@ -169,7 +169,11 @@ class KaosEvent(KaosModel):
                 ...
         """
         register = kwargs.pop("register", True)
-        super().__init_subclass__(**kwargs)
+        # ty 0.0.36 + pydantic 2.13's typed `Unpack[ConfigDict]` flag
+        # **kwargs forwarding here as incompatible; the runtime contract
+        # is unchanged. Suppress until a pydantic + ty release pair
+        # types this idiom cleanly.
+        super().__init_subclass__(**kwargs)  # ty: ignore[invalid-argument-type]
         if not register:
             return
         # Local import to avoid a circular dependency between
