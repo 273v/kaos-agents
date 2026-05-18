@@ -487,7 +487,7 @@ class TestTargetsProjection:
         # ``tuple[str, ...]`` parameter.
         raw_targets: tuple[Any, ...] = ("A.docx", 42, None, "A.docx")
         result = _project_signature_output(
-            self._stub_with_targets(raw_targets),  # ty: ignore[invalid-argument-type]
+            self._stub_with_targets(raw_targets),
             raw_input="x",
             corpus_headlines=headlines,
         )
