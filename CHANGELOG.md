@@ -7,6 +7,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0a15] — 2026-05-18
+
+### Added
+
+- **`IntentSignature.targets: tuple[str, ...]`** — new output field
+  that surfaces anaphora resolution as a typed signal. Populated
+  with corpus filenames the message references, drawn verbatim from
+  the new `corpus_headlines` input. Empty when the question is
+  non-corpus or has no specific corpus reference. The downstream
+  planner uses this to scope work; the critic uses it to verify the
+  answer covered the right files. See the IntentSignature class
+  docstring rule 7 for the full semantics and
+  `kaos-modules/docs/plans/persona-matrix-followups.md` §6.
+- **`IntentSignature.corpus_headlines: str`** — new input field
+  carrying a newline-separated list of attached-corpus filenames.
+  The IntentExtractor's `_coerce_targets` helper validates each
+  emitted `target` against this allow-list and silently drops
+  unknown filenames; the agent loop computes the headlines from
+  `SessionMemory.DOCUMENTS` on every turn.
+- **`IntentResult.targets: tuple[str, ...]`** — propagates the new
+  Signature output onto the Python-side value type so downstream
+  consumers (Planner, critic, Runner) can read it without going
+  through the Invocation.
+- **`AgentLoop._corpus_headlines_from_memory`** — static helper that
+  reads `SessionMemory.DOCUMENTS` metadata to produce the headline
+  string. The helper falls back to the first non-empty content line
+  when no filename metadata is present so the classifier still has
+  something to anchor on.
+
+### Changed
+
+- **IntentSignature docstring rule 7** — explicit instructions for
+  emitting `targets` (specific files / general references / no
+  corpus / corpus-adjacent but no specific target). All values
+  MUST appear verbatim in `corpus_headlines`; the extractor
+  rejects unknown filenames.
+- **IntentSignature docstring rule 8** — domain-conventional
+  shorthand (``GL`` for governing law, ``DD`` for due diligence,
+  ``RFI`` in procurement, ``10-K`` in finance, etc.) should be
+  resolved by the classifier rather than triggering
+  `requires_clarification`. Closes the over-refusal pattern from
+  the 2026-05-18 persona run where "GL on these 5" got a column
+  clarification request instead of an answer.
+- **`_GoalCheckerSignature` docstring** gains three new critic
+  shortcuts:
+    1. **Structural identifiers must come from tool data** — a
+       "Section 7" / "page 12" / "paragraph (b)" / "row 3"
+       citation that does not appear in any successful
+       tool result this turn is fabrication; return
+       `needs_more_work` with instructions to cite the heading
+       text or quoted clause instead. This is the critic-side
+       enforcement of the new `path` field on kaos-content
+       SearchResults and the upstream closure for the
+       section-number hallucination bug in the persona matrix.
+    2. **Speculative comparative qualifiers** — `standard`,
+       `unusual`, `typical`, `weird`, `common`, `rare`, etc.
+       require a tool-supplied baseline. Without one the
+       assertion is speculation; return `needs_more_work`.
+    3. **Domain-conventional shorthand is not ambiguity** — when
+       the user used a domain-conventional abbreviation and the
+       agent's response is a clarification request instead of an
+       answer, return `needs_more_work` with instructions to
+       interpret the shorthand. Critic-side mirror of
+       IntentSignature rule 8.
+
+### Plumbing
+
+- `IntentExtractor.forward` and `_project_signature_output` now
+  accept and validate `corpus_headlines`. Targets that don't match
+  the headline allow-list are dropped (with a `logger.debug` line
+  so model drift is visible). Empty allow-list rejects everything —
+  the "MUST appear verbatim" contract.
+- `AgentLoop.prepare_turn` passes the live `corpus_headlines` into
+  `IntentExtractor.invoke` on every turn, alongside the existing
+  `corpus_attached` / `corpus_size` signals.
+
 ## [0.1.0a14] — 2026-05-17
 
 ### Changed

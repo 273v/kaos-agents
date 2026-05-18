@@ -386,3 +386,121 @@ class TestProjectSignatureOutput:
 
         result = _project_signature_output(_LooseOutput(), raw_input="x")
         assert result.pattern is AgentPattern.RESEARCH
+
+
+class TestTargetsProjection:
+    """The ``targets`` output field surfaces anaphora resolution as a
+    typed signal. The projector validates emitted filenames against the
+    session's ``corpus_headlines``; unknown filenames are dropped so a
+    drifting model can't make downstream consumers act on bogus
+    filenames. See ``kaos-modules/docs/plans/persona-matrix-followups.md``
+    §6.
+    """
+
+    def _stub_with_targets(self, targets: tuple[str, ...]) -> Any:
+        """Build a minimal output object with a ``targets`` attribute
+        plus the projector's required fields.
+        """
+
+        class _Output:
+            def __init__(self) -> None:
+                self.goal = Goal(statement="x", intent_type=IntentType.RESPOND)
+                self.constraints: tuple = ()
+                self.ambiguities: tuple = ()
+                self.requires_clarification = False
+                self.pattern = AgentPattern.RESEARCH
+                self.confidence = 0.8
+                self.targets = targets
+
+        return _Output()
+
+    def test_targets_default_empty_for_no_corpus(self) -> None:
+        result = _project_signature_output(
+            self._stub_with_targets(()),
+            raw_input="what is 2+2?",
+            corpus_headlines="",
+        )
+        assert result.targets == ()
+
+    def test_targets_passthrough_when_in_allowlist(self) -> None:
+        headlines = "EMNA Mutual NDA.docx — 21.8 KB\nMNDA - Acme.docx — 20.9 KB"
+        result = _project_signature_output(
+            self._stub_with_targets(("EMNA Mutual NDA.docx", "MNDA - Acme.docx")),
+            raw_input="compare EMNA and Acme",
+            corpus_headlines=headlines,
+        )
+        assert result.targets == ("EMNA Mutual NDA.docx", "MNDA - Acme.docx")
+
+    def test_targets_drop_unknown_filenames(self) -> None:
+        """Model drift / fabrication is rejected silently — agent sees
+        the filtered list, but the unknown filenames never make it
+        downstream. The dropped names get a debug log line.
+        """
+        headlines = "EMNA Mutual NDA.docx — 21.8 KB"
+        result = _project_signature_output(
+            self._stub_with_targets(
+                ("EMNA Mutual NDA.docx", "Definitely Not An Attached File.pdf")
+            ),
+            raw_input="x",
+            corpus_headlines=headlines,
+        )
+        assert result.targets == ("EMNA Mutual NDA.docx",)
+
+    def test_targets_full_corpus_for_generic_reference(self) -> None:
+        """``summarize these`` expands to the full attached set —
+        the projector accepts each filename verbatim from the headlines.
+        """
+        headlines = (
+            "EMNA Mutual NDA.docx — 21.8 KB\nMNDA - Acme.docx — 20.9 KB\nMNDA - BI.docx — 20.9 KB"
+        )
+        result = _project_signature_output(
+            self._stub_with_targets(
+                (
+                    "EMNA Mutual NDA.docx",
+                    "MNDA - Acme.docx",
+                    "MNDA - BI.docx",
+                )
+            ),
+            raw_input="summarize these",
+            corpus_headlines=headlines,
+        )
+        assert len(result.targets) == 3
+
+    def test_targets_deduplicate_preserving_order(self) -> None:
+        headlines = "A.docx — 1\nB.docx — 2"
+        result = _project_signature_output(
+            self._stub_with_targets(("A.docx", "B.docx", "A.docx", "A.docx")),
+            raw_input="x",
+            corpus_headlines=headlines,
+        )
+        assert result.targets == ("A.docx", "B.docx")
+
+    def test_targets_skip_non_string_entries(self) -> None:
+        """A drifting model that emits a number or None is tolerated:
+        the entry is dropped, the rest pass through.
+        """
+        headlines = "A.docx — 1"
+        # The stub deliberately accepts a heterogeneous tuple here so we
+        # can prove the projector's defensive isinstance(str) check
+        # works. ty's `invalid-argument-type` would otherwise complain
+        # about the literal `42` / `None` against the stub's
+        # ``tuple[str, ...]`` parameter.
+        raw_targets: tuple[Any, ...] = ("A.docx", 42, None, "A.docx")
+        result = _project_signature_output(
+            self._stub_with_targets(raw_targets),  # ty: ignore[invalid-argument-type]
+            raw_input="x",
+            corpus_headlines=headlines,
+        )
+        assert result.targets == ("A.docx",)
+
+    def test_targets_empty_headlines_drops_everything(self) -> None:
+        """If the session has no corpus_headlines (empty input) and the
+        model still emits targets, they're all rejected — the contract is
+        "drawn verbatim from corpus_headlines".
+        """
+        result = _project_signature_output(
+            self._stub_with_targets(("anything.docx",)),
+            raw_input="x",
+            corpus_headlines="",
+        )
+        assert result.targets == ()

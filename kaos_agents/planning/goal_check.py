@@ -232,6 +232,45 @@ def _build_signature_class() -> type:
             requests like "what is JSON Schema", arithmetic, language
             tasks, summarization of an already-quoted text — none of
             those need a tool call.)
+          - **Structural identifiers must come from tool data.** When
+            the answer cites a position in a document — "Section 7",
+            "page 12", "paragraph (b)", "Article III", "slide 4",
+            "row 3" — that identifier MUST appear in a successful
+            tool result this turn (``tool_calls_made`` entry with
+            ``is_error=false``, or a structured-content ``path``
+            field carrying the identifier). If no tool result
+            supplies the identifier, the agent invented it; return
+            ``needs_more_work`` with ``next_action`` = "cite by the
+            heading text or quoted clause; do not invent section
+            numbers". This is the closure for the 2026-05-18 NDA
+            persona run where every "Section N" citation was
+            confidently wrong despite verbatim clause text being
+            right. Quoted clause text without a section identifier
+            is acceptable; invented identifiers are not.
+          - **Speculative comparative qualifiers.** If the answer
+            characterizes a finding with a comparative qualifier
+            (``standard``, ``unusual``, ``typical``, ``weird``,
+            ``common``, ``rare``, ``normal``, ``atypical``) AND no
+            tool result in this turn supplies the baseline that
+            qualifier is comparing against, the assertion is
+            speculation. Return ``needs_more_work`` with
+            ``next_action`` = "remove the comparative qualifier or
+            cite the baseline measurement". The 2026-05-18 persona
+            run had an agent assert ``Michigan governing law is
+            unusual for 273 Ventures`` when 273V is itself a
+            Michigan LLC and no tool was called to measure norms.
+          - **Domain-conventional shorthand is not ambiguity.** If
+            the user's message used a domain-conventional
+            abbreviation in context (``GL`` in contracts → governing
+            law; ``DD`` in deals → due diligence; ``RFI`` in
+            procurement → request for information; ``10-K`` in
+            finance → annual filing) and the agent's response is a
+            clarification request instead of an answer, return
+            ``needs_more_work`` with ``next_action`` = "interpret
+            the domain shorthand and answer; only ask for
+            clarification when candidate readings are genuinely
+            incompatible". Over-refusal to infer conventional
+            domain language wastes the user's turn.
 
         Cross-iteration signals (when present):
           - If ``elevation_trail`` shows groups were auto-enabled this

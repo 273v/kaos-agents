@@ -62,6 +62,48 @@ class IntentSignature(Signature):
        PDF routed to CHAT, the agent had no corpus context in the
        prompt, and confidently answered from training data instead
        of the attached document.
+    7. Populate ``targets`` with the corpus items the message points
+       at, drawn VERBATIM from ``corpus_headlines``. The downstream
+       planner uses this to scope work and the critic uses it to
+       verify the answer covered the right files. Rules:
+
+       - Specific named files (``"compare EMNA and Acme"``) →
+         ``targets=["EMNA Mutual NDA.docx", "MNDA - Acme.docx"]``.
+         Just the files the user named, not everything attached.
+       - General reference to the attached set (``"summarize these"``,
+         ``"what's in the documents?"``, ``"GL on these 5"``) →
+         expand ``targets`` to the full ``corpus_headlines`` list.
+         No sentinels — emit the actual filenames.
+       - Anaphora alone with no specific file (``"summarize that"``
+         when prior turn touched one document) → ``targets`` is the
+         single file the anaphor resolves to, when resolvable from
+         ``recent_messages``; empty list otherwise.
+       - No corpus reference (``"what's 2+2?"``) → ``targets=[]``
+         AND ``corpus_attached=false``.
+       - Corpus-adjacent but no specific target (``"draft me an
+         employment agreement"`` in a session with NDAs attached) →
+         ``targets=[]`` with ``corpus_attached=true``. The planner
+         decides whether the corpus is in scope.
+
+       Every value in ``targets`` MUST appear verbatim in
+       ``corpus_headlines``. Do not paraphrase, abbreviate, or
+       invent filenames; the extractor rejects unknown filenames.
+       Surfacing anaphora resolution as a typed output makes it
+       inspectable, lets the planner scope tool calls, and gives
+       the critic a verification handle. See
+       ``kaos-modules/docs/plans/persona-matrix-followups.md`` §6.
+    8. Domain-conventional shorthand. When the user uses a
+       domain-conventional abbreviation in context (e.g., "GL" in
+       a contracts / M&A setting → governing law; "DD" in
+       transactions → due diligence; "RFI" in procurement →
+       request for information; "10-K" in finance → annual SEC
+       filing), prefer the conventional reading and propose the
+       goal. Only set ``requires_clarification=true`` if the
+       candidate readings are genuinely incompatible. The
+       2026-05-18 persona run had an agent refuse to interpret
+       "GL on these 5" as governing-law review of attached NDAs —
+       that's an unnecessary over-refusal when the domain context
+       is unambiguous.
     """
 
     # inputs
@@ -103,6 +145,18 @@ class IntentSignature(Signature):
             "corpus) keeps behavior unchanged."
         ),
     )
+    corpus_headlines: str = InputField(
+        default="",
+        description=(
+            "Newline-separated list of corpus item headlines (typically "
+            "filenames, optionally annotated with size / mime). Used by "
+            "rule 7 to resolve anaphoric / generic references to "
+            "specific files. Each line is one corpus item; the first "
+            "token before any separator is the canonical filename to "
+            "emit in ``targets``. Empty string when the session has no "
+            "attached corpus."
+        ),
+    )
 
     # outputs
     goal: Goal = OutputField(description="The primary objective extracted from the message.")
@@ -139,4 +193,15 @@ class IntentSignature(Signature):
         ge=0.0,
         le=1.0,
         description="Self-rating of the classification, 0.0 to 1.0.",
+    )
+    targets: tuple[str, ...] = OutputField(
+        default=(),
+        description=(
+            "Corpus item filenames the intent points at, drawn VERBATIM "
+            "from ``corpus_headlines``. Empty when the question is "
+            "non-corpus or when there is no specific corpus reference. "
+            "See rule 7 in the class docstring for the full semantics. "
+            "Downstream the extractor validates each entry against "
+            "``corpus_headlines`` and rejects unknown filenames."
+        ),
     )

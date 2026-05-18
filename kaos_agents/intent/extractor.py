@@ -131,6 +131,11 @@ class IntentExtractor(Program):
           document references (IntentSignature rule 6).
         * ``corpus_size`` — optional, default ``0``: document count in
           the corpus, calibration signal for rule 6.
+        * ``corpus_headlines`` — optional, default ``""``: newline-
+          separated filenames of attached corpus items. Used by rule 7
+          to populate the structured ``targets`` output. The extractor
+          validates each emitted target against this list and drops
+          unknown filenames before constructing the IntentResult.
 
         The projection is non-destructive: the IntentSignature output's
         fields land verbatim on the IntentResult, plus ``raw_input`` is
@@ -148,17 +153,28 @@ class IntentExtractor(Program):
         domain_examples = kwargs.get("domain_examples", "")
         corpus_attached = bool(kwargs.get("corpus_attached", False))
         corpus_size = int(kwargs.get("corpus_size", 0))
+        corpus_headlines = str(kwargs.get("corpus_headlines", ""))
         invocation = await self._call.invoke(
             message=message,
             recent_messages=recent_messages,
             domain_examples=domain_examples,
             corpus_attached=corpus_attached,
             corpus_size=corpus_size,
+            corpus_headlines=corpus_headlines,
         )
-        return _project_signature_output(invocation.output, raw_input=message)
+        return _project_signature_output(
+            invocation.output,
+            raw_input=message,
+            corpus_headlines=corpus_headlines,
+        )
 
 
-def _project_signature_output(output: Any, *, raw_input: str) -> IntentResult:
+def _project_signature_output(
+    output: Any,
+    *,
+    raw_input: str,
+    corpus_headlines: str = "",
+) -> IntentResult:
     """Project an :class:`IntentSignature` output onto :class:`IntentResult`.
 
     Single source of truth for the Signature → IntentResult mapping;
@@ -170,6 +186,15 @@ def _project_signature_output(output: Any, *, raw_input: str) -> IntentResult:
     / ``model_validate`` so the resulting IntentResult is a *frozen*
     pydantic model regardless of what the inner Call's output_model
     looked like.
+
+    ``corpus_headlines`` (the same input the signature received) is the
+    allow-list used to validate the structured ``targets`` output. The
+    first whitespace-token of each non-empty line is the canonical
+    filename — that's the same anchor the IntentSignature docstring
+    instructs the model to emit. Targets that don't match any allowed
+    filename are dropped (the extractor's contract per
+    :class:`IntentSignature` rule 7) and logged so we can spot model
+    drift.
     """
     goal = _coerce_goal(output.goal)
     constraints = tuple(_coerce_constraint(c) for c in getattr(output, "constraints", ()) or ())
@@ -187,6 +212,11 @@ def _project_signature_output(output: Any, *, raw_input: str) -> IntentResult:
     # so an off-by-epsilon doesn't propagate as a ValidationError.
     confidence = max(0.0, min(1.0, confidence))
 
+    targets = _coerce_targets(
+        getattr(output, "targets", ()) or (),
+        corpus_headlines=corpus_headlines,
+    )
+
     return IntentResult(
         goal=goal,
         constraints=constraints,
@@ -194,8 +224,74 @@ def _project_signature_output(output: Any, *, raw_input: str) -> IntentResult:
         requires_clarification=requires_clarification,
         pattern=pattern,
         confidence=confidence,
+        targets=targets,
         raw_input=raw_input,
     )
+
+
+def _parse_headline_filenames(corpus_headlines: str) -> frozenset[str]:
+    """Extract the canonical filename anchor from each non-empty headline line.
+
+    Each headline line follows the convention ``"<filename> — <metadata>"``
+    (see ``IntentSignature.corpus_headlines`` docstring). We take the text
+    before the first occurrence of an em dash (``—``) or hyphen-with-spaces
+    (``" - "``) as the canonical filename; if neither separator is
+    present, the full stripped line is the filename. Empty headlines
+    (no corpus attached) yield an empty allow-list — every emitted
+    target gets dropped, which is the correct behavior for non-corpus
+    sessions.
+    """
+    allowed: set[str] = set()
+    for line in corpus_headlines.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Prefer the em dash separator (the documented headline format).
+        # Fall back to " - " and finally the whole line.
+        for sep in (" — ", " – ", " - "):
+            if sep in stripped:
+                stripped = stripped.split(sep, 1)[0].strip()
+                break
+        if stripped:
+            allowed.add(stripped)
+    return frozenset(allowed)
+
+
+def _coerce_targets(
+    raw_targets: Any,
+    *,
+    corpus_headlines: str,
+) -> tuple[str, ...]:
+    """Validate model-emitted targets against the corpus allow-list.
+
+    Every accepted target must appear verbatim in ``corpus_headlines``.
+    Empty ``corpus_headlines`` (no corpus attached) drops all emitted
+    targets — there is no allow-list to match against, so the
+    "MUST appear verbatim" contract from IntentSignature rule 7 rejects
+    everything. The caller can distinguish "no corpus, targets dropped"
+    from "corpus present, all rejected" by inspecting
+    ``corpus_attached`` on the IntentResult.
+
+    Order of accepted targets is preserved; a single deduplication pass
+    keeps the tuple stable for downstream consumers that key on it.
+    """
+    if not raw_targets:
+        return ()
+    allowed = _parse_headline_filenames(corpus_headlines)
+    accepted: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_targets:
+        if not isinstance(raw, str):
+            continue
+        name = raw.strip()
+        if not name or name in seen:
+            continue
+        if name not in allowed:
+            logger.debug("intent: dropping unknown target %r (not in corpus_headlines)", name)
+            continue
+        seen.add(name)
+        accepted.append(name)
+    return tuple(accepted)
 
 
 def _coerce_goal(value: Any) -> Goal:

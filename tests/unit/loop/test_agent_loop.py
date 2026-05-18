@@ -267,18 +267,46 @@ def _capturing_extractor(intent: IntentResult) -> tuple[IntentExtractor, list[di
     return extractor, captures
 
 
-class _FakeMemory:
-    """Minimal SessionMemory stand-in for ``_corpus_size_from_memory``.
+class _FakeMemoryItem:
+    """Minimal MemoryItem stand-in for ``_corpus_headlines_from_memory``.
 
-    AgentLoop only touches ``has_section`` + ``section_item_count`` for
-    the helper; everything else stays unused on the prepare_turn path
-    (Phase 2 hydration is pass-through, the loop accepts whatever
-    SessionMemory the caller provided).
+    The helper reads ``metadata["filename"]`` (or falls back to other
+    metadata anchors / content). The stub mirrors that surface.
     """
 
-    def __init__(self, *, has_documents: bool, count: int = 0) -> None:
+    def __init__(self, filename: str | None, content: str = "") -> None:
+        self.metadata: dict[str, Any] = {"filename": filename} if filename else {}
+        self.content = content
+
+
+class _FakeMemory:
+    """Minimal SessionMemory stand-in for the prepare_turn corpus helpers.
+
+    AgentLoop touches ``has_section``, ``section_item_count``, and (since
+    persona-matrix-followups §6) ``get_section`` to materialize the
+    ``corpus_headlines`` input. Everything else stays unused on the
+    prepare_turn path (Phase 2 hydration is pass-through, the loop
+    accepts whatever SessionMemory the caller provided).
+    """
+
+    def __init__(
+        self,
+        *,
+        has_documents: bool,
+        count: int = 0,
+        filenames: tuple[str, ...] | None = None,
+    ) -> None:
         self._has = has_documents
         self._count = count
+        # If the test supplied explicit filenames, use those (and align
+        # count to match for the size-helper). Otherwise synthesize a
+        # placeholder list matching ``count`` so the headlines helper
+        # produces a non-empty string.
+        if filenames is not None:
+            self._items = tuple(_FakeMemoryItem(name) for name in filenames)
+            self._count = len(filenames)
+        else:
+            self._items = tuple(_FakeMemoryItem(f"doc-{i}.docx") for i in range(self._count))
         self.turn_count = 0
 
     def has_section(self, section: Any) -> bool:
@@ -292,6 +320,16 @@ class _FakeMemory:
         if section == MemoryType.DOCUMENTS and self._has:
             return self._count
         return 0
+
+    def get(self, section: Any, *, max_tokens: int | None = None) -> tuple[_FakeMemoryItem, ...]:
+        # Matches SessionMemory.get signature — the helper only uses the
+        # positional ``section`` arg; ``max_tokens`` is accepted for
+        # signature compatibility.
+        from kaos_agents.types.memory import MemoryType
+
+        if section == MemoryType.DOCUMENTS and self._has:
+            return self._items
+        return ()
 
 
 class TestCorpusSizeFromMemory:

@@ -147,6 +147,16 @@ class IntentResult(BaseModel):
     requires_clarification: bool = False
     pattern: AgentPattern = AgentPattern.CHAT
     confidence: float = Field(ge=0.0, le=1.0, default=1.0)
+    targets: tuple[str, ...] = ()
+    """Corpus item filenames the intent references, drawn verbatim from
+    the session's ``corpus_headlines``. Empty when the intent is
+    non-corpus or has no specific corpus reference. The downstream
+    planner uses this to scope work and the critic uses it to verify
+    coverage. Validated against ``corpus_headlines`` by the extractor
+    — unknown filenames are dropped (and logged) rather than passed
+    through. See
+    ``kaos-modules/docs/plans/persona-matrix-followups.md`` §6."""
+
     raw_input: str = ""  # the original trigger payload
 
     def has_blocking_ambiguity(self) -> bool:
