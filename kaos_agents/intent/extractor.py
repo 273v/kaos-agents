@@ -246,9 +246,11 @@ def _parse_headline_filenames(corpus_headlines: str) -> frozenset[str]:
         stripped = line.strip()
         if not stripped:
             continue
-        # Prefer the em dash separator (the documented headline format).
-        # Fall back to " - " and finally the whole line.
-        for sep in (" — ", " – ", " - "):
+        # Three distinct Unicode separators (em dash / en dash /
+        # hyphen-minus). The intentional non-ASCII characters trip
+        # ruff's ambiguous-Unicode check; suppressed on the
+        # exact line.
+        for sep in (" — ", " – ", " - "):  # noqa: RUF001
             if sep in stripped:
                 stripped = stripped.split(sep, 1)[0].strip()
                 break
