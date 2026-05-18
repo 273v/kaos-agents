@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0a13] — 2026-05-17
+
 ### Added — no-evidence refusal gate (P0 hallucination defence)
 
 The chat pattern now refuses to ship an LLM-drafted final answer when
