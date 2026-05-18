@@ -75,5 +75,5 @@ jobs:
         shell: bash
         run: |
           uv run pytest \
-            -m "live or network" \
+            -m "not live and not network and not slow" \
             --no-cov -q
