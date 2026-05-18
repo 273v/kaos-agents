@@ -280,13 +280,18 @@ class AgentLoop(Program):
         #    live SessionMemory.DOCUMENTS snapshot so the classifier
         #    can resolve "summarize that" / "the file" / "extract
         #    terms" follow-ups without losing corpus context.
+        #    ``corpus_headlines`` (per-file one-liners) feeds
+        #    IntentSignature rule 7 — the model emits ``targets`` by
+        #    matching filenames verbatim against this list.
         corpus_size = self._corpus_size_from_memory(memory)
+        corpus_headlines = self._corpus_headlines_from_memory(memory)
         intent_invocation = await self._intent_extractor.invoke(
             message=message,
             recent_messages=self._recent_messages_summary(memory),
             domain_examples="",
             corpus_attached=corpus_size > 0,
             corpus_size=corpus_size,
+            corpus_headlines=corpus_headlines,
         )
         intent: IntentResult = intent_invocation.output
 
@@ -694,6 +699,48 @@ class AgentLoop(Program):
         if not memory.has_section(MemoryType.DOCUMENTS):
             return 0
         return int(memory.section_item_count(MemoryType.DOCUMENTS))
+
+    @staticmethod
+    def _corpus_headlines_from_memory(memory: SessionMemory | None) -> str:
+        """Newline-separated corpus headlines for the IntentExtractor's
+        ``corpus_headlines`` input.
+
+        Each headline is the document's filename (or other canonical
+        identifier) — the line shape the IntentSignature rule 7
+        docstring tells the classifier to draw ``targets`` values from.
+        Returns ``""`` when memory has no DOCUMENTS section so the
+        extractor's empty-headline branch yields ``targets=()`` and
+        skips its allow-list check.
+
+        Cheap: reads DOCUMENTS items by reference, no I/O. Items are
+        ``MemoryItem``-shaped; the helper probes ``.metadata`` for a
+        filename anchor (``filename`` / ``source_uri`` / ``name``) and
+        falls back to ``str(item.content)`` when none is present so
+        the classifier still has *something* to match. The validator
+        in ``_coerce_targets`` is the final gate against unknown
+        filenames making it onto the IntentResult.
+        """
+        from kaos_agents.types.memory import MemoryType
+
+        if memory is None:
+            return ""
+        if not memory.has_section(MemoryType.DOCUMENTS):
+            return ""
+        items = memory.get(MemoryType.DOCUMENTS)
+        lines: list[str] = []
+        for item in items:
+            metadata = getattr(item, "metadata", None) or {}
+            anchor = metadata.get("filename") or metadata.get("source_uri") or metadata.get("name")
+            if not anchor:
+                # Last-resort: the content's first line is usually a
+                # title or summary the model can latch onto.
+                content = getattr(item, "content", "")
+                if isinstance(content, str):
+                    first_line = content.strip().splitlines()[:1]
+                    anchor = first_line[0] if first_line else ""
+            if anchor:
+                lines.append(str(anchor))
+        return "\n".join(lines)
 
     # ------------------------------------------------------------------
     # Phase 4.D wiring helpers
