@@ -7,6 +7,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0a16] — 2026-05-19
+
+### Added
+
+- **`IntentSignature` rule 8 — factual-external-entity bias.** When
+  the user message is about a factual external entity (regulation,
+  statute, case, agency rule, public filing, public-company fact,
+  current-status query), the classifier sets
+  `requires_clarification=false` and proposes a best-effort goal
+  the downstream planner can route to research tools (FR / eCFR /
+  EDGAR / GovInfo / web-search). Even when jurisdiction / version
+  / time-frame is genuinely ambiguous, the classifier picks the
+  most likely reading (latest version, U.S. federal scope, current
+  status as of today) and surfaces alternatives via `ambiguities`.
+  Closes the 2026-05-19 *diesel emission reg* failure mode where
+  the classifier asked "which jurisdiction?" 6 rounds before the
+  agent finally answered from training memory with zero tool
+  calls. See class docstring rule 8 for the full contract.
+- **`IntentSignature` rule 9 — clarification-loop ceiling.** If
+  `recent_messages` already contains an assistant turn that asked
+  for clarification on this same goal in the prior turn, the
+  classifier does NOT ask again — it sets
+  `requires_clarification=false` and proposes the strongest
+  reading. Two rounds of clarification is the ceiling; companion
+  rule to the GoalCheckSignature clarification-loop critic.
+- **`GoalCheckSignature` — claimed-fetch fabrication critic.** Any
+  first-person retrieval phrasing in the assistant response
+  (``I fetched``, ``I retrieved``, ``I reviewed``, ``I was able
+  to extract``, ``I pulled``, ``I read``, ``I downloaded``, ``I
+  opened``) MUST be backed by a successful entry in
+  `tool_calls_made` for this iteration that retrieved THAT
+  specific resource (`is_error=false`, args target the named URL
+  / document / filing). Otherwise the critic returns
+  `needs_more_work` with `next_action = "drop the claim that you
+  fetched / reviewed sources you did not actually fetch this
+  turn"`. Closes the 2026-05-19 SEC-Climate session where the
+  agent confidently asserted ``fetched and reviewed two
+  practitioner commentary pages`` when the only fetch in the
+  trace errored on a different URL.
+- **`GoalCheckSignature` — factual-external-entity-no-tool-call
+  critic.** If the user asked about a factual external entity AND
+  `tool_calls_made` contains zero `is_error=false` entries, the
+  agent is answering from training memory. Critic returns
+  `needs_more_work` with `next_action = "call the appropriate
+  research tool and re-answer with citations"`. Generalizes the
+  prior confident-hallucination shortcut to soft factual claims
+  (current status, latest version, present-tense regulatory
+  regime).
+- **`GoalCheckSignature` — clarification-loop ceiling critic.** If
+  `iteration >= 2` AND the agent's response is *another*
+  clarification question (request for more information, choice
+  between options, "do you mean X or Y?"), the agent is stuck.
+  Critic returns `needs_more_work` with `next_action = "stop
+  asking for clarification; pick the strongest reading of the
+  user's request and call the relevant research tool now"`.
+- **`GoalCheckSignature` — announce-and-quit critic.** Future-tense
+  first-person promises to do research (``I'll now research``,
+  ``I'll search``, ``I'll look that up``, ``I'll dispatch tools``,
+  ``let me investigate``, ``I'll report back``) AND zero
+  `is_error=false` entries in `tool_calls_made` this iteration =
+  agent announced work instead of doing it. Critic returns
+  `needs_more_work` with `next_action = "execute the research you
+  promised in the same turn — call FR / eCFR / EDGAR / GovInfo /
+  web-search now and produce the answer with citations"`. Same
+  failure family as deliverable-header-then-stop: a promise to act
+  is not an act.
+
+### Changed
+
+- **No wire-format changes.** All four critic rules read the same
+  `GoalCheckerInput.agent_response` + `tool_calls_made` fields
+  already on the type; no schema migration. Same for the
+  IntentSignature additions — rules 8 + 9 use existing inputs
+  (`recent_messages`) and outputs (`requires_clarification`).
+
 ## [0.1.0a15] — 2026-05-18
 
 ### Added

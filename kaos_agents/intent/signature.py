@@ -92,7 +92,36 @@ class IntentSignature(Signature):
        inspectable, lets the planner scope tool calls, and gives
        the critic a verification handle. See
        ``kaos-modules/docs/plans/persona-matrix-followups.md`` §6.
-    8. Domain-conventional shorthand. When the user uses a
+    8. Factual-external-entity bias. When the user asks about a
+       *factual external entity* — a regulation, statute, case,
+       agency rule, public filing, public-company fact, current
+       status of a real-world thing — ALWAYS set
+       ``requires_clarification=false`` and propose a best-effort
+       goal that the downstream planner can route to research
+       tools. The downstream agent has FR / eCFR / EDGAR / GovInfo
+       / web-search and is responsible for verification; it is NOT
+       this classifier's job to extract every parameter up-front.
+       Even when jurisdiction / version / time-frame is genuinely
+       ambiguous, propose the most likely reading (latest version,
+       U.S. federal scope unless the prompt suggests otherwise,
+       current status as of today) and surface alternatives via
+       ``ambiguities``. The 2026-05-19 ``what is the latest diesel
+       emission reg`` session is the canonical anti-pattern: 6
+       rounds of clarification (``which jurisdiction?`` /
+       ``US federal or state?`` / ``on-road or off-road?``) before
+       the agent finally answered from training memory with zero
+       tool calls. Pick a default, dispatch to FR / eCFR, and let
+       the answer carry its own caveat instead of ping-ponging on
+       clarification.
+    9. Clarification-loop ceiling. If ``recent_messages`` already
+       contains an assistant turn that asked for clarification on
+       this same goal in the prior turn, do NOT ask again. Set
+       ``requires_clarification=false`` and propose the strongest
+       reading. Two rounds of clarification is the ceiling; any
+       further round wastes the user's turn and is a documented
+       UX-regression mode. (Companion rule to GoalCheckSignature
+       clarification-loop ceiling.)
+    10. Domain-conventional shorthand. When the user uses a
        domain-conventional abbreviation in context (e.g., "GL" in
        a contracts / M&A setting → governing law; "DD" in
        transactions → due diligence; "RFI" in procurement →

@@ -167,7 +167,27 @@ def kaos_tool_to_llm_tool(
             len(result.text or ""),
         )
         if result.isError:
-            return json.dumps({"error": True, "message": result.text or "Tool execution failed"})
+            # Raise ToolReportedError so kaos-llm-core's ReAct dispatcher
+            # records is_error=True on the resulting ToolObservation while
+            # preserving the tool's own remediation hint as the payload.
+            #
+            # Pre-fix: this returned a JSON string. ReAct's `_invoke_one`
+            # treats any non-exceptional return as success (is_error=False)
+            # by design (audit finding #3), so the failure flag was lost
+            # before the agent's memory ever saw it. Downstream — UI chips,
+            # the critic's `_is_stuck` heuristic, the audit CLI's Red Flag A,
+            # the SPA's tool_call_summaries — all saw "done ✓" while the
+            # body said "error". Closes inventory P0-1 #437.
+            #
+            # P0-1 / inventory item, kaos-modules/docs/plans/
+            # 2026-05-19-consolidated-issue-inventory.md.
+            from kaos_llm_core.errors import ToolReportedError
+
+            error_payload = {
+                "error": True,
+                "message": result.text or "Tool execution failed",
+            }
+            raise ToolReportedError(error_payload)
         # Return BOTH the human-readable summary AND the structured
         # content when a tool produced both. Returning only `result.text`
         # was the root cause of plan-execute's "needs_replan after 1

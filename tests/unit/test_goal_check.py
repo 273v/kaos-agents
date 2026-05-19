@@ -287,3 +287,112 @@ async def test_iteration_is_passed_through() -> None:
 
     assert captured["iteration"] == 3
     assert oc.iteration == 3
+
+
+# ─── Header-then-stop deterministic pre-check (P0-4 #436) ────────────
+
+
+class TestHeaderThenStopPreCheck:
+    """The deterministic pre-check short-circuits before LLM call when
+    the agent's response ends near a deliverable heading with no body.
+
+    Closes 2026-05-19 NDA matrix Persona #4 (header-and-quit shape).
+    The Critic Signature docstring covers the long-tail wording the
+    regex can't recognize; this regex covers the easy 80%.
+    """
+
+    @pytest.mark.asyncio
+    async def test_header_only_short_circuits_to_needs_more_work(self) -> None:
+        """An H2 naming a deliverable + zero body lines → needs_more_work."""
+
+        async def _should_not_invoke(self: Any, **_kwargs: Any) -> Any:
+            raise AssertionError("LLM critic was called even though pre-check should have fired")
+
+        with patch("kaos_llm_core.Call.invoke", new=_should_not_invoke):
+            oc = await check_goal(
+                user_message="Please produce a governing-law review table for 5 NDAs.",
+                agent_response="## Governing-Law Review — 5 NDAs\n",
+            )
+
+        assert oc.kind == "needs_more_work"
+        assert oc.cost_usd == 0.0  # no LLM spend
+        assert isinstance(oc.result, GoalCheckNeedsMoreWork)
+        assert "Governing-Law Review" in oc.result.next_action
+
+    @pytest.mark.asyncio
+    async def test_header_with_preamble_and_no_rows_short_circuits(self) -> None:
+        """Preamble sentence + named-deliverable H3 + nothing → catches the
+        2026-05-19 Persona #4 shape exactly."""
+
+        async def _should_not_invoke(self: Any, **_kwargs: Any) -> Any:
+            raise AssertionError("LLM critic called but pre-check should fire")
+
+        body = (
+            "## Governing-Law Review — 5 NDAs\n\n"
+            "Below is the governing-law review of the five attached NDAs.\n\n"
+            "### CSV-ready table\n"
+        )
+        with patch("kaos_llm_core.Call.invoke", new=_should_not_invoke):
+            oc = await check_goal(
+                user_message="produce a CSV-ready table",
+                agent_response=body,
+            )
+
+        assert oc.kind == "needs_more_work"
+        assert isinstance(oc.result, GoalCheckNeedsMoreWork)
+        assert "CSV-ready table" in oc.result.next_action
+
+    @pytest.mark.asyncio
+    async def test_header_with_substantive_body_does_not_short_circuit(self) -> None:
+        """A heading followed by real rows must NOT trip the pre-check."""
+        stub = GoalCheckSatisfied(confidence=0.9, rationale="grounded")
+        body = (
+            "## Governing-Law Review — 5 NDAs\n\n"
+            "| NDA | Governing Law | Forum |\n"
+            "|---|---|---|\n"
+            "| EMNA Mutual NDA | Delaware | Delaware courts |\n"
+            "| MNDA - Acme | New York | New York courts |\n"
+            "| MNDA - BI | California | Bay Area |\n"
+            "| MNDA - CC | Texas | Dallas |\n"
+            "| MNDA - DynaMo | Massachusetts | Boston |\n"
+        )
+        with patch("kaos_llm_core.Call.invoke", new=_stub_invoke(stub)):
+            oc = await check_goal(
+                user_message="produce a governing-law review table",
+                agent_response=body,
+            )
+
+        assert oc.kind == "satisfied"
+
+    @pytest.mark.asyncio
+    async def test_non_deliverable_heading_does_not_short_circuit(self) -> None:
+        """A heading that doesn't name a deliverable doesn't trip the check.
+
+        ``## Introduction`` doesn't promise a table/list/summary, so even
+        ending the response there is the LLM critic's call to make, not
+        the regex's.
+        """
+        stub = GoalCheckNeedsMoreWork(next_action="elaborate", confidence=0.5, rationale="thin")
+        with patch("kaos_llm_core.Call.invoke", new=_stub_invoke(stub)):
+            oc = await check_goal(
+                user_message="what is the contract about",
+                agent_response="## Introduction\n",
+            )
+
+        # Whatever the LLM says — the deterministic pre-check did NOT fire,
+        # so the stub's NeedsMoreWork must propagate. (If the pre-check
+        # had fired the rationale would be the deterministic one.)
+        assert oc.kind == "needs_more_work"
+        assert oc.result.rationale == "thin"
+
+    @pytest.mark.asyncio
+    async def test_empty_response_does_not_short_circuit(self) -> None:
+        """Edge case: empty / whitespace-only response is the LLM's call."""
+        stub = GoalCheckNeedsMoreWork(
+            next_action="answer the question", confidence=0.9, rationale="empty"
+        )
+        with patch("kaos_llm_core.Call.invoke", new=_stub_invoke(stub)):
+            oc = await check_goal(user_message="x", agent_response="   \n  ")
+
+        assert oc.kind == "needs_more_work"
+        assert oc.result.rationale == "empty"
