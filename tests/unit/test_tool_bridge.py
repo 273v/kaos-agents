@@ -65,13 +65,25 @@ class TestKaosToolToLlmTool:
         result = await tool.invoke({"text": "hello world"})
         assert "echo: hello world" in result
 
-    async def test_error_tool_returns_json_error(self):
-        import json
+    async def test_error_tool_raises_tool_reported_error(self):
+        """``isError=True`` → raises ``ToolReportedError`` (closes P0-1 #437).
+
+        ReAct's ``_invoke_one`` records non-exception returns as
+        ``is_error=False`` by design (audit finding #3). Returning a
+        JSON envelope on isError=True silently lost the failure flag —
+        every downstream consumer (kaos-agents memory, audit CLI, UI
+        chips, critics) saw "done ✓" against a body that said
+        ``error: True``. The fix raises a dedicated ``ToolReportedError``
+        so ReAct propagates ``is_error=True`` AND preserves the tool's
+        own remediation hint as the payload.
+        """
+        import pytest
+        from kaos_llm_core.errors import ToolReportedError
 
         fail = _FailTool()
         tool = kaos_tool_to_llm_tool(fail)
 
-        result = await tool.invoke({})
-        parsed = json.loads(result)
-        assert parsed["error"] is True
-        assert "Something went wrong" in parsed["message"]
+        with pytest.raises(ToolReportedError) as exc_info:
+            await tool.invoke({})
+        assert exc_info.value.payload["error"] is True
+        assert "Something went wrong" in exc_info.value.payload["message"]

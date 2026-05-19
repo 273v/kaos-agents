@@ -30,7 +30,6 @@ Tested fragile paths:
 from __future__ import annotations
 
 import contextvars
-import json
 from types import SimpleNamespace
 from typing import Any
 
@@ -119,8 +118,22 @@ async def test_tool_bridge_text_only_passthrough() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tool_bridge_error_returns_error_envelope() -> None:
-    """isError=True wraps in {"error": true, "message": text}."""
+async def test_tool_bridge_error_raises_tool_reported_error() -> None:
+    """``isError=True`` raises ``ToolReportedError`` so ReAct propagates ``is_error=True``.
+
+    Pre-fix the bridge returned a JSON string ``{"error": true, "message": text}``;
+    ReAct's ``_invoke_one`` records non-exception returns as
+    ``is_error=False`` by design (audit finding #3), so the failure flag
+    was silently lost and every downstream consumer — kaos-agents memory,
+    audit CLI, UI chips, the critic's ``_is_stuck`` heuristic — saw
+    "done ✓" against a body that said ``error: True``.
+
+    The contract now: ``ToolReportedError`` carries the same payload as
+    before AND propagates ``is_error=True`` through ReAct's dedicated
+    catch branch. Closes inventory P0-1 #437.
+    """
+    from kaos_llm_core.errors import ToolReportedError
+
     from kaos_agents.actions.tool_bridge import kaos_tool_to_llm_tool
 
     tool = _StubKaosTool(
@@ -128,9 +141,33 @@ async def test_tool_bridge_error_returns_error_envelope() -> None:
         result=_make_tool_result(text="bad input", error=True),
     )
     llm_tool = kaos_tool_to_llm_tool(tool, context=None)  # ty: ignore[invalid-argument-type]
-    output = await llm_tool.executor(q="x")
-    parsed = json.loads(output)
-    assert parsed == {"error": True, "message": "bad input"}
+    with pytest.raises(ToolReportedError) as exc_info:
+        await llm_tool.executor(q="x")
+    # Payload preserves the tool's text verbatim so the model sees the
+    # actionable remediation hint, not the generic "Tool 'X' raised" wrapper.
+    assert exc_info.value.payload == {"error": True, "message": "bad input"}
+
+
+@pytest.mark.asyncio
+async def test_tool_bridge_empty_error_text_falls_back_to_default() -> None:
+    """``isError=True`` with empty text still produces a non-empty payload message."""
+    from kaos_llm_core.errors import ToolReportedError
+
+    from kaos_agents.actions.tool_bridge import kaos_tool_to_llm_tool
+
+    tool = _StubKaosTool(
+        name="kaos-test-empty-err",
+        result=_make_tool_result(text="", error=True),
+    )
+    llm_tool = kaos_tool_to_llm_tool(tool, context=None)  # ty: ignore[invalid-argument-type]
+    with pytest.raises(ToolReportedError) as exc_info:
+        await llm_tool.executor(q="x")
+    payload = exc_info.value.payload
+    assert isinstance(payload, dict)
+    assert payload["error"] is True
+    # Fallback message rather than the empty string so the model isn't
+    # told to reason over "" as the failure signal.
+    assert payload["message"] == "Tool execution failed"
 
 
 # ---------------------------------------------------------------------------

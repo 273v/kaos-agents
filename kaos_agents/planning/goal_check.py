@@ -39,6 +39,7 @@ iterations is capped.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Annotated, Literal
@@ -49,6 +50,109 @@ logger = logging.getLogger(__name__)
 
 
 _BASELINE_GOAL_CHECK_MODEL = "anthropic:claude-haiku-4-5"
+
+
+# ─── Deterministic pre-check: header-then-stop ───────────────────────
+#
+# 2026-05-19 P0-4 #436: NDA matrix Persona #4 emitted a markdown
+# heading naming the deliverable AND ended the turn before any body.
+# This is the same failure family as preamble-and-quit (P0-1 #437)
+# but with the header alone in place of the preamble alone. The LLM-
+# based critic catches the long tail via prompt; this regex catches
+# the easy cases deterministically (no extra cost, no extra latency).
+
+_DELIVERABLE_KEYWORDS = (
+    "table",
+    "list",
+    "summary",
+    "comparison",
+    "csv",
+    "memo",
+    "scorecard",
+    "review",
+    "breakdown",
+    "matrix",
+    "checklist",
+    "rubric",
+)
+
+# A markdown heading at the start of a line:
+#   ATX:   #, ##, ###, ####  (up to 6 hashes)
+#   Setext: text followed by === or --- on the next line (rare in LLM output, skip)
+# Capture text after the hashes.
+_HEADING_LINE_RE = re.compile(r"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$")
+
+# Heuristic for "the heading promised a body": any of our deliverable
+# keywords appearing anywhere in the heading text (case-insensitive).
+_DELIVERABLE_HEADING_RE = re.compile(
+    r"\b(" + "|".join(_DELIVERABLE_KEYWORDS) + r")\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _detect_header_then_stop(agent_response: str) -> str | None:
+    """Return a remediation hint if the response ends near a deliverable heading.
+
+    Returns ``None`` when the response looks fine (no trailing
+    deliverable heading, OR a heading with substantive body content
+    after it). Returns the human-readable issue summary when the
+    response ended right after a heading whose text named a
+    deliverable — i.e. the "header-then-stop" failure shape.
+
+    "Substantive body" is defined defensively: at least 80 characters
+    of non-whitespace, non-heading text after the offending heading.
+    A trailing line like ``(see above)`` or a single-line note does
+    NOT count — the heading should be followed by the rows / bullets /
+    paragraph it names.
+
+    This is a pre-LLM check; the loose threshold is intentional. The
+    Critic's LLM-based docstring rule catches the long tail.
+    """
+    if not agent_response or not agent_response.strip():
+        return None
+
+    # Walk lines bottom-up; find the LAST heading line, then assess
+    # what (if anything) follows it.
+    lines = agent_response.splitlines()
+    last_heading_idx: int | None = None
+    last_heading_text: str = ""
+    for idx in range(len(lines) - 1, -1, -1):
+        m = _HEADING_LINE_RE.match(lines[idx])
+        if m:
+            last_heading_idx = idx
+            last_heading_text = m.group(1).strip()
+            break
+
+    if last_heading_idx is None:
+        return None
+
+    if not _DELIVERABLE_HEADING_RE.search(last_heading_text):
+        return None
+
+    # How much real content follows that heading? Strip whitespace +
+    # ignore lines that are themselves headings (a heading following a
+    # heading is still header-only territory).
+    tail = lines[last_heading_idx + 1 :]
+    body_chars = 0
+    for line in tail:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if _HEADING_LINE_RE.match(line):
+            # Sub-heading without body — keep accumulating; the body
+            # should be UNDER the deepest heading.
+            continue
+        body_chars += len(stripped)
+
+    if body_chars >= 80:
+        return None
+
+    return (
+        f"You wrote the heading '{last_heading_text}' but did not "
+        "emit the body the heading promised. Re-run the turn and "
+        "produce the rows / bullets / paragraph that belong under "
+        "that heading. Do not stop on a header alone."
+    )
 
 
 def _resolve_goal_check_model() -> str:
@@ -259,6 +363,95 @@ def _build_signature_class() -> type:
             run had an agent assert ``Michigan governing law is
             unusual for 273 Ventures`` when 273V is itself a
             Michigan LLC and no tool was called to measure norms.
+          - **Deliverable-header-then-stop.** If the user asked for a
+            named deliverable (table / list / summary / comparison /
+            CSV / memo / scorecard / review / breakdown) AND the
+            agent's response ends near a markdown header whose text
+            matches that deliverable keyword (``## Table``, ``# CSV-
+            ready table``, ``### Summary``, ``## Governing-Law
+            Review``, etc.) without the actual body that the heading
+            promised, return ``needs_more_work`` with ``next_action``
+            = "emit the deliverable body under the heading you wrote;
+            do not stop on a header alone". The 2026-05-19 NDA
+            persona run had an agent emit
+            ``<h2>Governing-Law Review — 5 NDAs</h2>`` plus a one-
+            sentence preamble plus ``<h3>CSV-ready table</h3>`` and
+            then stop — zero rows. Empty headers are the same failure
+            shape as the preamble-and-quit pattern. A deterministic
+            pre-check in :func:`check_goal` will also catch the
+            common cases; this rule covers the long-tail wording.
+          - **Announce-and-quit (future-tense promise without
+            execution).** If the agent's response contains a
+            future-tense first-person promise to do research —
+            phrases like ``I'll now research``, ``I'll search``,
+            ``I'll look that up``, ``I'll dispatch tools``, ``let
+            me investigate``, ``I'll report back``, ``I'll
+            continue and pull``, or a "next steps" list framed as
+            things the agent will do — AND ``tool_calls_made``
+            for THIS iteration contains zero ``is_error=false``
+            entries that actually executed that research, the
+            agent has announced work instead of doing it. Return
+            ``needs_more_work`` with ``next_action`` = "execute
+            the research you promised in the same turn — call FR
+            / eCFR / EDGAR / GovInfo / web-search now and produce
+            the answer with citations". Same failure family as
+            deliverable-header-then-stop: a promise to act is not
+            an act. The 2026-05-19 diesel-reproduction shipped
+            ``I'll now research the latest applicable federal
+            diesel emissions rule and report back with
+            citations.`` with zero tool calls — that is the
+            canonical case.
+          - **Claimed-fetch fabrication.** If the agent's response
+            contains any of the phrases ``I fetched``, ``I retrieved``,
+            ``I reviewed``, ``I was able to extract``, ``I pulled``,
+            ``I read``, ``I downloaded``, ``I opened`` (or
+            morphological variants — past-tense first-person verbs
+            that claim direct retrieval of a named external resource),
+            AND no entry in ``tool_calls_made`` shows a successful
+            fetch / retrieval of THAT specific resource this turn
+            (``is_error=false``, and the args clearly target the
+            named URL / document / filing), the claim is fabricated.
+            Return ``needs_more_work`` with ``next_action`` = "drop
+            the claim that you fetched / reviewed sources you did
+            not actually fetch this turn; either call the fetch tool
+            now or rephrase to say you have NOT read the source".
+            This is the 2026-05-19 SEC-Climate session where the
+            agent claimed it ``fetched and reviewed two practitioner
+            commentary pages`` (Cadwalader memo, Ropes & Gray
+            viewpoints) when the only fetch in the trace targeted a
+            different URL and errored. Asserting first-person
+            retrieval of a source the trace doesn't contain is a
+            P0 honesty failure on attorney-facing surfaces.
+          - **Factual-external-entity question with zero successful
+            tool calls.** If the user asked about a *factual external
+            entity* — a regulation, statute, case, agency rule,
+            public filing, public-company fact, current date / event
+            / market / policy state — AND
+            ``tool_calls_made`` contains zero successful entries
+            (no ``is_error=false`` row), the agent is answering
+            from training memory. Return ``needs_more_work`` with
+            ``next_action`` = "call the appropriate research tool
+            (FR / eCFR / EDGAR / GovInfo / web-search / corpus
+            search) and re-answer with citations; do not state
+            specific facts about [topic] from training memory".
+            Generalizes the confident-hallucination shortcut: even
+            "soft" factual claims (current status, latest version,
+            present tense regulatory regime) must be tool-grounded.
+            The 2026-05-19 ``what is the latest diesel emission
+            reg`` session is the canonical case: 9 turns of
+            clarification followed by a memory-only answer with
+            zero tool calls. Counter-cases (NOT this rule):
+            definitions of stable concepts, arithmetic, language
+            tasks, summarization of already-quoted text.
+          - **Clarification-loop ceiling.** If ``iteration`` >= 2
+            AND the agent's response is *another* clarification
+            question (request for more information, choice between
+            options, "do you mean X or Y?"), the agent is stuck.
+            Return ``needs_more_work`` with ``next_action`` =
+            "stop asking for clarification; pick the strongest
+            reading of the user's request and call the relevant
+            research tool now". Two rounds of clarification is the
+            ceiling on any factual question.
           - **Domain-conventional shorthand is not ambiguity.** If
             the user's message used a domain-conventional
             abbreviation in context (``GL`` in contracts → governing
@@ -354,6 +547,33 @@ async def check_goal(
     """
     used_model = model or _resolve_goal_check_model()
     t_start = time.monotonic()
+
+    # 2026-05-19 P0-4 #436: deterministic pre-check.
+    # If the agent's response ends near a heading naming a deliverable
+    # with no body, short-circuit to needs_more_work without spending
+    # an LLM call. The Critic Signature still covers the long-tail
+    # wording the regex can't recognize.
+    pre_check_hint = _detect_header_then_stop(agent_response)
+    if pre_check_hint is not None:
+        latency_ms = (time.monotonic() - t_start) * 1000
+        logger.info(
+            "GoalChecker: header-then-stop deterministic pre-check fired; "
+            "skipping LLM call. hint=%s",
+            pre_check_hint,
+        )
+        return GoalCheckOutcome(
+            result=GoalCheckNeedsMoreWork(
+                next_action=pre_check_hint,
+                confidence=1.0,
+                rationale=(
+                    "Deliverable heading was emitted without the body "
+                    "the heading names. Re-run to produce the body."
+                ),
+            ),
+            cost_usd=0.0,
+            latency_ms=latency_ms,
+            iteration=iteration,
+        )
 
     try:
         from kaos_llm_core import Call
