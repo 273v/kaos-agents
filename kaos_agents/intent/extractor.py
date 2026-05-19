@@ -136,6 +136,12 @@ class IntentExtractor(Program):
           to populate the structured ``targets`` output. The extractor
           validates each emitted target against this list and drops
           unknown filenames before constructing the IntentResult.
+        * ``available_tool_groups`` — optional, default ``""``:
+          newline-separated catalogue of tool groups registered on the
+          runtime this turn (one ``"<name>: <purpose>"`` line per
+          group). Used by IntentSignature rule 8 — the catalog-aware
+          factual-external-entity bias. Default ``""`` preserves the
+          pre-0.1.0a17 routing path for callers that don't populate it.
 
         The projection is non-destructive: the IntentSignature output's
         fields land verbatim on the IntentResult, plus ``raw_input`` is
@@ -154,6 +160,7 @@ class IntentExtractor(Program):
         corpus_attached = bool(kwargs.get("corpus_attached", False))
         corpus_size = int(kwargs.get("corpus_size", 0))
         corpus_headlines = str(kwargs.get("corpus_headlines", ""))
+        available_tool_groups = str(kwargs.get("available_tool_groups", ""))
         invocation = await self._call.invoke(
             message=message,
             recent_messages=recent_messages,
@@ -161,6 +168,7 @@ class IntentExtractor(Program):
             corpus_attached=corpus_attached,
             corpus_size=corpus_size,
             corpus_headlines=corpus_headlines,
+            available_tool_groups=available_tool_groups,
         )
         return _project_signature_output(
             invocation.output,

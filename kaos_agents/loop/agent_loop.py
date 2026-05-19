@@ -186,6 +186,7 @@ class AgentLoop(Program):
         auto_select_planner: bool = True,
         default_planner_model: str = "anthropic:claude-haiku-4-5",
         tools: tuple[Any, ...] = (),
+        runtime: Any | None = None,
     ) -> None:
         super().__init__()
         # Use ``__dict__`` directly for non-Program children so
@@ -229,6 +230,13 @@ class AgentLoop(Program):
         # invariants). Explicit ``planner=`` always wins.
         self._auto_select_planner = auto_select_planner
         self._default_planner_model = default_planner_model
+        # 0.1.0a17: keep a handle on the live KaosRuntime so
+        # ``prepare_turn`` can render the tool-group catalog and pass
+        # it into the IntentExtractor. ``None`` (the default) reduces
+        # the catalog to the empty string, which preserves the
+        # pre-0.1.0a17 routing path on every code path that doesn't
+        # plumb the runtime through (most unit tests).
+        self._runtime = runtime
 
     # ------------------------------------------------------------------
     # Public composition surface
@@ -285,6 +293,14 @@ class AgentLoop(Program):
         #    matching filenames verbatim against this list.
         corpus_size = self._corpus_size_from_memory(memory)
         corpus_headlines = self._corpus_headlines_from_memory(memory)
+        # 0.1.0a17: render the live tool-group catalog so the
+        # IntentSignature can apply rule 8 (factual-external-entity
+        # bias) against the actual registered groups instead of a
+        # hardcoded shortlist baked into the prompt. ``None`` runtime
+        # → empty string → catalog-aware bullets become no-ops.
+        from kaos_agents.context.tool_catalog import render_tool_categories_for_classifier
+
+        available_tool_groups = render_tool_categories_for_classifier(self._runtime)
         intent_invocation = await self._intent_extractor.invoke(
             message=message,
             recent_messages=self._recent_messages_summary(memory),
@@ -292,6 +308,7 @@ class AgentLoop(Program):
             corpus_attached=corpus_size > 0,
             corpus_size=corpus_size,
             corpus_headlines=corpus_headlines,
+            available_tool_groups=available_tool_groups,
         )
         intent: IntentResult = intent_invocation.output
 

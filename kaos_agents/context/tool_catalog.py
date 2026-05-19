@@ -113,6 +113,123 @@ def _render_grouped(
     return "\n".join(sections)
 
 
+def render_tool_categories_for_classifier(
+    runtime: Any,
+    *,
+    group_registry: ToolGroupRegistry | None = None,
+) -> str:
+    """Render the runtime's tool catalog as one-line-per-category text.
+
+    Output shape, one category per line::
+
+        <group-name>: <group-description>
+
+    Plus one trailing line per ungrouped tool ``<tool-name>: <description>``
+    so capabilities that haven't been bundled into a registered group
+    still surface to the classifier. Returns the empty string when the
+    runtime has no registered tools (preserves the pre-fix behavior on
+    the classifier side: no catalog means no new constraint, the
+    docstring's catalog-aware bullets become no-ops).
+
+    This is the canonical input for the dynamic-catalog awareness on
+    :class:`~kaos_agents.context.classify.ClassifyIntentSignature` and
+    :class:`~kaos_agents.intent.signature.IntentSignature` — both
+    classifiers accept the produced string as an InputField so they can
+    reason about which tool *categories* fit the user's question
+    without any hardcoded tool / category names baked into their
+    prompts. The 2026-05-19 senator-question regression (session
+    01KS0R64Q744DTVZ53KCS9VC7M) is the canonical driver: the agent
+    classified a current-factual question as ``respond`` because the
+    classifier never saw that a relevant tool group was registered.
+
+    The shape is deliberately compact (group line only — no per-tool
+    enumeration inside each group) so the classifier prompt stays
+    small. A planner that needs the per-tool breakdown should call
+    :func:`render_tool_catalog` with ``mode="grouped"`` instead.
+
+    Args:
+        runtime: A :class:`~kaos_core.runtime.KaosRuntime`-like object
+            exposing ``runtime.tools.list_tool_objects()``. Passing
+            ``None`` (or a runtime with no ``.tools``) yields the
+            empty string — the classifier docstring's catalog-aware
+            bullets all gate on a non-empty catalog string, so an
+            absent runtime keeps the pre-fix behavior unchanged.
+        group_registry: Tool-group registry to consult. Default is
+            :data:`default_tool_group_registry`. Tests can pass an
+            isolated registry to assert a stable output string.
+
+    Returns:
+        A single string. Empty when no tools / no runtime; otherwise a
+        newline-separated list of ``"<name>: <description>"`` lines,
+        one per group present in the catalog, with ungrouped tools
+        appended after the registered groups.
+    """
+    if runtime is None:
+        return ""
+    tools_attr = getattr(runtime, "tools", None)
+    if tools_attr is None:
+        return ""
+    list_objects = getattr(tools_attr, "list_tool_objects", None)
+    list_names = getattr(tools_attr, "list_tools", None)
+    tool_names: set[str]
+    if callable(list_objects):
+        try:
+            objects = list_objects()
+        except Exception:
+            objects = []
+        tool_names = {
+            str(getattr(getattr(t, "metadata", None), "name", "") or getattr(t, "name", ""))
+            for t in objects
+        }
+    elif callable(list_names):
+        try:
+            tool_names = set(list_names())
+        except Exception:
+            tool_names = set()
+    else:
+        return ""
+    tool_names.discard("")
+    if not tool_names:
+        return ""
+
+    registry = group_registry or default_tool_group_registry
+
+    lines: list[str] = []
+    grouped: set[str] = set()
+    for group in registry.groups():
+        present = [name for name in group.tool_names if name in tool_names]
+        if not present:
+            continue
+        description = group.description or group.name
+        lines.append(f"{group.name}: {description}")
+        grouped.update(present)
+
+    # Ungrouped tools — surface each one as its own line so a capability
+    # that hasn't been bundled into a group still reaches the classifier.
+    ungrouped_names = sorted(tool_names - grouped)
+    if ungrouped_names and callable(list_objects):
+        by_name: dict[str, Any] = {}
+        try:
+            for t in list_objects():
+                meta = getattr(t, "metadata", None)
+                n = str(getattr(meta, "name", "") or getattr(t, "name", ""))
+                if n:
+                    by_name[n] = meta if meta is not None else t
+        except Exception:
+            by_name = {}
+        for name in ungrouped_names:
+            meta = by_name.get(name)
+            desc = ""
+            if meta is not None:
+                desc = str(getattr(meta, "description", "") or "")
+            lines.append(f"{name}: {desc}" if desc else name)
+    else:
+        for name in ungrouped_names:
+            lines.append(name)
+
+    return "\n".join(lines)
+
+
 def render_tool_catalog(
     tools: Sequence[Any],
     *,
@@ -172,4 +289,8 @@ def render_tool_catalog(
     )
 
 
-__all__ = ["CatalogMode", "render_tool_catalog"]
+__all__ = [
+    "CatalogMode",
+    "render_tool_catalog",
+    "render_tool_categories_for_classifier",
+]

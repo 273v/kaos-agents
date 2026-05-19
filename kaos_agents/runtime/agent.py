@@ -797,11 +797,27 @@ class BaseAgent(KaosAgent):
                     parts.append("\n".join(item.content for item in items))
             context_text = "\n".join(parts)
 
+        # 0.1.0a17: surface the live tool-category catalog so the
+        # classifier can reason about which category fits the user's
+        # question instead of falling back to memory-only ``respond``
+        # for verifiable real-world questions. Subclasses that hold a
+        # KaosRuntime (ChatAgent, ResearchAgent, PlanExecuteAgent) read
+        # it through ``self._runtime``; BaseAgent has no runtime
+        # attribute so the helper returns ``""`` and the classifier
+        # keeps its pre-fix behavior. See
+        # :func:`render_tool_categories_for_classifier` for the
+        # output shape and the senator-question regression note.
+        from kaos_agents.context.tool_catalog import render_tool_categories_for_classifier
+
+        runtime = getattr(self, "_runtime", None)
+        available_tool_categories = render_tool_categories_for_classifier(runtime)
+
         return await classify_intent(
             message,
             memory,
             model=self._model_for_role("classify"),
             context_text=context_text,
+            available_tool_categories=available_tool_categories,
         )
 
     async def _dispatch(

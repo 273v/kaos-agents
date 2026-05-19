@@ -288,6 +288,11 @@ class Runner:
             agent_envelope_hash=envelope_hash,
             auto_select_planner=self._auto_select_planner,
             tools=bridged_tools,
+            # 0.1.0a17: hand the runtime to AgentLoop so prepare_turn
+            # can render the tool-group catalog into IntentSignature's
+            # ``available_tool_groups`` input. Without this, the
+            # classifier's catalog-aware bullets all reduce to no-ops.
+            runtime=self._runtime,
         )
 
     async def run(self, message: str, session_id: str) -> AsyncIterator[KaosEvent]:

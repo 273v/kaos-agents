@@ -7,6 +7,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0a17] — 2026-05-19
+
+### Added
+
+- **`ClassifyIntentSignature.available_tool_categories` InputField.**
+  The chat-pattern classifier (used by `BaseAgent._classify` →
+  `classify_intent`) now accepts a newline-separated catalog of tool
+  categories registered on the live runtime — one
+  ``"<name>: <one-sentence purpose>"`` line per category. The
+  classifier reads the catalog at decision time and routes a
+  factual-entity question to `tool_use` (or `research` when the
+  loaded-documents category fits) whenever a relevant category is
+  listed. Default `""` preserves the pre-fix routing path; callers
+  that don't populate the input see no behavior change.
+- **`IntentSignature.available_tool_groups` InputField.** Same
+  treatment for the newer `IntentExtractor` classifier. The new
+  input is the seam rule 8 (factual-external-entity bias) now reads
+  to decide whether a relevant tool group covers the entity's
+  domain. The rule no longer enumerates specific tool names — it
+  points the planner at the right pattern (`CHAT` or `RESEARCH`)
+  and lets the planner pick a tool from the live catalog. Default
+  `""` preserves backward compatibility.
+- **`render_tool_categories_for_classifier(runtime)`** helper in
+  `kaos_agents.context.tool_catalog`. Pure function that converts a
+  live `KaosRuntime` into the compact category-per-line string the
+  two classifiers now consume. Returns `""` when the runtime has no
+  tools (or is `None`), which is what makes the InputField additions
+  non-breaking on every code path that doesn't plumb a runtime through.
+- **Runtime wiring.** `BaseAgent._classify` and `AgentLoop.prepare_turn`
+  both call the new helper and pass the resulting catalog string
+  through to their respective classifiers. `Runner._build_agent_loop`
+  hands the runtime to `AgentLoop` so the second classifier sees the
+  same live catalog as the first. The hierarchical-planner sub-loop
+  factories continue to pass no runtime — sub-loops keep the
+  catalog-disabled default, which matches the existing anti-recursion
+  contract.
+
+### Changed
+
+- **Rewrote `ClassifyIntentSignature` routing-heuristics block** to
+  be catalog-driven instead of message-shape-only. The new bullets
+  instruct the model to consult `available_tool_categories` first;
+  when a relevant category is listed and the user is asking about
+  a current real-world entity, the classifier picks `tool_use` over
+  `respond`. The 2026-05-19 senator-question regression (session
+  `01KS0R64Q744DTVZ53KCS9VC7M`) is the canonical driver — the agent
+  classified ``who is the current US federal senator for Lansing
+  Michigan?`` as `respond` and answered from training memory for
+  three iterations while the critic kept asking it to call a
+  verification tool. The rewritten docstring closes that loop at
+  classification time.
+- **Rewrote `IntentSignature` rule 8** (factual-external-entity
+  bias) to be catalog-aware. Previously the rule listed ``FR /
+  eCFR / EDGAR / GovInfo / web-search`` verbatim in the prompt;
+  that was a hardcoded shortlist that drifted out of sync with the
+  actual registered groups. The new rule instructs the classifier
+  to consult `available_tool_groups`, pick the group whose
+  description covers the entity's domain, and dispatch with the
+  appropriate pattern. The classifier is no longer responsible for
+  knowing which specific tool exists — that's the planner's job.
+
+### Notes
+
+- **No wire-format breaking changes.** Both new InputFields are
+  additive with `default=""`. Every pre-existing caller of
+  `classify_intent(...)` and `IntentExtractor.invoke(...)`
+  continues to work without modification; the no-catalog path is
+  identical to the pre-0.1.0a17 behavior.
+- **No hardcoded tool / category names in any prompt docstring.**
+  The rule "if a relevant category exists in the catalog, use it"
+  is abstract; the catalog itself is the only place specific names
+  appear, and that's runtime input, not Signature prompt text.
+
 ## [0.1.0a16] — 2026-05-19
 
 ### Added
