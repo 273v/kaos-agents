@@ -397,7 +397,7 @@ class TestTargetsProjection:
     §6.
     """
 
-    def _stub_with_targets(self, targets: tuple[str, ...]) -> Any:
+    def _stub_with_targets(self, targets: tuple[Any, ...]) -> Any:
         """Build a minimal output object with a ``targets`` attribute
         plus the projector's required fields.
         """

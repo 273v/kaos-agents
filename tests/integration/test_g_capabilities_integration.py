@@ -300,7 +300,7 @@ class TestInvariantsRealOutputs:
         )
         inv2 = StepInvariant(
             name="under-500-chars",
-            predicate=lambda t: len(t) < 500,  # ty: ignore[invalid-argument-type]
+            predicate=lambda t: bool(t) and len(str(t)) < 500,
             message_on_violation="Output must be under 500 chars.",
         )
         output = "Short."
