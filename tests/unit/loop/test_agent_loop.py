@@ -308,6 +308,16 @@ class _FakeMemory:
         else:
             self._items = tuple(_FakeMemoryItem(f"doc-{i}.docx") for i in range(self._count))
         self.turn_count = 0
+        # WU-G.2 / #352 — AgentLoop.prepare_turn now calls
+        # ``mark_corpus_attached`` whenever ``corpus_size > 0``; the
+        # stub records the call so tests can assert on it without
+        # touching the real SessionMemory implementation.
+        self.corpus_attached_marks: int = 0
+        self.corpus_ever_attached: bool = False
+
+    def mark_corpus_attached(self) -> None:
+        self.corpus_attached_marks += 1
+        self.corpus_ever_attached = True
 
     def has_section(self, section: Any) -> bool:
         from kaos_agents.types.memory import MemoryType
