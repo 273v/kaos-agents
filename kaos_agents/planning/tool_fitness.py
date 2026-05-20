@@ -51,6 +51,7 @@ Integration plan (deferred — this module ships the primitive only):
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import Sequence
@@ -129,11 +130,30 @@ async def rank_tools_for_query(
     valid_names = {name for name, _ in catalog if name}
     call = Call(ToolFitnessSignature, model=model)
     try:
-        invocation = await call.invoke(
-            query=query,
-            tool_catalog=catalog_text,
-            recent_messages=recent_messages,
-            top_k=top_k,
+        invocation = await asyncio.wait_for(
+            call.invoke(
+                query=query,
+                tool_catalog=catalog_text,
+                recent_messages=recent_messages,
+                top_k=top_k,
+            ),
+            timeout=timeout_s,
+        )
+    except TimeoutError as exc:
+        logger.warning(
+            "ToolFitness: invocation timed out after %.1fs model=%s err=%s",
+            timeout_s,
+            model,
+            exc,
+        )
+        return ToolFitnessResult(
+            picks=(),
+            valid_picks=(),
+            rationale=f"invocation timed out after {timeout_s:.1f}s",
+            confidence=0.0,
+            cost_usd=0.0,
+            latency_ms=(time.monotonic() - t_start) * 1000,
+            fell_back=True,
         )
     except Exception as exc:
         logger.warning("ToolFitness: invocation failed model=%s err=%s", model, exc)
