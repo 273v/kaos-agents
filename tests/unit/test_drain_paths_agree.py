@@ -82,7 +82,7 @@ class _ScriptedAgent(KaosAgent):
     def metadata(cls) -> AgentMetadata:
         return AgentMetadata(name="scripted-agent", description="test double")
 
-    async def run(self, message: str, session_id: str):  # type: ignore[override]
+    async def run(self, message: str, session_id: str, **_kwargs):  # type: ignore[override]
         for ev in self._events:
             yield ev
 
@@ -99,7 +99,7 @@ def _build_scripted_runner(scripted: list[KaosEvent]) -> Runner:
     """
 
     class _Inline(Runner):
-        async def run(self, message: str, session_id: str):  # type: ignore[override]
+        async def run(self, message: str, session_id: str, **_kwargs):  # type: ignore[override]
             for ev in scripted:
                 yield ev
 

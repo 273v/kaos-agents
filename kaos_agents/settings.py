@@ -141,6 +141,44 @@ class KaosAgentSettings(ModuleSettings):
         ),
     )
 
+    # M1 — pre-ReAct tool-catalog narrowing (KFM-B05 mitigation)
+    tool_fitness_enabled: bool = Field(
+        default=True,
+        description=(
+            "When True, the ChatAgent runs a fitness ranker over the "
+            "registered tool catalog before each ReAct dispatch and "
+            "narrows the worker's catalog to the top-K most-fit tools. "
+            "Mitigates the 2026-05-19 KFM-B05 failure mode where "
+            "weaker reasoners (e.g. gpt-5.4-mini) short-circuit ReAct "
+            "into a memory-only text response when 80+ tools are "
+            "presented. Set False to bypass entirely (debugging or "
+            "deterministic-test scenarios)."
+        ),
+    )
+    tool_fitness_bypass_threshold: int = Field(
+        default=10,
+        ge=1,
+        description=(
+            "Skip the M1 ranker call when the bridged catalog has at "
+            "most this many tools. Small catalogs do not exhibit the "
+            "ReAct-bypass failure mode and don't need the ranker. "
+            "Counts the FULL bridged catalog (runtime tools + extra "
+            "delegation/handoff tools)."
+        ),
+    )
+    tool_fitness_top_k: int = Field(
+        default=8,
+        ge=1,
+        le=30,
+        description=(
+            "Upper bound on the narrowed catalog the worker sees. "
+            "8 is a defensible default: large enough to cover "
+            "common multi-tool compositions (search → fetch → "
+            "search-document → cite) plus headroom, small enough "
+            "to keep weaker reasoners on the tool-call branch."
+        ),
+    )
+
     # Planning: route thresholds
     confidence_threshold: float = Field(
         default=0.5,

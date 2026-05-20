@@ -238,6 +238,173 @@ class ChatAgent(BaseAgent):
         # than just annotating it after the fact.
         self._permission_policy = permission_policy
 
+    def _derive_capability_kinds_for_tools(
+        self,
+        tools: list[Any],
+    ) -> dict[str, str]:
+        """Best-effort map of ``tool_name -> CapabilityKind.value``.
+
+        Looks up each bridged Tool's original ``KaosTool`` on
+        ``self._runtime.tools`` and derives a ``Capability`` from its
+        metadata via the auto-classifier. Returns an empty mapping when
+        the runtime is unavailable or no metadata can be resolved —
+        callers must tolerate that.
+
+        This is the Phase 1.4 hook into the Capability registry. When
+        the registry holds an explicit Capability for a tool (e.g., the
+        future unified ``retrieve`` capability that aggregates several
+        tools), the registry lookup wins over the auto-derivation.
+        """
+        result: dict[str, str] = {}
+        runtime = self._runtime
+        if runtime is None:
+            return result
+        try:
+            from kaos_agents.registry import default_capability_registry
+            from kaos_agents.registry.capability_classifier import derive_capability
+        except ImportError:
+            return result
+        for t in tools:
+            name = getattr(t, "name", None)
+            if not name:
+                continue
+            name_str = str(name)
+            # Prefer explicit Capability registrations over auto-derivation.
+            cap_names = default_capability_registry.capabilities_for_tool(name_str)
+            if cap_names:
+                cap = default_capability_registry.get(cap_names[0])
+                if cap is not None:
+                    result[name_str] = str(cap.kind)
+                    continue
+            # Fall back to runtime tool metadata + classifier.
+            kaos_tool = None
+            try:
+                kaos_tool = runtime.tools.get_tool(name_str)
+            except Exception:
+                kaos_tool = None
+            if kaos_tool is None or not hasattr(kaos_tool, "metadata"):
+                continue
+            try:
+                cap = derive_capability(kaos_tool.metadata)
+            except ValueError:
+                continue
+            result[name_str] = str(cap.kind)
+        return result
+
+    async def _maybe_narrow_tools_via_fitness_ranker(
+        self,
+        *,
+        tools: list[Any],
+        query: str,
+    ) -> list[Any]:
+        """M1 — narrow the bridged ReAct catalog via the fitness ranker.
+
+        Returns the (possibly-narrowed) tool list. Always preserves
+        ``self._extra_llm_tools`` (delegation / handoff) even when the
+        ranker doesn't pick them — those are framework-mandatory.
+
+        Bypass conditions (all return ``tools`` unchanged):
+        * ``settings.tool_fitness_enabled`` is False
+        * ``len(tools) <= settings.tool_fitness_bypass_threshold``
+        * ``query`` is empty / whitespace
+        * the ranker raises or emits an unusable result
+        """
+        if not getattr(self._settings, "tool_fitness_enabled", True):
+            return tools
+        bypass_threshold = int(getattr(self._settings, "tool_fitness_bypass_threshold", 10))
+        if len(tools) <= bypass_threshold:
+            return tools
+        clean_query = (query or "").strip()
+        if not clean_query:
+            return tools
+
+        # Build a (name, description) catalog from the bridged Tool list.
+        # Tool objects from kaos-llm-core expose .name and .description
+        # as properties; falling back to the raw attribute keeps the
+        # narrowing agnostic to future Tool refactors.
+        #
+        # Phase 1.4 of the Capability-layer refactor: when the runtime
+        # is available we enrich each description with the tool's
+        # derived ``CapabilityKind`` (e.g., ``[SEARCH]``, ``[READ]``)
+        # so the planner sees the higher-level abstraction without
+        # the ToolFitnessSignature contract changing. See
+        # ``kaos-modules/docs/plans/2026-05-19-lateral-redesign-
+        # capability-layer.md`` §16 and the progress doc.
+        kind_by_tool = self._derive_capability_kinds_for_tools(tools)
+        catalog: list[tuple[str, str]] = []
+        for t in tools:
+            name = getattr(t, "name", None) or ""
+            description = getattr(t, "description", None) or ""
+            if not name:
+                continue
+            kind = kind_by_tool.get(str(name))
+            if kind is not None and description:
+                description = f"[{kind.upper()}] {description}"
+            elif kind is not None:
+                description = f"[{kind.upper()}]"
+            catalog.append((str(name), str(description)))
+        if not catalog:
+            return tools
+
+        extra_names = {getattr(et, "name", None) for et in self._extra_llm_tools}
+        extra_names.discard(None)
+
+        try:
+            from kaos_agents.planning.tool_fitness import rank_tools_for_query
+
+            top_k = int(getattr(self._settings, "tool_fitness_top_k", 8))
+            ranker_model = self._model_for_role("classify")
+            result = await rank_tools_for_query(
+                query=clean_query,
+                catalog=catalog,
+                model=ranker_model,
+                top_k=top_k,
+            )
+        except Exception as exc:
+            logger.warning(
+                "tool_fitness_ranker: invocation failed; falling back to "
+                "unfiltered catalog. err=%s",
+                exc,
+            )
+            return tools
+
+        if result.fell_back or not result.valid_picks:
+            logger.debug(
+                "tool_fitness_ranker: no usable picks (fell_back=%s, "
+                "picks=%r, valid=%r) — falling back to unfiltered "
+                "catalog of %d tools",
+                result.fell_back,
+                result.picks,
+                result.valid_picks,
+                len(tools),
+            )
+            return tools
+
+        # Preserve mandatory extras + tools the ranker selected. Keep
+        # the original tool-list order within each group so observers /
+        # tests see a stable arrangement.
+        keep_names = set(result.valid_picks) | extra_names
+        narrowed = [t for t in tools if getattr(t, "name", None) in keep_names]
+        if not narrowed:
+            # No overlap — pathological. Keep the full catalog so the
+            # worker has *something* to work with.
+            logger.warning(
+                "tool_fitness_ranker: picks %r matched zero bridged "
+                "tools — keeping full catalog of %d tools",
+                result.valid_picks,
+                len(tools),
+            )
+            return tools
+
+        logger.info(
+            "tool_fitness_ranker: narrowed catalog %d → %d for query (model=%s rationale=%r)",
+            len(tools),
+            len(narrowed),
+            self._model_for_role("classify"),
+            result.rationale[:80],
+        )
+        return narrowed
+
     async def _dispatch_streaming(
         self,
         intent: IntentResult,
@@ -312,6 +479,21 @@ class ChatAgent(BaseAgent):
             len(tools) - len(self._extra_llm_tools),
             len(self._extra_llm_tools),
             self._model_for_role("respond"),
+        )
+
+        # M1 — pre-ReAct tool-catalog narrowing (KFM-B05 mitigation).
+        # When the registered catalog is large, weaker reasoners
+        # (e.g. gpt-5.4-mini) short-circuit ReAct into a memory-only
+        # text response. The fitness ranker scores tool fit against
+        # the user's message and narrows the bridged catalog before
+        # ReAct sees it. Bypass-if-small keeps tiny catalogs free of
+        # ranker overhead; fall-back-on-error keeps the loop running
+        # if the ranker provider is down or the model emits garbage.
+        # Mandatory tools (delegation / handoff via ``_extra_llm_tools``)
+        # are always preserved.
+        tools = await self._maybe_narrow_tools_via_fitness_ranker(
+            tools=tools,
+            query=message,
         )
 
         if not tools:
@@ -417,20 +599,33 @@ class ChatAgent(BaseAgent):
             if thinking_event is not None:
                 yield thinking_event
 
-            # Emit tool call events from the trajectory
+            # Emit tool call events from the trajectory.
+            # No default-on truncation: the span's ``result_summary``
+            # carries the FULL tool result text. Wire consumers (SPA
+            # tool-chip, OTel, MCP host UIs) get the full value and
+            # can choose their own display cap. Previously chopped to
+            # 200 chars, which (a) hid late error text from the
+            # no-evidence gate and (b) lied to the operator about what
+            # the tool actually returned. See task #438.
             total_tool_calls = 0
             for iteration in result.trajectory:
                 for obs in iteration.tool_results:
                     total_tool_calls += 1
-                    result_preview = str(obs.result)[:200] if obs.result else ""
+                    result_full = str(obs.result) if obs.result else ""
                     call_id = obs.tool_call_id or obs.tool_name
                     args_tuple = tuple(sorted(obs.arguments.items())) if obs.arguments else ()
                     structured_content = _extract_structured_content(obs.result)
+                    # Log line gets a short head for readability — a
+                    # log line is not a load-bearing surface; the full
+                    # text is on the span attribute.
+                    log_preview = (
+                        result_full if len(result_full) <= 160 else result_full[:160] + "..."
+                    )
                     logger.debug(
                         "chat_agent.tool_call: tool=%s, is_error=%s, result_preview=%r",
                         obs.tool_name,
                         obs.is_error,
-                        result_preview[:80],
+                        log_preview,
                     )
                     tc_span = emitter.span_start(
                         SpanSubject.TOOL_CALL,
@@ -445,7 +640,7 @@ class ChatAgent(BaseAgent):
                     complete_attrs: dict[str, Any] = {
                         "tool_name": obs.tool_name,
                         "call_id": call_id,
-                        "result_summary": result_preview,
+                        "result_summary": result_full,
                         "is_error": obs.is_error,
                     }
                     if isinstance(structured_content, dict) and structured_content:
@@ -466,13 +661,16 @@ class ChatAgent(BaseAgent):
             # kaos-* legal-research bar — "confidently wrong" is the
             # worst class of failure; we'd rather refuse loudly than
             # synthesize a plausible-sounding answer the LLM has zero
-            # evidence for.
+            # evidence for. Pass FULL text to the gate so a late
+            # error message (e.g. char 301+) can't slip past
+            # truncation. See task #438 + the truncation audit's
+            # P1 #10.
             obs_summaries = [
                 ToolObservationSummary(
                     tool_name=str(getattr(obs, "tool_name", "") or ""),
                     is_error=bool(getattr(obs, "is_error", False)),
-                    result_preview=(str(obs.result)[:300] if obs.result else ""),
-                    arguments_preview=(str(getattr(obs, "arguments", "") or "")[:300]),
+                    result_preview=(str(obs.result) if obs.result else ""),
+                    arguments_preview=(str(getattr(obs, "arguments", "") or "")),
                 )
                 for iteration in result.trajectory
                 for obs in iteration.tool_results

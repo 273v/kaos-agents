@@ -93,6 +93,46 @@ class MessageRequest(BaseModel):
             "and section.'"
         ),
     )
+    is_internal_iteration: bool = Field(
+        default=False,
+        description=(
+            "True when the caller is replaying the SAME user message under "
+            "an outer multi-iteration loop (e.g. kaos-agents' AgenticLoop "
+            "critic-driven replan). The agent will NOT persist the user "
+            "message to SessionMemory.MESSAGES (it's already there from "
+            "iteration 1), and will NOT persist the intermediate assistant "
+            "response. After the loop terminates, the caller is expected to "
+            "POST the canonical (user, final-assistant) pair to "
+            "/v1/sessions/{id}/memory/messages/turn so memory has exactly "
+            "one user entry + one assistant entry per turn. Default False "
+            "keeps single-turn callers unchanged."
+        ),
+    )
+
+
+class MemoryTurnRequest(BaseModel):
+    """Request body for POST /v1/sessions/{id}/memory/messages/turn.
+
+    Writes the canonical (user, final-assistant) pair to
+    ``SessionMemory.MESSAGES`` without running the LLM. Used by outer
+    multi-iteration loops (e.g. kaos-agents' AgenticLoop) that delegated
+    each iteration with ``is_internal_iteration=True`` and now need to
+    persist the resolved turn exactly once. See the iteration-leak fix
+    in ``docs/plans/2026-05-19-agentic-loop-honesty.md`` §3.1.a.
+    """
+
+    user_message: str = Field(description="The user's message for this turn.")
+    assistant_message: str = Field(description="The agent's final assistant text for this turn.")
+
+
+class MemoryTurnResponse(BaseModel):
+    """Response body for POST /v1/sessions/{id}/memory/messages/turn."""
+
+    session_id: str
+    turn_count: int
+    appended: int = Field(
+        description="Number of memory items appended (typically 2: user + assistant).",
+    )
 
 
 class SessionCreateRequest(BaseModel):
@@ -401,7 +441,10 @@ def _register_routes(app: FastAPI) -> None:
             from kaos_agents.tools.registry import _run_turn_with_status
 
             response, status = await _run_turn_with_status(
-                runner, body.message, effective_session_id
+                runner,
+                body.message,
+                effective_session_id,
+                is_internal_iteration=body.is_internal_iteration,
             )
             payload = {
                 "text": response.text,
@@ -427,7 +470,11 @@ def _register_routes(app: FastAPI) -> None:
             return JSONResponse(payload)
 
         # Default: SSE streaming
-        event_stream = runner.run(body.message, effective_session_id)
+        event_stream = runner.run(
+            body.message,
+            effective_session_id,
+            is_internal_iteration=body.is_internal_iteration,
+        )
         return StreamingResponse(
             events_to_sse(event_stream),
             media_type="text/event-stream",
@@ -584,6 +631,56 @@ def _register_routes(app: FastAPI) -> None:
 
         return {"status": "deleted", "session_id": session_id}
 
+    @app.post(
+        "/v1/sessions/{session_id}/memory/messages/turn",
+        response_model=MemoryTurnResponse,
+    )
+    async def append_memory_turn(
+        session_id: Annotated[str, Path(description="Session identifier")],
+        body: Annotated[MemoryTurnRequest, Body()],
+        tenant_id: Annotated[str | None, Depends(_require_auth)],
+    ) -> MemoryTurnResponse:
+        """Append a canonical (user, final-assistant) pair to memory.
+
+        Used by outer multi-iteration loops (e.g. kaos-agents'
+        AgenticLoop) that drove each iteration with
+        ``is_internal_iteration=True`` and now need to persist the
+        resolved turn exactly once. No LLM call — pure memory write.
+
+        Writes are skipped when the corresponding field is empty so the
+        caller can omit either side (e.g. assistant-only on a failure
+        recovery path). The session is created on demand if it does not
+        yet exist, matching the message endpoint's behaviour.
+
+        See ``docs/plans/2026-05-19-agentic-loop-honesty.md`` §3.1.a for
+        the iteration-leak fix this endpoint supports.
+        """
+        from kaos_agents.memory.store import SessionStore
+        from kaos_agents.types.memory import MemoryType
+
+        effective_session_id = scope_session_id(session_id, tenant_id)
+        store = SessionStore(app.state.vfs)
+        memory = await store.load_or_create(effective_session_id)
+
+        appended = 0
+        user_text = body.user_message.strip()
+        assistant_text = body.assistant_message.strip()
+        if user_text:
+            memory.add(MemoryType.MESSAGES, f"user: {user_text}")
+            appended += 1
+        if assistant_text:
+            memory.add(MemoryType.MESSAGES, f"assistant: {assistant_text}")
+            appended += 1
+
+        if appended > 0:
+            await store.save(memory)
+
+        return MemoryTurnResponse(
+            session_id=session_id,
+            turn_count=memory.turn_count,
+            appended=appended,
+        )
+
     # Note: register /memory/search BEFORE /memory/{section} so FastAPI's
     # first-match routing sends "search" to the search endpoint rather than
     # treating it as a section name.
@@ -622,7 +719,7 @@ def _register_routes(app: FastAPI) -> None:
             result_count=len(results),
             results=[
                 MemorySearchResultResponse(
-                    content=r.content[:200],
+                    content=r.content,
                     section=r.section.value,
                     score=round(r.score, 4),
                 )

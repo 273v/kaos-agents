@@ -114,6 +114,51 @@ class GoalChecked(LifecycleEvent):
     latency_ms: float = 0.0
 
 
+class ConsistencyChecked(LifecycleEvent):
+    """The M2 reasoning-action consistency critic ran after the worker.
+
+    Emitted by ``run_agentic_turn`` when ``m2_consistency_model`` is
+    set and the worker has produced a response. Carries the M2
+    verdict alongside whether the critic actually overrode the
+    GoalCheck terminator (i.e. forced a re-iteration).
+
+    Mirrors :class:`GoalChecked` shape — same audit-trail discipline,
+    different rubric. SPA run-inspectors render this as an M2 chip
+    alongside the GoalCheck chip. OTel exporters get it as a
+    Span(SUBJECT.JUDGE, phase=COMPLETE) sibling.
+
+    Attributes:
+        label: One of ``"consistent"`` / ``"contradicts_reasoning"``
+            / ``"contradicts_tool_results"`` / ``""`` (when
+            ``fell_back=True``). Lowercase, verbatim from the rubric.
+        confidence: M2's self-rated [0.0, 1.0]. ``0.0`` when
+            ``fell_back=True``.
+        reasoning: One-paragraph justification from the critic.
+            Empty when ``fell_back=True``.
+        iteration: Loop iteration number that produced the response
+            this verdict applies to.
+        cost_usd: M2's LLM cost this call.
+        latency_ms: M2's wall-clock time this call.
+        fell_back: True when the critic invocation errored / emitted
+            a disallowed label. Loop treats fell_back as ``consistent``
+            to avoid loop-on-broken-critic, but the event preserves
+            the signal so operators can see it.
+        overrode_satisfied: True when the GoalCheck verdict for the
+            same iteration was ``satisfied`` AND the M2 label was a
+            ``contradicts_*`` — i.e. M2 forced another iteration.
+            The single most useful column for "did M2 do anything?"
+    """
+
+    label: str = ""
+    confidence: float = 0.0
+    reasoning: str = ""
+    iteration: int = 1
+    cost_usd: float = 0.0
+    latency_ms: float = 0.0
+    fell_back: bool = False
+    overrode_satisfied: bool = False
+
+
 class LoopTerminated(LifecycleEvent):
     """The AgenticLoop exited.
 
@@ -149,6 +194,7 @@ class LoopTerminated(LifecycleEvent):
 
 __all__ = [
     "CapabilityRequested",
+    "ConsistencyChecked",
     "GoalChecked",
     "LoopTerminated",
     "ToolPolicyElevated",

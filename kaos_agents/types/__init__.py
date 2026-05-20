@@ -43,6 +43,7 @@ from kaos_agents.types.metadata import (
     RecipeMetadata,
 )
 from kaos_agents.types.permissions import PermissionDecision, PermissionRule
+from kaos_agents.types.persona import KaosPersona
 from kaos_agents.types.plan import (
     ComposeResult,
     Decision,
@@ -116,6 +117,7 @@ __all__ = [
     "IntentType",
     "InvocationUsage",
     "Judgment",
+    "KaosPersona",
     "MemoryItem",
     "MemoryType",
     "ModelRole",

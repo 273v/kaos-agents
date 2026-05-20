@@ -368,7 +368,7 @@ class TestRunnerHookIntegration:
         runner = Runner(agent, hooks=(_SkipAllTools(),))
 
         # Emit a tool-call START via a fake dispatch (bypasses real ReAct)
-        async def _fake_run(_self, message, session_id):  # type: ignore[no-untyped-def]
+        async def _fake_run(_self, message, session_id, **_kwargs):  # type: ignore[no-untyped-def]
             emitter = EventEmitter(session_id=session_id, run_id="r-skip-real")
             yield emitter.span_start(
                 SpanSubject.TURN,

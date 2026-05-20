@@ -97,6 +97,7 @@ async def expand(
     prior_failures: str = "",
     max_steps: int = 10,
     model: str = DEFAULT_MODEL,
+    max_context_chars: int | None = None,
 ) -> list[Step]:
     """Generate plan steps for a goal via LLM.
 
@@ -107,6 +108,17 @@ async def expand(
         prior_failures: Description of previous failed attempts (Reflexion feedback).
         max_steps: Maximum number of steps to generate.
         model: LLM model for plan generation.
+        max_context_chars: When set, truncates ``context`` to this many
+            characters before passing to the planner LLM, appending a
+            ``\\n... (truncated <N> more chars)`` marker. **Default
+            ``None`` — no truncation.** The planner sees the FULL
+            context so its plan reflects every signal the caller
+            chose to include. Pass an explicit cap only when the
+            operator has measured a specific context-window pressure;
+            never as a default safety net (a truncated context can
+            silently drop the constraint that determines the plan
+            shape). When the cap fires, a ``logger.warning`` is
+            emitted so the truncation is auditable.
 
     Returns:
         List of Steps with validated tool names and dependency references.
@@ -126,6 +138,17 @@ async def expand(
 
     call = Call(PlanExpandSignature, model=model)
 
+    effective_context = context
+    if max_context_chars is not None and len(context) > max_context_chars:
+        dropped = len(context) - max_context_chars
+        logger.warning(
+            "expand: planning context truncated kept=%d dropped=%d budget=%d",
+            max_context_chars,
+            dropped,
+            max_context_chars,
+        )
+        effective_context = context[:max_context_chars] + f"\n... (truncated {dropped} more chars)"
+
     try:
         # ``invoke`` (not bare ``__call__``) so the per-plan-generation
         # cost flows through ``Invocation.usage`` into the
@@ -134,7 +157,7 @@ async def expand(
         invocation = await call.invoke(
             goal=goal,
             tools=tool_descriptions,
-            context=context[:3000],
+            context=effective_context,
             max_steps=max_steps,
             prior_failures=prior_failures,
         )
