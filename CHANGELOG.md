@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0a18] — 2026-05-20
+
+### Added
+
+- **`is_uninformative_result(text, *, extra_patterns=())`** in
+  `kaos_agents.planning.result_check` — generic predicate that
+  returns True iff a textual tool result carries no usable signal:
+  empty / whitespace, "no results" / "no matches" / "no hits"
+  phrases, "0 results" / "0 hits" counts, JSON-style empty list
+  fields (`"results": []`, `"hits": []`, etc.), JSON-style
+  explicit zero count (`"total_matches": 0`), or bare `[]`. Generic
+  across tool families — no tool-name hardcoding. Defers to
+  `is_error_result` so callers can keep error and zero-result
+  failure paths separate.
+
+- **`CircuitBreaker` — `uninformative_counts_as_failure` (default
+  True) + `extra_uninformative_patterns`.** Closes the gap exposed
+  by session `01KS2DEBYT341F1F16B3BRQRV0`, where 12 consecutive
+  `kaos-web-search` calls returned `is_error=False` with body
+  `"No results found for: ..."` — every call "succeeded" by the
+  error-only predicate, the breaker never tripped, and the loop
+  ran out of budget. The new flag makes `on_tool_call_result`
+  count uninformative returns as failures alongside errors, so the
+  per-tool consecutive-failures counter trips at the configured
+  threshold. Callers who want the pre-`a18` behavior pass
+  `uninformative_counts_as_failure=False`.
+
+- **`CircuitBreaker` wired into `kaos_agents.api.server.create_app()`
+  Runners** (both the start-turn and resume-paused handlers).
+  Previously the breaker class existed but was never instantiated
+  by the API surface — kaos-ui SPA backends mounting `create_app`
+  had no circuit protection at all. Per-request scope is correct:
+  each new HTTP request is a fresh user intent.
+
+### Changed
+
+- `kaos_agents.action.circuit.CircuitBreaker.on_tool_call_result`
+  now reads `event.attributes["result_summary"]` in addition to
+  `is_error`, and consults `is_uninformative_result` when
+  `uninformative_counts_as_failure` is True. The
+  `is_uninformative_result` import is deferred to first call to
+  preserve the base-install contract (the
+  `kaos_agents.planning.__init__` chain pulls in optional `[llm]`
+  modules).
+
+### Notes / known limitations
+
+- **Scope: count + observability, NOT hard tool-call block.** The
+  current `Runner` honors `HookAction.SKIP` by suppressing the
+  event from the outbound stream, but it does NOT pre-empt the
+  inner ChatAgent / ReAct from dispatching the tool. The breaker
+  is therefore an observability + count primitive for now; actual
+  loop termination on a tripped breaker still relies on the
+  upstream `run_agentic_turn` terminators (max_iterations / cost /
+  wall_clock / stuck_no_progress). Closing this loop end-to-end
+  (Runner blocking tool execution on SKIP, or an explicit
+  `CircuitBreakerTripped` event the AgenticLoop watches for) is a
+  follow-up.
+
 ## [0.1.0a16] — 2026-05-19
 
 ### Added
