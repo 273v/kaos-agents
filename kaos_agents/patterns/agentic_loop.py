@@ -81,11 +81,13 @@ from kaos_core.logging import get_logger
 from kaos_agents.events.lifecycle import TurnSummary
 from kaos_agents.events.policy import (
     CapabilityRequested,
+    CircuitBreakerTripped,
     ConsistencyChecked,
     GoalChecked,
     LoopTerminated,
     ToolPolicyElevated,
 )
+from kaos_agents.events.spans import Span, SpanPhase, SpanSubject
 from kaos_agents.events.stream import TextDelta
 from kaos_agents.planning.goal_check import (
     GoalCheckInsufficientEvidence,
@@ -157,6 +159,15 @@ class _LoopState:
     last_critic_next_action: str = ""
     # Monotonic counter for KaosEvent.sequence — increments per event emission.
     sequence: int = 0
+    # Per-tool consecutive failure counter for the loop-level circuit
+    # breaker (#506-followup). Each observed
+    # ``Span(TOOL_CALL, COMPLETE)`` increments or resets the counter
+    # for its tool. When ANY tool crosses
+    # ``circuit_breaker_threshold``, the loop emits
+    # :class:`CircuitBreakerTripped` and terminates.
+    consecutive_tool_failures: dict[str, int] = field(default_factory=dict)
+    tripped_tool: str = ""
+    tripped_failures: int = 0
 
     def wall_clock_ms(self) -> float:
         return (time.monotonic() - self.t_start) * 1000
@@ -184,6 +195,7 @@ async def run_agentic_turn(
     goal_check_model: str | None = None,
     m2_consistency_model: str | None = None,
     m3_grounding_model: str | None = None,
+    circuit_breaker_threshold: int = 5,
 ) -> AsyncIterator[Any]:
     """Run one agent turn as an event-streaming loop.
 
@@ -313,9 +325,42 @@ async def run_agentic_turn(
             )
             state.cumulative_cost_usd += worker_result.cost_usd
 
-            # Forward worker events verbatim.
+            # Forward worker events verbatim. While we're walking them,
+            # observe ``Span(TOOL_CALL, COMPLETE)`` events for the
+            # loop-level circuit breaker (#506-followup): when a single
+            # tool returns ``circuit_breaker_threshold`` consecutive
+            # failures or uninformative results, emit
+            # CircuitBreakerTripped + terminate the loop. This closes
+            # the gap left open by the Runner-layer breaker (which
+            # only suppresses event emission, not tool dispatch).
             for ev in worker_result.events:
                 yield ev
+                _observe_for_circuit_breaker(
+                    ev,
+                    state=state,
+                    threshold=circuit_breaker_threshold,
+                )
+
+            # If a per-tool circuit breaker tripped this iteration,
+            # emit the typed event + refusal + LoopTerminated and stop.
+            if state.tripped_tool:
+                yield CircuitBreakerTripped(
+                    **_evt_base(state, session_id, run_id),
+                    tool_name=state.tripped_tool,
+                    consecutive_failures=state.tripped_failures,
+                    failure_threshold=circuit_breaker_threshold,
+                    reset_timeout_seconds=0.0,
+                    uninformative_counted=True,
+                )
+                async for ev in _emit_failure_refusal(
+                    reason="circuit_breaker_tripped",
+                    state=state,
+                    session_id=session_id,
+                    run_id=run_id,
+                ):
+                    yield ev
+                yield _terminate(state, policy, "circuit_breaker_tripped", session_id, run_id)
+                return
 
             if _budget_exceeded(state, policy):
                 async for ev in _emit_failure_refusal(
@@ -604,6 +649,11 @@ _REFUSAL_LEAD_BY_REASON: dict[str, str] = {
         "I stopped after {iterations} iteration(s) because the loop's "
         "wall-clock budget was exhausted. The critic's last diagnosis:"
     ),
+    "circuit_breaker_tripped": (
+        "I stopped after {iterations} iteration(s) because a single "
+        "tool kept failing or returning no usable result (circuit "
+        "breaker tripped). The critic's last diagnosis:"
+    ),
 }
 
 
@@ -690,6 +740,69 @@ async def _emit_failure_refusal(
         intent="refuse",
         cost_usd=state.cumulative_cost_usd,
     )
+
+
+def _observe_for_circuit_breaker(
+    event: Any,
+    *,
+    state: _LoopState,
+    threshold: int,
+) -> None:
+    """Update the loop-level circuit breaker from a forwarded worker event.
+
+    Walks every event the worker yields; only acts on
+    ``Span(TOOL_CALL, COMPLETE)``. For each such span, looks at
+    ``attributes["is_error"]`` and ``attributes["result_summary"]``:
+
+    - error or uninformative result → increment the per-tool
+      consecutive-failure counter.
+    - informative result → reset the counter to 0.
+
+    If the counter for any tool crosses ``threshold``, sets
+    ``state.tripped_tool`` so the loop terminates after the current
+    iteration. The check is generic — it does NOT enumerate tool
+    names — and shares
+    :func:`kaos_agents.planning.result_check.is_uninformative_result`
+    with the Runner-layer ``CircuitBreaker`` so the two layers agree
+    on the predicate.
+    """
+    if state.tripped_tool:
+        return  # already tripped — don't keep counting
+    if threshold < 1:
+        return  # circuit breaker disabled
+    if not isinstance(event, Span):
+        return
+    if event.subject != SpanSubject.TOOL_CALL or event.phase != SpanPhase.COMPLETE:
+        return
+    attrs = event.attributes
+    if not isinstance(attrs, dict):
+        return
+    tool_name = str(attrs.get("tool_name", "") or "")
+    if not tool_name:
+        return
+    is_error = bool(attrs.get("is_error", False))
+    result_summary = str(attrs.get("result_summary", "") or "")
+    is_failure = is_error
+    if not is_failure:
+        # Lazy-import: same rationale as kaos_agents.action.circuit —
+        # planning.__init__ chains through optional [llm] extras.
+        from kaos_agents.planning.result_check import is_uninformative_result
+
+        is_failure = is_uninformative_result(result_summary)
+    if is_failure:
+        new_count = state.consecutive_tool_failures.get(tool_name, 0) + 1
+        state.consecutive_tool_failures[tool_name] = new_count
+        if new_count >= threshold:
+            state.tripped_tool = tool_name
+            state.tripped_failures = new_count
+            logger.warning(
+                "agentic_loop: circuit breaker tripped tool=%s failures=%d threshold=%d",
+                tool_name,
+                new_count,
+                threshold,
+            )
+    else:
+        state.consecutive_tool_failures[tool_name] = 0
 
 
 def _evt_base(state: _LoopState, session_id: str, run_id: str) -> dict[str, Any]:

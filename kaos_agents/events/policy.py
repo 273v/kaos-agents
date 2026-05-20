@@ -159,6 +159,38 @@ class ConsistencyChecked(LifecycleEvent):
     overrode_satisfied: bool = False
 
 
+class CircuitBreakerTripped(LifecycleEvent):
+    """A per-tool :class:`~kaos_agents.action.circuit.CircuitBreaker` opened.
+
+    Emitted when a CircuitBreaker transitions from CLOSED to OPEN —
+    either via :meth:`record_failure` crossing the configured threshold
+    or via a HALF_OPEN probe failing. Carries the per-tool diagnostic
+    metadata downstream consumers (AgenticLoop terminators, the SPA
+    chat surface, audit logs) need to render an honest refusal.
+
+    Attributes:
+        tool_name: The tool whose breaker opened.
+        consecutive_failures: How many consecutive failures (or
+            uninformative results when
+            ``uninformative_counts_as_failure`` is set) led to the
+            trip. At least ``failure_threshold``.
+        failure_threshold: The threshold the breaker was configured
+            with (so consumers can render "5/5" without inferring).
+        reset_timeout_seconds: How long the breaker will stay OPEN
+            before allowing a HALF_OPEN probe.
+        uninformative_counted: True iff
+            ``uninformative_counts_as_failure`` was on when the trip
+            fired (so consumers can phrase the refusal correctly —
+            "tool kept failing" vs "tool kept returning empty").
+    """
+
+    tool_name: str = ""
+    consecutive_failures: int = 0
+    failure_threshold: int = 0
+    reset_timeout_seconds: float = 0.0
+    uninformative_counted: bool = True
+
+
 class LoopTerminated(LifecycleEvent):
     """The AgenticLoop exited.
 
@@ -177,6 +209,10 @@ class LoopTerminated(LifecycleEvent):
             ``max_loop_wall_clock_seconds`` cap.
           - ``"stuck_no_progress"`` — State-mutation check fired
             (an iteration completed without new tool calls or new text).
+          - ``"circuit_breaker_tripped"`` — A single tool returned
+            N consecutive failures or uninformative results (#506
+            follow-up). The :class:`CircuitBreakerTripped` event
+            emitted just before this carries the per-tool diagnostic.
           - ``"user_interrupt"`` — FastAPI request was aborted.
         iterations_used: How many iterations the loop ran (1..N).
         elevations_used: Total groups auto-elevated across iterations.
@@ -194,6 +230,7 @@ class LoopTerminated(LifecycleEvent):
 
 __all__ = [
     "CapabilityRequested",
+    "CircuitBreakerTripped",
     "ConsistencyChecked",
     "GoalChecked",
     "LoopTerminated",

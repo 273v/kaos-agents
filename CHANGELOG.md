@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Loop-level circuit-breaker terminator (#506-followup)
+
+- **`CircuitBreakerTripped` event** in
+  `kaos_agents.events.policy`. Carries `tool_name`,
+  `consecutive_failures`, `failure_threshold`,
+  `reset_timeout_seconds`, and `uninformative_counted` — the
+  per-tool diagnostic an SPA banner needs to render a precise
+  refusal.
+- **`run_agentic_turn(circuit_breaker_threshold: int = 5)`**
+  parameter. Each forwarded `Span(TOOL_CALL, COMPLETE)` event
+  updates a per-tool consecutive-failure counter using the same
+  `is_uninformative_result` predicate as the Runner-layer
+  `CircuitBreaker`. When ANY tool crosses the threshold, the loop
+  emits `CircuitBreakerTripped` + the clean refusal pair
+  (TextDelta + TurnSummary(intent="refuse")) + `LoopTerminated`
+  with `reason="circuit_breaker_tripped"`. Closes the
+  loop-termination gap left open by 0.1.0a18's Runner-layer
+  observer-only breaker.
+- **`circuit_breaker_tripped` refusal lead text** added to
+  `_REFUSAL_LEAD_BY_REASON`.
+- 6 unit tests in
+  `tests/unit/test_agentic_loop_circuit_breaker.py`: session-DEB
+  replay, informative-results-don't-trip, counter-reset-on-success,
+  threshold=0-disables, diagnostic-field-population, per-tool
+  isolation.
+
 ## [0.1.0a18] — 2026-05-20
 
 The "agentic correctness" bundle. This release lands the M2/M3 critic
