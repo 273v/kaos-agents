@@ -7,6 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0a19] — 2026-05-20
+
+kaos-agents 0.1.0a19 — multi-turn corpus context retention (#352);
+persona + cost-guard live regression tests (#304, #305).
+
+### Fixed — Multi-turn corpus context retention (#352, WU-G.2)
+
+- **`SessionMemory.corpus_ever_attached`** — sticky boolean flag,
+  default `False`. Flipped by the new `mark_corpus_attached()` method
+  and persisted with `to_dict()` / `from_dict()`. Older snapshots
+  load with the flag defaulting to `False`; the next classifying
+  turn re-sets it from live state.
+- **`AgentLoop.prepare_turn`** and **`BaseAgent.run`** now call
+  `memory.mark_corpus_attached()` whenever they observe a non-empty
+  `MemoryType.DOCUMENTS` section on entry — same condition that
+  drives `IntentSignature.corpus_attached=True`.
+- **`assemble_context(pin_corpus_handles=None)`** — new keyword.
+  When `None` (the default) it reads `memory.corpus_ever_attached`.
+  When `True` (or the auto-resolved flag is True), the assembled
+  DOCUMENTS slot is guaranteed to retain at least a compact
+  `[N attached document(s): file1, file2, ...]` handle line even if
+  the total-budget trim phase would otherwise drop every document
+  body. Filenames cap at 12; the LLM follows up via
+  `search_memory(section='documents')` to disambiguate.
+- This closes the UX-C2 / 2026-05-17 SPA regression where a
+  follow-up like `"summarize that"` after an attached PDF scrolled
+  out of MESSAGES routed the agent through CHAT-with-no-corpus and
+  it confidently answered from training data.
+
+### Added — Persona scenario live tests (#304, WU-G.3)
+
+- **`tests/integration/test_persona_scenarios_live.py`** — two
+  cases, both gated with `@pytest.mark.live` +
+  `@requires_anthropic`:
+  - `drafting` persona drafts a confidentiality clause; asserts the
+    response carries clause-shaped output (recognisable contract
+    language with mandatory term, scope, and remedies hooks).
+  - `forensics` persona analyses an uploaded NDA from memory;
+    asserts the response is grounded in the attached body (cites
+    text from the corpus, no surprise web egress).
+- Each case runs on `anthropic:claude-haiku-4-5` and is budgeted
+  under $0.01 via `max_loop_iterations=1` + tight `max_loop_cost_usd`.
+- `allowed_groups` is asserted against the observed tool-call set —
+  the drafting persona is permitted authoring + research; the
+  forensics persona is documents + citations + vfs + forensics only.
+
+### Added — Cost-guard + interrupt live tests (#305, WU-G.4)
+
+- **`tests/integration/test_cost_guard_live.py`** — two cases, both
+  `@pytest.mark.live` + `@requires_anthropic`:
+  - Tight `max_loop_cost_usd=0.001` against a real Haiku planner →
+    loop terminates with
+    `LoopTerminated(reason="cost_exceeded")`.
+  - Tight `max_loop_wall_clock_seconds=0.5` against a realistic
+    latency → loop terminates with
+    `LoopTerminated(reason="wall_clock_exceeded")`.
+- Both assert the `TextDelta` refusal + `TurnSummary(intent="refuse")`
+  event pair fires (the SPA #508 contract — refusal text REPLACES,
+  it does not concatenate to the worker's last attempt).
+
 ### Added — Loop-level circuit-breaker terminator (#506-followup)
 
 - **`CircuitBreakerTripped` event** in

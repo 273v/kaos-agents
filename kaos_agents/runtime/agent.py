@@ -293,6 +293,20 @@ class BaseAgent(KaosAgent):
             is_internal_iteration,
         )
 
+        # WU-G.2 / #352 — set the sticky corpus flag whenever the
+        # DOCUMENTS section is non-empty entering this turn. The flag
+        # persists with the SessionMemory snapshot so a follow-up turn
+        # whose total-budget trim drops every DOCUMENTS body still
+        # sees a "corpus reachable via search_memory" handle. Calling
+        # this here (BEFORE assemble_context) is what lets
+        # ``assemble_context``'s default ``pin_corpus_handles=None``
+        # see the flag.
+        if (
+            memory.has_section(MemoryType.DOCUMENTS)
+            and memory.section_item_count(MemoryType.DOCUMENTS) > 0
+        ):
+            memory.mark_corpus_attached()
+
         # Step 4: Assemble context (query-aware when sections are large)
         from kaos_agents.context.assemble import assemble_context
 

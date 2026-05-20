@@ -293,6 +293,16 @@ class AgentLoop(Program):
         #    matching filenames verbatim against this list.
         corpus_size = self._corpus_size_from_memory(memory)
         corpus_headlines = self._corpus_headlines_from_memory(memory)
+        # WU-G.2 / #352 — mark the session as having ever had a corpus
+        # attached. This flag is sticky across turns and persisted with
+        # the SessionMemory snapshot; ``assemble_context`` consults it
+        # to pin a stable DOCUMENTS handle even when the next turn's
+        # total-budget trim would drop every document body. Calling
+        # ``mark_corpus_attached`` only once per session would be
+        # enough, but it's idempotent so the unconditional call here
+        # is safe and keeps the flow obvious.
+        if memory is not None and corpus_size > 0:
+            memory.mark_corpus_attached()
         # 0.1.0a17: render the live tool-group catalog so the
         # IntentSignature can apply rule 8 (factual-external-entity
         # bias) against the actual registered groups instead of a

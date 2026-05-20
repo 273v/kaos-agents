@@ -45,6 +45,7 @@ class SessionMemory:
 
     __slots__ = (
         "_chars_per_token",
+        "_corpus_ever_attached",
         "_graph",
         "_sections",
         "_session_id",
@@ -73,6 +74,15 @@ class SessionMemory:
         # that don't use the graph (chat / direct-respond) don't pay the
         # PyO3 import cost or hold an empty Graph instance.
         self._graph: Any | None = None
+        # WU-G.2 / #352 — sticky flag set by the agent loop the first
+        # turn the IntentSignature's ``corpus_attached`` input goes True
+        # (i.e. ``SessionMemory.DOCUMENTS`` was non-empty when the
+        # classifier ran). Persisted across turns so a follow-up like
+        # "summarize that" still sees the corpus context in the
+        # assembled prompt even when the DOCUMENTS bodies would
+        # otherwise be trimmed out by the total-budget pass.
+        # Defaults to False; ``mark_corpus_attached()`` flips it.
+        self._corpus_ever_attached: bool = False
 
     # -- Properties ----------------------------------------------------------
 
@@ -134,6 +144,36 @@ class SessionMemory:
     def graph(self, value: Any) -> None:
         """Replace the session graph wholesale (used during VFS hydration)."""
         self._graph = value
+
+    @property
+    def corpus_ever_attached(self) -> bool:
+        """Whether any prior turn in this session had a corpus attached.
+
+        WU-G.2 / #352. Set to True (and persisted) the first turn the
+        agent loop observes a non-empty ``MemoryType.DOCUMENTS`` section
+        on entry to the classifier — i.e. the same condition that
+        drives ``IntentSignature.corpus_attached=True``. Once flipped
+        True for a session it stays True for the session's lifetime.
+
+        The flag exists so a turn that arrives AFTER the documents got
+        trimmed from the per-turn assembled context (because total
+        budget filled with MESSAGES / ACTIONS / FINDINGS) can still
+        signal "the corpus is reachable via search_memory" to the
+        downstream LLM. See
+        :func:`kaos_agents.context.assemble.assemble_context` for the
+        retention semantics.
+        """
+        return self._corpus_ever_attached
+
+    def mark_corpus_attached(self) -> None:
+        """Sticky setter for :attr:`corpus_ever_attached`.
+
+        Idempotent. Called by the agent loop (or any other caller that
+        observes a non-empty ``MemoryType.DOCUMENTS`` section on
+        classification) so the flag survives across turns even if the
+        next user message arrives with no fresh attachments.
+        """
+        self._corpus_ever_attached = True
 
     # -- Explicit section loading ----------------------------------------------
 
@@ -418,6 +458,10 @@ class SessionMemory:
             "session_id": self._session_id,
             "turn_count": self._turn_count,
             "chars_per_token": self._chars_per_token,
+            # WU-G.2 / #352 — sticky corpus flag persists with the
+            # session snapshot so a multi-day-old "summarize that"
+            # follow-up still recognises the corpus context.
+            "corpus_ever_attached": self._corpus_ever_attached,
             "sections": {
                 mt.value: section.to_dict()
                 for mt, section in self._sections.items()
@@ -439,6 +483,10 @@ class SessionMemory:
             chars_per_token=data.get("chars_per_token", 4.0),
         )
         memory._turn_count = data.get("turn_count", 0)
+        # WU-G.2 / #352 — rehydrate the sticky corpus flag. Older
+        # snapshots (pre-0.1.0a19) don't have the key; default to
+        # False and let the next classifying turn re-set it.
+        memory._corpus_ever_attached = bool(data.get("corpus_ever_attached", False))
 
         # Build config lookup
         config_map = {c.memory_type: c for c in sections}
