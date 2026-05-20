@@ -644,7 +644,9 @@ async def test_max_iterations_emits_clean_refusal_not_last_worker_text() -> None
     worker = _worker_stub(
         WorkerResult(
             text=hallucinated_text + " [iter 1]",
-            tool_calls_made=[{"tool_name": "kaos-web-search", "result_summary": "No results found"}],
+            tool_calls_made=[
+                {"tool_name": "kaos-web-search", "result_summary": "No results found"}
+            ],
             cost_usd=0.002,
             latency_ms=100.0,
         ),

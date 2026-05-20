@@ -429,11 +429,23 @@ def _register_routes(app: FastAPI) -> None:
                 )
             )
 
+        # Per-request CircuitBreaker (#506). Defaults trip after 5
+        # consecutive failures-or-uninformative returns on a single tool;
+        # see the CircuitBreaker docstring for the rationale anchored on
+        # session 01KS2DEBYT341F1F16B3BRQRV0 (12 zero-result web searches
+        # in a row with no breaker wired). Per-request scope is correct
+        # because each new HTTP request is a fresh user intent — we do
+        # not want cross-request memory of consecutive failures.
+        from kaos_agents.action.circuit import CircuitBreaker
+
+        runner_hooks = (CircuitBreaker(),)
+
         runner = Runner(
             agent_config,
             runtime=app.state.runtime,
             vfs=app.state.vfs,
             permission_policy=permission_policy,
+            hooks=runner_hooks,
         )
 
         # Content negotiation: JSON-only clients take the blocking path.
@@ -545,10 +557,19 @@ def _register_routes(app: FastAPI) -> None:
         # The snapshot is captured at pause time on ``state.agent_config``;
         # older RunStates without it continue to fall back to defaults.
         agent_config = state.agent_config.to_agent() if state.agent_config is not None else Agent()
+
+        # Same per-request CircuitBreaker as the start-turn handler
+        # (#506). A resumed run gets a fresh breaker — the prior run's
+        # state is opaque to us, and re-applying old per-tool counts
+        # could mis-trip on legitimate retries after the user approved
+        # an asked-for tool.
+        from kaos_agents.action.circuit import CircuitBreaker
+
         runner = Runner(
             agent_config,
             runtime=app.state.runtime,
             vfs=app.state.vfs,
+            hooks=(CircuitBreaker(),),
         )
         event_stream = runner.resume(state, approved=body.approved)
         return StreamingResponse(

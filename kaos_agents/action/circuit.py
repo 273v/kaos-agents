@@ -18,10 +18,47 @@ the existing kaos-agents hook surface uses ``on_tool_call_result``
 (``Span(TOOL_CALL, COMPLETE)``), with success/failure read from
 ``event.attributes["is_error"]`` (see :class:`kaos_agents.events.Span`
 docstring for the conventional payload shape).
+
+What counts as a failure
+------------------------
+
+A call is treated as a failure when:
+
+1. ``event.attributes["is_error"]`` is True (a tool-bridge failure,
+   an HTTP non-2xx, or any exception bubbled up by the tool wrapper),
+   OR
+2. ``uninformative_counts_as_failure`` is True (the default) AND
+   :func:`kaos_agents.planning.result_check.is_uninformative_result`
+   returns True for ``event.attributes["result_summary"]``.
+
+The uninformative-result branch closes the gap exposed by session
+``01KS2DEBYT341F1F16B3BRQRV0``, where the agent ran 12 consecutive
+``kaos-web-search`` calls that each returned ``is_error=False`` with
+the body ``"No results found for: ..."`` — every call "succeeded" by
+the error-only predicate, the breaker never tripped, and the loop
+ran out of budget instead of refusing cleanly.
+
+Scope limitation (loop termination)
+-----------------------------------
+
+The current :class:`~kaos_agents.runtime.runner.Runner` honors
+``HookAction.SKIP`` by suppressing the suppressed event from the
+outbound event stream, but it does NOT pre-empt tool execution in the
+internal agent — by the time the Runner sees the
+``Span(TOOL_CALL, START)`` the inner ChatAgent / ReAct has already
+dispatched the tool. The breaker is therefore an OBSERVABILITY +
+COUNT primitive at the moment, not a hard tool-call block. To actually
+terminate the loop on a tripped breaker we still rely on the upstream
+:class:`~kaos_agents.patterns.agentic_loop.run_agentic_turn`
+terminators (max_iterations / cost / wall_clock / stuck_no_progress).
+Closing this loop end-to-end (Runner blocking tool execution on SKIP,
+or an explicit ``CircuitBreakerTripped`` event the AgenticLoop watches
+for) is tracked as a follow-up.
 """
 
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass, field
 from enum import StrEnum, unique
@@ -80,6 +117,8 @@ class CircuitBreaker(KaosHook):
         *,
         failure_threshold: int = 5,
         reset_timeout_seconds: float = 30.0,
+        uninformative_counts_as_failure: bool = True,
+        extra_uninformative_patterns: tuple[re.Pattern[str], ...] = (),
     ) -> None:
         if failure_threshold < 1:
             raise ValueError(
@@ -94,6 +133,8 @@ class CircuitBreaker(KaosHook):
             )
         self._failure_threshold = failure_threshold
         self._reset_timeout = reset_timeout_seconds
+        self._uninformative_counts_as_failure = uninformative_counts_as_failure
+        self._extra_uninformative_patterns = extra_uninformative_patterns
         self._states: dict[str, _PerToolState] = {}
 
     def _get(self, tool_name: str) -> _PerToolState:
@@ -165,16 +206,40 @@ class CircuitBreaker(KaosHook):
         return HookAction.CONTINUE if self.allow(tool_name) else HookAction.SKIP
 
     async def on_tool_call_result(self, event: Span) -> None:
-        """Update circuit state from the COMPLETE span's ``is_error`` attribute."""
+        """Update circuit state from the COMPLETE span's attributes.
+
+        A call counts as a failure when ``is_error`` is True OR — if
+        ``uninformative_counts_as_failure`` was set on construction
+        (default True) — when
+        :func:`~kaos_agents.planning.result_check.is_uninformative_result`
+        returns True for ``result_summary``. See the module docstring
+        for the rationale.
+        """
         tool_name = ""
         is_error = False
+        result_summary = ""
         attrs = getattr(event, "attributes", None)
         if isinstance(attrs, dict):
             tool_name = str(attrs.get("tool_name", "")) or ""
             is_error = bool(attrs.get("is_error", False))
+            result_summary = str(attrs.get("result_summary", "") or "")
         if not tool_name:
             return
-        if is_error:
+        is_failure = is_error
+        if not is_failure and self._uninformative_counts_as_failure:
+            # Lazy-import: ``kaos_agents.planning`` eagerly loads modules
+            # that depend on the ``[llm]`` optional extra. Importing it
+            # at module top-level would break the base-install contract
+            # tested by ``tests/unit/test_base_install_importable.py``.
+            # Deferring to first-call defers the load to runtime, when
+            # the extras are guaranteed present.
+            from kaos_agents.planning.result_check import is_uninformative_result
+
+            is_failure = is_uninformative_result(
+                result_summary,
+                extra_patterns=self._extra_uninformative_patterns,
+            )
+        if is_failure:
             self.record_failure(tool_name)
         else:
             self.record_success(tool_name)

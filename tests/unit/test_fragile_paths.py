@@ -252,9 +252,7 @@ def test_collect_predecessor_results_opt_in_cap_emits_marker() -> None:
 
     huge = "X" * 20_000
     graph, _ = _build_plan_graph_with_results({"step-a": huge, "step-b": "small"})
-    out = _collect_predecessor_results(
-        graph, "step-b", per_predecessor_char_budget=16_000
-    )
+    out = _collect_predecessor_results(graph, "step-b", per_predecessor_char_budget=16_000)
     assert "truncated 4000 more chars" in out
     # Total length is 16K + label + marker, well under 17K.
     assert len(out) < 17_000
