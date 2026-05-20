@@ -38,10 +38,12 @@ class ClassifyIntentSignature(Signature):
     Choose ONE category:
 
     * **respond** — simple conversational response, greeting, or
-      acknowledgement. No tools needed.
+      acknowledgement. No tools needed AND no real-world fact-
+      checking needed.
     * **tool_use** — the user wants to perform an action that
-      requires calling tools (extract data, search the web,
-      analyze a file, etc.).
+      requires calling tools, or wants a verifiable answer to a
+      question about a real-world entity / fact that a registered
+      tool category can address.
     * **research** — the user is asking a question about loaded
       documents that requires retrieval and reasoning over
       document content.
@@ -53,19 +55,70 @@ class ClassifyIntentSignature(Signature):
 
     Routing heuristics:
 
-    * If documents are loaded and the question relates to their
-      content, prefer ``research``.
-    * If the user mentions specific tools or actions, prefer
-      ``tool_use``.
+    * Read ``available_tool_categories`` to see what tool
+      categories are registered THIS turn. Each non-empty line is
+      one category — ``"<name>: <one-sentence purpose>"``. If a
+      category covers the user's question (e.g. a category whose
+      purpose mentions the kind of entity / domain the user asked
+      about), prefer ``tool_use`` (or ``research`` when the
+      relevant category is about reasoning over loaded documents).
+      Memory-only ``respond`` is unsafe when a relevant category
+      is in the catalog — the catalog exists precisely so you can
+      verify rather than guess from training data.
+    * When the question is about a CURRENT real-world entity —
+      current person / role, current law / rule / case status,
+      current price / market, current event, current public
+      filing, current organizational fact — AND any relevant tool
+      category is listed in ``available_tool_categories``, prefer
+      ``tool_use`` over ``respond``. Do NOT classify as
+      ``respond`` and answer from training memory in this case;
+      that is unsafe and is the documented 2026-05-19 regression
+      mode (session 01KS0R64Q744DTVZ53KCS9VC7M: "who is the
+      current US federal senator for Lansing Michigan?" routed
+      to ``respond`` and answered from training memory for three
+      iterations while the critic kept asking the agent to call a
+      registered verification category).
+    * When relevant catalog categories exist and documents are
+      also loaded, and the question relates to those documents'
+      content, prefer ``research`` — the document-retrieval
+      categories are still the catalog category that fits.
+    * If the user mentions specific tools or explicit actions,
+      prefer ``tool_use``.
     * If the request involves multiple sequential steps, prefer
       ``plan``.
+    * When ``available_tool_categories`` is empty (no tools
+      registered this turn), the catalog-aware bullets above are
+      no-ops. Fall back to the message-shape signal: pure
+      conversational small-talk → ``respond``; everything else
+      → ``tool_use`` (it remains the safest general default).
     * When in doubt between ``tool_use`` and ``research``, prefer
       ``tool_use`` (it's more general).
+
+    The catalog-aware rules are deliberately abstract — you read
+    the registered categories at classification time and pick the
+    routing category whose semantics fit. The Signature carries
+    no hardcoded tool names; that's why ``available_tool_categories``
+    is an input rather than baked into this prompt.
     """
 
     message: str = InputField(description="The user's message to classify.")
     conversation_context: str = InputField(
         description="Recent conversation history and assembled memory context."
+    )
+    available_tool_categories: str = InputField(
+        default="",
+        description=(
+            "Newline-separated list of tool categories registered on "
+            "the runtime THIS turn. Each non-empty line is one "
+            'category in the shape ``"<name>: <one-sentence '
+            'purpose>"``. The classifier uses this to decide '
+            "whether a relevant tool category fits the user's "
+            "question — see the routing-heuristics block in the "
+            "class docstring. Default empty string preserves the "
+            "pre-fix path: with no registered categories the "
+            "catalog-aware bullets are no-ops and routing falls "
+            "back to message-shape heuristics only."
+        ),
     )
     intent: Literal["respond", "tool_use", "research", "plan", "clarify"] = OutputField(
         description=(
@@ -89,6 +142,7 @@ async def classify_intent(
     model: str = DEFAULT_MODEL,
     context_items: dict[str, list[MemoryItem]] | None = None,
     context_text: str = "",
+    available_tool_categories: str = "",
 ) -> IntentResult:
     """Classify user intent using an LLM.
 
@@ -98,6 +152,13 @@ async def classify_intent(
         model: LLM model to use for classification.
         context_items: Pre-assembled context (if already computed).
         context_text: Pre-assembled context as text (passed to LLM).
+        available_tool_categories: Newline-separated catalog of tool
+            categories registered on the live runtime, in
+            ``"<name>: <purpose>"`` form. Passed straight through to
+            the :class:`ClassifyIntentSignature` so the LLM can reason
+            about which category fits the user's question. Default
+            ``""`` keeps backward compatibility — callers that don't
+            populate this preserve the pre-0.1.0a17 routing behavior.
 
     Returns:
         IntentResult with intent type, confidence, and reasoning.
@@ -122,7 +183,11 @@ async def classify_intent(
 
     try:
         return await _classify_with_llm(
-            user_message, memory, model=model, context_text=context_text
+            user_message,
+            memory,
+            model=model,
+            context_text=context_text,
+            available_tool_categories=available_tool_categories,
         )
     except Exception as exc:
         failure = classify_agent_failure(exc)
@@ -154,6 +219,7 @@ async def _classify_with_llm(
     *,
     model: str,
     context_text: str = "",
+    available_tool_categories: str = "",
 ) -> IntentResult:
     """LLM-based intent classification.
 
@@ -176,7 +242,11 @@ async def _classify_with_llm(
         )
 
     call = Call(ClassifyIntentSignature, model=model)
-    invocation = await call.invoke(message=user_message, conversation_context=context_text)
+    invocation = await call.invoke(
+        message=user_message,
+        conversation_context=context_text,
+        available_tool_categories=available_tool_categories,
+    )
 
     out = invocation.output
     # `intent` is now Literal-typed at the Signature level; the codec's

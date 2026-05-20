@@ -224,7 +224,9 @@ class TestChatPlanToolStructuredContentSurface:
         # Fake Runner: ``run()`` yields a canonical Turn -> TurnSummary
         # event stream so _run_turn_with_status produces a real response.
         class _FakeRunner:
-            async def run(self, _message: str, _session_id: str) -> Any:  # async generator
+            async def run(
+                self, _message: str, _session_id: str, **_kwargs: Any
+            ) -> Any:  # async generator
                 yield _span(
                     sequence=1,
                     subject=SpanSubject.TURN,

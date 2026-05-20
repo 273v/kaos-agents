@@ -159,7 +159,7 @@ def _format_results(results: list, max_results: int = 10) -> list[dict]:
             {
                 "item_id": r.item_id,
                 "score": round(r.score, 3),
-                "preview": r.content[:300],
+                "preview": r.content,
             }
         )
     return formatted
@@ -169,7 +169,7 @@ def _summarize_topics(results: list, max_results: int = 5) -> str:
     """Summarize the dominant topics across top results for self-assessment."""
     if not results:
         return "No results found."
-    previews = [r.content[:150] for r in results[:max_results]]
+    previews = [r.content for r in results[:max_results]]
     return " | ".join(previews)
 
 
@@ -404,7 +404,7 @@ class BM25SearchTool(KaosTool):
                     "page": meta["page"],
                     "section": meta["section_title"],
                     "score": round(h.score, 3),
-                    "preview": h.text[:300] if hasattr(h, "text") and h.text else "",
+                    "preview": h.text if hasattr(h, "text") and h.text else "",
                 }
             )
 
@@ -557,7 +557,7 @@ class SynonymSearchTool(KaosTool):
                     {
                         "doc_uri": passage_meta[int(h.doc_id)]["doc_uri"],
                         "score": round(h.score, 3),
-                        "preview": h.text[:300] if hasattr(h, "text") and h.text else "",
+                        "preview": h.text if hasattr(h, "text") and h.text else "",
                     }
                     for h in hits
                 ]
@@ -678,7 +678,7 @@ class HyDESearchTool(KaosTool):
                         "doc_uri": meta["doc_uri"],
                         "block_ref": meta["block_ref"],
                         "score": round(h.score, 3),
-                        "preview": h.text[:300] if hasattr(h, "text") and h.text else "",
+                        "preview": h.text if hasattr(h, "text") and h.text else "",
                     }
                 )
         else:
@@ -993,7 +993,7 @@ class RerankTool(KaosTool):
                         "item_id": r.result.doc_id,
                         "bm25_score": round(r.result.score, 3),
                         "rerank_score": round(r.rerank_score, 3),
-                        "preview": r.result.text[:300],
+                        "preview": r.result.text,
                     }
                 )
 

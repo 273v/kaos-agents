@@ -7,6 +7,276 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Loop-level circuit-breaker terminator (#506-followup)
+
+- **`CircuitBreakerTripped` event** in
+  `kaos_agents.events.policy`. Carries `tool_name`,
+  `consecutive_failures`, `failure_threshold`,
+  `reset_timeout_seconds`, and `uninformative_counted` — the
+  per-tool diagnostic an SPA banner needs to render a precise
+  refusal.
+- **`run_agentic_turn(circuit_breaker_threshold: int = 5)`**
+  parameter. Each forwarded `Span(TOOL_CALL, COMPLETE)` event
+  updates a per-tool consecutive-failure counter using the same
+  `is_uninformative_result` predicate as the Runner-layer
+  `CircuitBreaker`. When ANY tool crosses the threshold, the loop
+  emits `CircuitBreakerTripped` + the clean refusal pair
+  (TextDelta + TurnSummary(intent="refuse")) + `LoopTerminated`
+  with `reason="circuit_breaker_tripped"`. Closes the
+  loop-termination gap left open by 0.1.0a18's Runner-layer
+  observer-only breaker.
+- **`circuit_breaker_tripped` refusal lead text** added to
+  `_REFUSAL_LEAD_BY_REASON`.
+- 6 unit tests in
+  `tests/unit/test_agentic_loop_circuit_breaker.py`: session-DEB
+  replay, informative-results-don't-trip, counter-reset-on-success,
+  threshold=0-disables, diagnostic-field-population, per-tool
+  isolation.
+
+## [0.1.0a18] — 2026-05-20
+
+The "agentic correctness" bundle. This release lands the M2/M3 critic
+work, the max-iterations refusal override, the iteration-leak fix, the
+hardcoded-truncation audit lifts, the CircuitBreaker
+uninformative-result extension, and the lateral-redesign foundation
+(capability registry, persona runtime, generic Judge, ToolFitness
+ranker). See the per-section breakdown below.
+
+### Added — M2 reasoning-action consistency critic (#474, #492–#494)
+
+- **`kaos_agents/planning/m2_consistency.py`** — rubric on
+  `JudgeSignature` that detects the headline-vs-body contradiction
+  pattern surfaced by session `01KS1K6J9XWKCNQ0NPNKXXXP4P` (assistant
+  text says "branch taken: upper bound >= 5.0%" while reasoning says
+  it didn't have the bound). Labels: `consistent`,
+  `inconsistent_with_admission`, `inconsistent_without_admission`.
+  Helper `judge_reasoning_action_consistency` runs against any model.
+- **`AgenticLoop` wiring** — when M2 returns
+  `inconsistent_without_admission`, force-elevates the verdict to
+  `needs_more_work` and feeds the critic's `override_note` back into
+  the next iteration's prompt. Replaces the previously-shipped
+  hallucination as the loop's last value.
+
+### Added — M3 document-grounding fabrication critic
+
+- **`kaos_agents/planning/m3_grounding.py`** — sibling rubric to M2,
+  same shape. Labels: `grounded`, `fabricated_with_admission`,
+  `fabricated_without_admission`. Catches the R1-REAL pattern: agent
+  confidently asserts facts the attached document doesn't contain.
+- Composed with M2 in `AgenticLoop` — both critics run per iteration;
+  either firing triggers force-elevate.
+
+### Added — Max-iterations refusal override (#505)
+
+- **`AgenticLoop._build_failure_refusal`** + `_emit_failure_refusal`
+  helpers. Pre-a18, when a turn hit `max_iterations` / `stuck_no_progress`
+  / `cost_exceeded` / `wall_clock_exceeded`, the loop yielded the LAST
+  iteration's text — which was, by definition, the rejected
+  hallucination the critic just refused. a18 replaces that with a
+  clean refusal lead text per termination reason. Applied to all 4
+  failure terminators. Three distinct worker outputs in the new test
+  `test_max_iterations_emits_clean_refusal_not_last_worker_text`
+  guarantee the right terminator fires.
+
+### Added — `ConsistencyChecked` event (#499)
+
+- New `LifecycleEvent` class in `kaos_agents/events/policy.py`. 8
+  fields including `overrode_satisfied: bool`. Emitted on every M2 /
+  M3 verdict so the SPA SSE consumer can render the critic decision
+  inline with the turn timeline.
+
+### Added — Capability registry primitive (Step 1)
+
+- `kaos_agents/capabilities/`, `kaos_agents/registry/capability_registry.py`,
+  `kaos_agents/registry/capability_classifier.py`. Pure Python
+  abstraction over Tools that lets the planner reason about "what can
+  I do" without enumerating tool names. Auto-derives capabilities
+  from `KaosTool` annotations; explicit `default_capability_registry`
+  wins. Unit tests in `tests/unit/test_capability_classifier.py`
+  and `test_capability_registry.py`. Closes #480.
+
+### Added — Persona runtime + UI-as-protocol (Step 5)
+
+- `kaos_agents/personas/`, `kaos_agents/registry/persona_registry.py`,
+  `kaos_agents/types/persona.py`. Built-in personas (`builtin.py`) +
+  registry. Composes with the new capability registry: a persona
+  declares which capabilities it requires; the registry resolves to
+  the live tool subset. Tests in `tests/unit/test_persona.py`.
+  Closes #484 + #490.
+
+### Added — Generic `JudgeSignature(rubric, input, output)` (Step 3)
+
+- `kaos_agents/planning/judge.py`. Single Signature that any rubric
+  can ride on top of — M2 + M3 both compose against this. Live test
+  in `tests/integration/test_judge_signature_live.py`. Closes #482.
+
+### Added — M1 `ToolFitnessSignature` (#469–#471)
+
+- `kaos_agents/planning/tool_fitness.py`. Catalog-agnostic ranker
+  that scores a tool's fitness for a goal. Used by ChatAgent's ReAct
+  dispatch to narrow the catalog before the dispatch LLM sees it.
+  Live test in `tests/integration/test_tool_fitness_live.py`.
+
+### Added — `is_uninformative_result` + CircuitBreaker extension (#506)
+
+- **`is_uninformative_result(text, *, extra_patterns=())`** in
+  `kaos_agents.planning.result_check` — generic predicate that
+  returns True iff a textual tool result carries no usable signal:
+  empty / whitespace, "no results" / "no matches" / "no hits"
+  phrases, "0 results" / "0 hits" counts, JSON-style empty list
+  fields, JSON-style explicit zero count, or bare `[]`. Generic
+  across tool families — no tool-name hardcoding. Defers to
+  `is_error_result` so error and zero-result paths stay distinct.
+
+- **`CircuitBreaker` — `uninformative_counts_as_failure` (default
+  True) + `extra_uninformative_patterns`.** Closes the gap exposed
+  by session `01KS2DEBYT341F1F16B3BRQRV0` where 12 consecutive
+  `kaos-web-search` calls returned `is_error=False` with body
+  `"No results found for: ..."` — every call "succeeded" by the
+  error-only predicate, the breaker never tripped, and the loop
+  ran out of budget.
+
+- **`CircuitBreaker` wired into `kaos_agents.api.server.create_app()`
+  Runners** (both the start-turn and resume-paused handlers).
+  Per-request scope. Pre-a18 the breaker class existed but was
+  never instantiated by the API surface.
+
+### Changed — Iteration-leak fix (#458)
+
+- **`is_internal_iteration` flag** on the chat-message API + Runner
+  paths. When True, the agent does NOT persist either the user
+  message or the intermediate assistant response to
+  `SessionMemory.MESSAGES`. After the outer loop terminates, the
+  caller POSTs the canonical `(user, final-assistant)` pair to
+  `/v1/sessions/{id}/memory/messages/turn`. Pre-a18, M2-force-elevate
+  caused the user message to be persisted N times and N-1 rejected
+  intermediate responses to leak into memory. `memory.json` now
+  shows exactly 2 entries per turn (was 6 in the worst observed
+  case).
+
+### Changed — Hardcoded-truncation audit lifts (#497.1–4)
+
+- **`kaos_agents/planning/compose.py:_collect_predecessor_results`**:
+  added `per_predecessor_char_budget: int | None = None`. Default no
+  truncation. Pre-a18: 16 KB hardcoded cap on the next-step prompt.
+- **`kaos_agents/planning/expand.py:expand`**: added
+  `max_context_chars: int | None = None`. Default no truncation.
+  Pre-a18: 3 KB hardcoded cap on the planning context.
+- **`kaos_agents/patterns/plan_execute.py:_synthesize_results`**:
+  added `per_step_char_budget: int | None = None`. Default no
+  truncation. Pre-a18: 300 char hardcoded cap on the final
+  user-facing answer.
+- **`kaos_agents/patterns/chat.py`**: removed `[:200]` / `[:300]`
+  truncation at lines 607 / 656 / 657. The no-evidence gate now sees
+  the FULL tool result text.
+- **`kaos_agents/tools/registry.py`**: removed `response.text[:500]`
+  at lines 583 / 847. The MCP tool summary now ships the full
+  rendered text.
+- **`kaos_agents/tools/retrieval.py`**: removed 6 hardcoded `[:300]`
+  / `[:150]` previews on retrieval-tool result rows. The agent now
+  sees the full preview when deciding whether to open a document.
+- **`kaos_agents/api/server.py:722`**: removed `content=r.content[:200]`
+  on the memory-search HTTP response.
+
+### Changed — Logger discipline
+
+- `AgenticLoop` switched from `logging.getLogger(__name__)` to
+  `kaos_core.logging.get_logger(__name__)` per the kaos-* convention.
+  All structured log entries now auto-tag with `session` and `trace`.
+
+### Notes / known limitations
+
+- **CircuitBreaker scope: count + observability, NOT hard tool-call
+  block.** The current `Runner` honors `HookAction.SKIP` by
+  suppressing the event from the outbound stream, but it does NOT
+  pre-empt the inner ChatAgent / ReAct from dispatching the tool.
+  The breaker is therefore an observability + count primitive — loop
+  termination on a tripped breaker still relies on the upstream
+  `run_agentic_turn` terminators (max_iterations / cost / wall_clock
+  / stuck_no_progress). Closing this loop end-to-end (Runner blocking
+  on SKIP, or an explicit `CircuitBreakerTripped` event the
+  AgenticLoop watches for) is tracked as a follow-up.
+- **Base-install import contract preserved.** `is_uninformative_result`
+  is imported lazily inside `CircuitBreaker.on_tool_call_result` to
+  avoid eagerly loading `kaos_agents.planning.__init__` (which pulls
+  in `[llm]`-optional modules) from the always-on
+  `kaos_agents.action` layer. The
+  `tests/unit/test_base_install_importable.py` contract continues to
+  hold.
+
+## [0.1.0a17] — 2026-05-19
+
+### Added
+
+- **`ClassifyIntentSignature.available_tool_categories` InputField.**
+  The chat-pattern classifier (used by `BaseAgent._classify` →
+  `classify_intent`) now accepts a newline-separated catalog of tool
+  categories registered on the live runtime — one
+  ``"<name>: <one-sentence purpose>"`` line per category. The
+  classifier reads the catalog at decision time and routes a
+  factual-entity question to `tool_use` (or `research` when the
+  loaded-documents category fits) whenever a relevant category is
+  listed. Default `""` preserves the pre-fix routing path; callers
+  that don't populate the input see no behavior change.
+- **`IntentSignature.available_tool_groups` InputField.** Same
+  treatment for the newer `IntentExtractor` classifier. The new
+  input is the seam rule 8 (factual-external-entity bias) now reads
+  to decide whether a relevant tool group covers the entity's
+  domain. The rule no longer enumerates specific tool names — it
+  points the planner at the right pattern (`CHAT` or `RESEARCH`)
+  and lets the planner pick a tool from the live catalog. Default
+  `""` preserves backward compatibility.
+- **`render_tool_categories_for_classifier(runtime)`** helper in
+  `kaos_agents.context.tool_catalog`. Pure function that converts a
+  live `KaosRuntime` into the compact category-per-line string the
+  two classifiers now consume. Returns `""` when the runtime has no
+  tools (or is `None`), which is what makes the InputField additions
+  non-breaking on every code path that doesn't plumb a runtime through.
+- **Runtime wiring.** `BaseAgent._classify` and `AgentLoop.prepare_turn`
+  both call the new helper and pass the resulting catalog string
+  through to their respective classifiers. `Runner._build_agent_loop`
+  hands the runtime to `AgentLoop` so the second classifier sees the
+  same live catalog as the first. The hierarchical-planner sub-loop
+  factories continue to pass no runtime — sub-loops keep the
+  catalog-disabled default, which matches the existing anti-recursion
+  contract.
+
+### Changed
+
+- **Rewrote `ClassifyIntentSignature` routing-heuristics block** to
+  be catalog-driven instead of message-shape-only. The new bullets
+  instruct the model to consult `available_tool_categories` first;
+  when a relevant category is listed and the user is asking about
+  a current real-world entity, the classifier picks `tool_use` over
+  `respond`. The 2026-05-19 senator-question regression (session
+  `01KS0R64Q744DTVZ53KCS9VC7M`) is the canonical driver — the agent
+  classified ``who is the current US federal senator for Lansing
+  Michigan?`` as `respond` and answered from training memory for
+  three iterations while the critic kept asking it to call a
+  verification tool. The rewritten docstring closes that loop at
+  classification time.
+- **Rewrote `IntentSignature` rule 8** (factual-external-entity
+  bias) to be catalog-aware. Previously the rule listed ``FR /
+  eCFR / EDGAR / GovInfo / web-search`` verbatim in the prompt;
+  that was a hardcoded shortlist that drifted out of sync with the
+  actual registered groups. The new rule instructs the classifier
+  to consult `available_tool_groups`, pick the group whose
+  description covers the entity's domain, and dispatch with the
+  appropriate pattern. The classifier is no longer responsible for
+  knowing which specific tool exists — that's the planner's job.
+
+### Notes
+
+- **No wire-format breaking changes.** Both new InputFields are
+  additive with `default=""`. Every pre-existing caller of
+  `classify_intent(...)` and `IntentExtractor.invoke(...)`
+  continues to work without modification; the no-catalog path is
+  identical to the pre-0.1.0a17 behavior.
+- **No hardcoded tool / category names in any prompt docstring.**
+  The rule "if a relevant category exists in the catalog, use it"
+  is abstract; the catalog itself is the only place specific names
+  appear, and that's runtime input, not Signature prompt text.
+
 ## [0.1.0a16] — 2026-05-19
 
 ### Added

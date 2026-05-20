@@ -288,9 +288,20 @@ class Runner:
             agent_envelope_hash=envelope_hash,
             auto_select_planner=self._auto_select_planner,
             tools=bridged_tools,
+            # 0.1.0a17: hand the runtime to AgentLoop so prepare_turn
+            # can render the tool-group catalog into IntentSignature's
+            # ``available_tool_groups`` input. Without this, the
+            # classifier's catalog-aware bullets all reduce to no-ops.
+            runtime=self._runtime,
         )
 
-    async def run(self, message: str, session_id: str) -> AsyncIterator[KaosEvent]:
+    async def run(
+        self,
+        message: str,
+        session_id: str,
+        *,
+        is_internal_iteration: bool = False,
+    ) -> AsyncIterator[KaosEvent]:
         """Execute a turn, yielding events progressively.
 
         This is the primary streaming entry point. Constructs the
@@ -304,6 +315,13 @@ class Runner:
         Args:
             message: The user's message.
             session_id: Session identifier for memory persistence.
+            is_internal_iteration: Forwarded to the internal agent's
+                ``run()``. When True, the internal agent skips both the
+                user-message and intermediate-assistant writes to
+                ``SessionMemory.MESSAGES``. Used by outer multi-iteration
+                loops (e.g. ``kaos_agents.patterns.agentic_loop``) to
+                avoid the per-iteration leak documented in
+                ``docs/plans/2026-05-19-agentic-loop-honesty.md`` §3.1.a.
 
         Yields:
             KaosEvent subclass instances in execution order.
@@ -323,7 +341,9 @@ class Runner:
         internal = self._build_internal_agent(session_id=session_id)
         event_count = 0
         emitted: list[KaosEvent] = []  # tracked for pause persistence
-        async for event in internal.run(message, session_id):
+        async for event in internal.run(
+            message, session_id, is_internal_iteration=is_internal_iteration
+        ):
             # Detect tool-call START spans for hook/permission gating.
             is_tool_start = (
                 isinstance(event, Span)
@@ -553,7 +573,13 @@ class Runner:
         async for event in self.run(run_state.original_message, run_state.session_id):
             yield event
 
-    async def turn(self, message: str, session_id: str) -> AgentResponse:
+    async def turn(
+        self,
+        message: str,
+        session_id: str,
+        *,
+        is_internal_iteration: bool = False,
+    ) -> AgentResponse:
         """Execute a turn, returning the final :class:`AgentResponse`.
 
         WS-0.2: this path was previously a bypass that called
@@ -588,7 +614,9 @@ class Runner:
         from kaos_agents.runtime.events_to_response import events_to_response
 
         events: list[KaosEvent] = []
-        async for event in self.run(message, session_id):
+        async for event in self.run(
+            message, session_id, is_internal_iteration=is_internal_iteration
+        ):
             events.append(event)
         return events_to_response(events, session_id)
 

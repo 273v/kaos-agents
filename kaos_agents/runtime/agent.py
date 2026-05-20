@@ -180,7 +180,13 @@ class BaseAgent(KaosAgent):
             return self._settings.research_llm_model
         return self._model
 
-    async def run(self, message: str, session_id: str) -> AsyncIterator[KaosEvent]:
+    async def run(
+        self,
+        message: str,
+        session_id: str,
+        *,
+        is_internal_iteration: bool = False,
+    ) -> AsyncIterator[KaosEvent]:
         """Execute a single agent turn, yielding events progressively.
 
         This is the primary streaming entry point. Yields ``KaosEvent``
@@ -195,6 +201,19 @@ class BaseAgent(KaosAgent):
         Args:
             message: The user's message.
             session_id: Session identifier for memory persistence.
+            is_internal_iteration: When True, the caller is replaying the
+                SAME user message under an outer multi-iteration loop
+                (e.g. kaos-agents' AgenticLoop critic-driven replan). The
+                agent will NOT persist the user message to
+                ``SessionMemory.MESSAGES`` (it's already there from
+                iteration 1) and will NOT persist the intermediate
+                assistant response. The caller is expected to call
+                ``POST /v1/sessions/{id}/memory/messages/turn`` once after
+                the loop terminates so memory has exactly one user entry
+                plus one assistant entry per turn. Default False keeps
+                single-turn callers (CLI, MCP tool, single-shot API
+                clients) unchanged. See the iteration-leak fix in
+                ``docs/plans/2026-05-19-agentic-loop-honesty.md`` §3.1.a.
 
         Yields:
             KaosEvent subclass instances in execution order.
@@ -215,7 +234,13 @@ class BaseAgent(KaosAgent):
         # (chat / plan_execute / research) which receive the same
         # emitter and run inside this generator's frame.
         with collect_events():
-            async for event in self._run_inner(message, session_id, emitter, run_id):
+            async for event in self._run_inner(
+                message,
+                session_id,
+                emitter,
+                run_id,
+                is_internal_iteration=is_internal_iteration,
+            ):
                 yield event
 
     async def _run_inner(
@@ -224,6 +249,8 @@ class BaseAgent(KaosAgent):
         session_id: str,
         emitter: EventEmitter,
         run_id: str,
+        *,
+        is_internal_iteration: bool = False,
     ) -> AsyncIterator[KaosEvent]:
         """Body of run() — extracted so the outer generator can wrap it
         in a `with collect_events()` block for span-tree stitching."""
@@ -251,9 +278,20 @@ class BaseAgent(KaosAgent):
         turn_span_id = turn_span.span_id
         yield turn_span
 
-        # Step 3: Add user message
-        memory.add(MemoryType.MESSAGES, f"user: {message}")
-        logger.debug("agent.step3_add_message: session=%s message_len=%d", session_id, len(message))
+        # Step 3: Add user message.
+        # Skipped when this run is an internal critic-driven replay of
+        # the same user turn (AgenticLoop iteration 2+). The canonical
+        # write is performed once at loop exit via POST
+        # /v1/sessions/{id}/memory/messages/turn. See the iteration-leak
+        # fix in docs/plans/2026-05-19-agentic-loop-honesty.md §3.1.a.
+        if not is_internal_iteration:
+            memory.add(MemoryType.MESSAGES, f"user: {message}")
+        logger.debug(
+            "agent.step3_add_message: session=%s message_len=%d internal=%s",
+            session_id,
+            len(message),
+            is_internal_iteration,
+        )
 
         # Step 4: Assemble context (query-aware when sections are large)
         from kaos_agents.context.assemble import assemble_context
@@ -490,7 +528,14 @@ class BaseAgent(KaosAgent):
         # downstream consumers (graph triple emitter in chunk B2, audit
         # hook, MCP memory-query tool) can read typed data without
         # re-parsing the rendered string.
-        if response_text:
+        #
+        # The assistant write is also gated on is_internal_iteration:
+        # iterations 2+ of an AgenticLoop produce intermediate drafts
+        # that the critic may reject; only the post-loop memory-turn
+        # endpoint writes the canonical final assistant text. Tool
+        # executions (ACTIONS section) DO persist on every iteration so
+        # the next iteration's classifier + planner see what was tried.
+        if response_text and not is_internal_iteration:
             memory.add(MemoryType.MESSAGES, f"assistant: {response_text}")
         if tool_executions:
             for te in tool_executions:
@@ -797,11 +842,27 @@ class BaseAgent(KaosAgent):
                     parts.append("\n".join(item.content for item in items))
             context_text = "\n".join(parts)
 
+        # 0.1.0a17: surface the live tool-category catalog so the
+        # classifier can reason about which category fits the user's
+        # question instead of falling back to memory-only ``respond``
+        # for verifiable real-world questions. Subclasses that hold a
+        # KaosRuntime (ChatAgent, ResearchAgent, PlanExecuteAgent) read
+        # it through ``self._runtime``; BaseAgent has no runtime
+        # attribute so the helper returns ``""`` and the classifier
+        # keeps its pre-fix behavior. See
+        # :func:`render_tool_categories_for_classifier` for the
+        # output shape and the senator-question regression note.
+        from kaos_agents.context.tool_catalog import render_tool_categories_for_classifier
+
+        runtime = getattr(self, "_runtime", None)
+        available_tool_categories = render_tool_categories_for_classifier(runtime)
+
         return await classify_intent(
             message,
             memory,
             model=self._model_for_role("classify"),
             context_text=context_text,
+            available_tool_categories=available_tool_categories,
         )
 
     async def _dispatch(

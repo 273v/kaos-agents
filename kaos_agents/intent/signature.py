@@ -97,21 +97,31 @@ class IntentSignature(Signature):
        agency rule, public filing, public-company fact, current
        status of a real-world thing — ALWAYS set
        ``requires_clarification=false`` and propose a best-effort
-       goal that the downstream planner can route to research
-       tools. The downstream agent has FR / eCFR / EDGAR / GovInfo
-       / web-search and is responsible for verification; it is NOT
-       this classifier's job to extract every parameter up-front.
+       goal that the downstream planner can route to whichever
+       tool group in ``available_tool_groups`` covers the
+       entity's domain. The downstream agent owns the
+       verification step — it is NOT this classifier's job to
+       extract every parameter up-front, and it is NOT this
+       classifier's job to enumerate which specific tool to use.
        Even when jurisdiction / version / time-frame is genuinely
        ambiguous, propose the most likely reading (latest version,
        U.S. federal scope unless the prompt suggests otherwise,
        current status as of today) and surface alternatives via
        ``ambiguities``. The 2026-05-19 ``what is the latest diesel
        emission reg`` session is the canonical anti-pattern: 6
-       rounds of clarification (``which jurisdiction?`` /
-       ``US federal or state?`` / ``on-road or off-road?``) before
-       the agent finally answered from training memory with zero
-       tool calls. Pick a default, dispatch to FR / eCFR, and let
-       the answer carry its own caveat instead of ping-ponging on
+       rounds of clarification before the agent finally answered
+       from training memory with zero tool calls. The
+       2026-05-19 senator-question regression (session
+       01KS0R64Q744DTVZ53KCS9VC7M) was the corollary failure:
+       the classifier never saw ``available_tool_groups`` so it
+       treated a current-fact question as conversational
+       small-talk and routed to CHAT-with-no-tools. When
+       ``available_tool_groups`` lists a group whose description
+       covers the entity's domain, pick the most plausible
+       reading, dispatch with ``pattern=CHAT`` (single-turn
+       tool-using ReAct) or ``pattern=RESEARCH`` (when the group
+       is about reasoning over loaded documents), and let the
+       answer carry its own caveat instead of ping-ponging on
        clarification.
     9. Clarification-loop ceiling. If ``recent_messages`` already
        contains an assistant turn that asked for clarification on
@@ -184,6 +194,23 @@ class IntentSignature(Signature):
             "token before any separator is the canonical filename to "
             "emit in ``targets``. Empty string when the session has no "
             "attached corpus."
+        ),
+    )
+    available_tool_groups: str = InputField(
+        default="",
+        description=(
+            "Newline-separated catalogue of tool groups registered on "
+            "the runtime THIS turn. Each non-empty line is one group "
+            'in the shape ``"<name>: <one-sentence purpose>"``. Rule 8 '
+            "uses this to decide whether a relevant group covers a "
+            "factual-external-entity question — when a fitting group "
+            "is listed the classifier proposes a goal with the "
+            "appropriate pattern instead of falling back to CHAT-with-"
+            "no-tools. The classifier MUST NOT enumerate specific tool "
+            "names in its proposed goal; it points the planner at the "
+            "right pattern and lets the planner pick a tool. Default "
+            '``""`` preserves the pre-0.1.0a17 routing path for '
+            "callers that don't populate this input."
         ),
     )
 

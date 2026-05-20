@@ -262,7 +262,7 @@ class TestRunnerResume:
         )
         runner = Runner(Agent(), vfs=vfs, permission_policy=policy)
 
-        async def _fake_run(self_, message, session_id):  # type: ignore[no-untyped-def]
+        async def _fake_run(self_, message, session_id, **_kwargs):  # type: ignore[no-untyped-def]
             emitter = EventEmitter(session_id=session_id, run_id="run_pause_test")
             yield emitter.span_start(
                 SpanSubject.TURN,

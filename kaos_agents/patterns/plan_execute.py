@@ -512,17 +512,45 @@ class PlanExecuteAgent(ChatAgent):
         return response_text, tool_calls, usage_total
 
 
-def _synthesize_results(results: dict[str, Any]) -> str:
-    """Combine step results into a response summary."""
+def _synthesize_results(
+    results: dict[str, Any],
+    *,
+    per_step_char_budget: int | None = None,
+) -> str:
+    """Combine step results into a response summary.
+
+    Args:
+        results: ``step_id`` → ``result_str`` mapping from a finished plan.
+        per_step_char_budget: When set, truncates each step's
+            ``result_str`` to this many characters with a
+            ``... (truncated <N> more chars)`` marker. **Default
+            ``None`` — no truncation.** This text is what the USER
+            sees as the synthesized plan response; silently chopping
+            it lies to the user about what the plan produced. Pass an
+            explicit cap only when the caller has a measured display
+            budget (e.g. mobile preview pane); never as a default.
+            When the cap fires, a ``logger.warning`` is emitted so the
+            truncation is auditable.
+    """
     from kaos_agents.planning.result_check import is_error_result
 
     parts = []
     for step_id, result in results.items():
         result_str = str(result)
         if result_str and not is_error_result(result_str):
-            # Truncate long results
-            if len(result_str) > 300:
-                result_str = result_str[:300] + "..."
+            if per_step_char_budget is not None and len(result_str) > per_step_char_budget:
+                dropped = len(result_str) - per_step_char_budget
+                logger.warning(
+                    "plan_execute: synthesized step result truncated step_id=%s "
+                    "kept=%d dropped=%d budget=%d",
+                    step_id,
+                    per_step_char_budget,
+                    dropped,
+                    per_step_char_budget,
+                )
+                result_str = (
+                    result_str[:per_step_char_budget] + f"... (truncated {dropped} more chars)"
+                )
             parts.append(f"**{step_id}**: {result_str}")
 
     if parts:

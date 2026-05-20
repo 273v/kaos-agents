@@ -19,6 +19,10 @@ Subpackages added incrementally across the refactor:
 
 from __future__ import annotations
 
+from kaos_agents.registry.capability_registry import (
+    CapabilityRegistry,
+    default_capability_registry,
+)
 from kaos_agents.registry.event_registry import (
     EventRegistry,
     default_event_registry,
@@ -30,6 +34,10 @@ from kaos_agents.registry.hook_registry import (
 from kaos_agents.registry.pattern_registry import (
     PatternRegistry,
     default_pattern_registry,
+)
+from kaos_agents.registry.persona_registry import (
+    PersonaRegistry,
+    default_persona_registry,
 )
 from kaos_agents.registry.tool_data_type_registry import (
     ToolDataTypeRegistry,
@@ -54,14 +62,18 @@ __all__ = [
     "KAOS_TOOL_GROUP_DESCRIPTIONS",
     "RECOGNIZED_TAGS",
     "AgentToolSpecRegistry",
+    "CapabilityRegistry",
     "EventRegistry",
     "HookRegistry",
     "PatternRegistry",
+    "PersonaRegistry",
     "ToolDataTypeRegistry",
     "ToolGroupRegistry",
+    "default_capability_registry",
     "default_event_registry",
     "default_hook_registry",
     "default_pattern_registry",
+    "default_persona_registry",
     "default_tool_data_type_registry",
     "default_tool_group_registry",
     "default_tool_spec_registry",

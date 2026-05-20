@@ -114,6 +114,83 @@ class GoalChecked(LifecycleEvent):
     latency_ms: float = 0.0
 
 
+class ConsistencyChecked(LifecycleEvent):
+    """The M2 reasoning-action consistency critic ran after the worker.
+
+    Emitted by ``run_agentic_turn`` when ``m2_consistency_model`` is
+    set and the worker has produced a response. Carries the M2
+    verdict alongside whether the critic actually overrode the
+    GoalCheck terminator (i.e. forced a re-iteration).
+
+    Mirrors :class:`GoalChecked` shape — same audit-trail discipline,
+    different rubric. SPA run-inspectors render this as an M2 chip
+    alongside the GoalCheck chip. OTel exporters get it as a
+    Span(SUBJECT.JUDGE, phase=COMPLETE) sibling.
+
+    Attributes:
+        label: One of ``"consistent"`` / ``"contradicts_reasoning"``
+            / ``"contradicts_tool_results"`` / ``""`` (when
+            ``fell_back=True``). Lowercase, verbatim from the rubric.
+        confidence: M2's self-rated [0.0, 1.0]. ``0.0`` when
+            ``fell_back=True``.
+        reasoning: One-paragraph justification from the critic.
+            Empty when ``fell_back=True``.
+        iteration: Loop iteration number that produced the response
+            this verdict applies to.
+        cost_usd: M2's LLM cost this call.
+        latency_ms: M2's wall-clock time this call.
+        fell_back: True when the critic invocation errored / emitted
+            a disallowed label. Loop treats fell_back as ``consistent``
+            to avoid loop-on-broken-critic, but the event preserves
+            the signal so operators can see it.
+        overrode_satisfied: True when the GoalCheck verdict for the
+            same iteration was ``satisfied`` AND the M2 label was a
+            ``contradicts_*`` — i.e. M2 forced another iteration.
+            The single most useful column for "did M2 do anything?"
+    """
+
+    label: str = ""
+    confidence: float = 0.0
+    reasoning: str = ""
+    iteration: int = 1
+    cost_usd: float = 0.0
+    latency_ms: float = 0.0
+    fell_back: bool = False
+    overrode_satisfied: bool = False
+
+
+class CircuitBreakerTripped(LifecycleEvent):
+    """A per-tool :class:`~kaos_agents.action.circuit.CircuitBreaker` opened.
+
+    Emitted when a CircuitBreaker transitions from CLOSED to OPEN —
+    either via :meth:`record_failure` crossing the configured threshold
+    or via a HALF_OPEN probe failing. Carries the per-tool diagnostic
+    metadata downstream consumers (AgenticLoop terminators, the SPA
+    chat surface, audit logs) need to render an honest refusal.
+
+    Attributes:
+        tool_name: The tool whose breaker opened.
+        consecutive_failures: How many consecutive failures (or
+            uninformative results when
+            ``uninformative_counts_as_failure`` is set) led to the
+            trip. At least ``failure_threshold``.
+        failure_threshold: The threshold the breaker was configured
+            with (so consumers can render "5/5" without inferring).
+        reset_timeout_seconds: How long the breaker will stay OPEN
+            before allowing a HALF_OPEN probe.
+        uninformative_counted: True iff
+            ``uninformative_counts_as_failure`` was on when the trip
+            fired (so consumers can phrase the refusal correctly —
+            "tool kept failing" vs "tool kept returning empty").
+    """
+
+    tool_name: str = ""
+    consecutive_failures: int = 0
+    failure_threshold: int = 0
+    reset_timeout_seconds: float = 0.0
+    uninformative_counted: bool = True
+
+
 class LoopTerminated(LifecycleEvent):
     """The AgenticLoop exited.
 
@@ -132,6 +209,10 @@ class LoopTerminated(LifecycleEvent):
             ``max_loop_wall_clock_seconds`` cap.
           - ``"stuck_no_progress"`` — State-mutation check fired
             (an iteration completed without new tool calls or new text).
+          - ``"circuit_breaker_tripped"`` — A single tool returned
+            N consecutive failures or uninformative results (#506
+            follow-up). The :class:`CircuitBreakerTripped` event
+            emitted just before this carries the per-tool diagnostic.
           - ``"user_interrupt"`` — FastAPI request was aborted.
         iterations_used: How many iterations the loop ran (1..N).
         elevations_used: Total groups auto-elevated across iterations.
@@ -149,6 +230,8 @@ class LoopTerminated(LifecycleEvent):
 
 __all__ = [
     "CapabilityRequested",
+    "CircuitBreakerTripped",
+    "ConsistencyChecked",
     "GoalChecked",
     "LoopTerminated",
     "ToolPolicyElevated",

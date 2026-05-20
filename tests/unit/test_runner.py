@@ -290,8 +290,11 @@ class TestRunnerAnnotationLookup:
         policy = PermissionPolicy()  # empty rules — rely on annotations
         runner = Runner(agent, runtime=runtime, permission_policy=policy)
 
-        # Stub the internal agent's run() to emit a tool-call START span directly
-        async def _fake_run(self_, message, session_id):  # type: ignore[no-untyped-def]
+        # Stub the internal agent's run() to emit a tool-call START span directly.
+        # Accept **kwargs so the Runner can forward is_internal_iteration
+        # (added 2026-05-19 for the AgenticLoop iteration-leak fix) without
+        # breaking this regression test.
+        async def _fake_run(self_, message, session_id, **_kwargs):  # type: ignore[no-untyped-def]
             from kaos_agents.events import EventEmitter
 
             emitter = EventEmitter(session_id=session_id, run_id="r")

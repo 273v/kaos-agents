@@ -598,7 +598,12 @@ async def _synthesize_tool_args(
     return parsed
 
 
-def _collect_predecessor_results(graph: PlanGraph, step_id: str) -> str:
+def _collect_predecessor_results(
+    graph: PlanGraph,
+    step_id: str,
+    *,
+    per_predecessor_char_budget: int | None = None,
+) -> str:
     """Gather completed predecessor step outputs as prompt-ready context.
 
     Returns an empty string when the step has no completed predecessors.
@@ -607,10 +612,21 @@ def _collect_predecessor_results(graph: PlanGraph, step_id: str) -> str:
         --- output of step <pred_id> ---
         <result text>
 
-    Each predecessor is included once. Results are truncated to a
-    generous bound (16 KB per step) so a single huge tool output
-    doesn't blow the LLM's context — the agent's overall context
-    budget still applies further upstream.
+    Args:
+        graph: PlanGraph holding step results.
+        step_id: The current step whose predecessors we're gathering.
+        per_predecessor_char_budget: When set, each predecessor's
+            ``result`` text is truncated to this many characters with
+            a ``\\n... (truncated <N> more chars)`` marker. **Default
+            ``None`` — no truncation.** The next step's LLM sees the
+            FULL predecessor output so its reasoning is grounded in
+            the same text the operator can audit. Pass an explicit
+            cap only when the operator has measured a specific
+            context-window pressure; never as a default safety net
+            (silent truncation of a JSON tail can flip a downstream
+            schema decision). When the cap actually fires, a
+            ``logger.warning`` is emitted so the truncation is
+            auditable in the structured log.
     """
     try:
         # PlanGraph wraps a kaos-graph Graph at ``self._graph``. Use
@@ -632,11 +648,24 @@ def _collect_predecessor_results(graph: PlanGraph, step_id: str) -> str:
         result_text = str(pred_props.get("result") or "").strip()
         if not result_text:
             continue
-        # 16 KB per predecessor (~4K tokens) — enough for a structured
-        # JSON dump, capped so a single rogue output can't flood the
-        # downstream prompt.
-        if len(result_text) > 16_000:
-            result_text = result_text[:16_000] + "\n... (truncated)"
+        if (
+            per_predecessor_char_budget is not None
+            and len(result_text) > per_predecessor_char_budget
+        ):
+            dropped = len(result_text) - per_predecessor_char_budget
+            logger.warning(
+                "compose: predecessor result truncated step_id=%s pred_id=%s "
+                "kept=%d dropped=%d budget=%d",
+                step_id,
+                pred_id,
+                per_predecessor_char_budget,
+                dropped,
+                per_predecessor_char_budget,
+            )
+            result_text = (
+                result_text[:per_predecessor_char_budget]
+                + f"\n... (truncated {dropped} more chars)"
+            )
         blocks.append(f"--- output of step {pred_id} ---\n{result_text}")
     if not blocks:
         return ""

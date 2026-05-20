@@ -96,7 +96,13 @@ def _surfacing_error_from_status(status: dict[str, Any]) -> str | None:
     return summary
 
 
-async def _run_turn_with_status(runner: Any, message: str, session_id: str) -> tuple[Any, dict]:
+async def _run_turn_with_status(
+    runner: Any,
+    message: str,
+    session_id: str,
+    *,
+    is_internal_iteration: bool = False,
+) -> tuple[Any, dict]:
     """Drain ``runner.run()`` once, building both an AgentResponse and a
     status dict that surfaces budget / pause events at the tool boundary.
 
@@ -105,6 +111,10 @@ async def _run_turn_with_status(runner: Any, message: str, session_id: str) -> t
     the MCP tool surface previously had no way to tell callers "the run
     paused" or "the run blew its budget." We do the same fold here plus
     a side-channel status dict so the tool result can report it.
+
+    ``is_internal_iteration`` is forwarded to ``runner.run()`` for the
+    AgenticLoop iteration-leak fix
+    (docs/plans/2026-05-19-agentic-loop-honesty.md §3.1.a).
     """
     from kaos_agents.events import (
         BudgetExceeded,
@@ -150,7 +160,7 @@ async def _run_turn_with_status(runner: Any, message: str, session_id: str) -> t
         "cost_usd": 0.0,
     }
 
-    async for event in runner.run(message, session_id):
+    async for event in runner.run(message, session_id, is_internal_iteration=is_internal_iteration):
         if isinstance(event, TextDelta):
             text_parts.append(event.content)
         elif (
@@ -570,7 +580,7 @@ class AgentChatTool(KaosTool):
                     for h in hydrated_artifacts
                 ]
 
-            summary = response.text[:500] if response.text else "(empty response)"
+            summary = response.text if response.text else "(empty response)"
             if status["budget_exceeded"]:
                 summary = f"[BudgetExceeded: {status['budget_kind']}] {summary}"
             elif status["paused_for_approval"]:
@@ -834,7 +844,7 @@ class AgentPlanTool(KaosTool):
             if status["budget_exceeded"]:
                 result_data["budget_kind"] = status["budget_kind"]
 
-            summary = response.text[:500] if response.text else "(empty response)"
+            summary = response.text if response.text else "(empty response)"
             if status["budget_exceeded"]:
                 summary = f"[BudgetExceeded: {status['budget_kind']}] {summary}"
             elif status["paused_for_approval"]:

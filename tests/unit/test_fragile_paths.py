@@ -224,16 +224,37 @@ def test_collect_predecessor_results_no_predecessors_returns_empty() -> None:
     assert _collect_predecessor_results(graph, "only-step") == ""
 
 
-def test_collect_predecessor_results_truncates_at_16kb() -> None:
-    """Results >16KB get truncated with a marker — bounds the prompt size."""
+def test_collect_predecessor_results_default_passes_full_text() -> None:
+    """Default (no cap) MUST pass the full predecessor text to the next
+    step's prompt — silent truncation chops citation tables, JSON
+    closing braces, etc. and lies to the LLM about what ran.
+
+    See ``2026-05-19-truncation-audit.md`` P0 #1: previous behavior
+    was a hardcoded ``[:16_000]`` cap that lost the trailing context.
+    """
     from kaos_agents.planning.compose import _collect_predecessor_results
 
     huge = "X" * 20_000
     graph, _ = _build_plan_graph_with_results({"step-a": huge, "step-b": "small"})
     out = _collect_predecessor_results(graph, "step-b")
-    assert "truncated" in out, f"truncation marker missing: {out[-200:]!r}"
-    # Each predecessor block is capped — the included text shouldn't exceed
-    # 16K + a few hundred chars of label/marker overhead.
+    # No truncation marker should appear when no cap was set.
+    assert "truncated" not in out, f"unexpected truncation: {out[-200:]!r}"
+    # Full 20KB predecessor text should be present.
+    assert huge in out
+    assert len(out) >= 20_000
+
+
+def test_collect_predecessor_results_opt_in_cap_emits_marker() -> None:
+    """When the caller passes an explicit ``per_predecessor_char_budget``,
+    the cap fires AND a ``... (truncated <N> more chars)`` marker is
+    appended so the next step's LLM sees that text was dropped."""
+    from kaos_agents.planning.compose import _collect_predecessor_results
+
+    huge = "X" * 20_000
+    graph, _ = _build_plan_graph_with_results({"step-a": huge, "step-b": "small"})
+    out = _collect_predecessor_results(graph, "step-b", per_predecessor_char_budget=16_000)
+    assert "truncated 4000 more chars" in out
+    # Total length is 16K + label + marker, well under 17K.
     assert len(out) < 17_000
 
 
