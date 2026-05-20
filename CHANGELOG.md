@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0rc1] — 2026-05-20
+
+### Changed — WU-J of 0.1.0 GA plan
+
+- Release candidate; pin floor raised to `>=0.1.0rc1,<0.2` across
+  WU-J-cut kaos-* deps; freezes public API ahead of 0.1.0 GA.
+- `kaos_agents/_version.py` bumped `0.1.0a19` → `0.1.0rc1`.
+- Runtime pins raised to `>=0.1.0rc1,<0.2`: kaos-core, kaos-content,
+  kaos-graph, kaos-nlp-core.
+- Optional-extras raised to `>=0.1.0rc1,<0.2`: kaos-llm-client,
+  kaos-llm-core (`[llm]`), kaos-mcp (`[mcp]`),
+  kaos-nlp-transformers (`[rerank]`), kaos-pdf (`[pdf]`),
+  kaos-source (`[source]`), kaos-citations (`[citations]`). The
+  `<0.2` ceiling is load-bearing for `kaos-nlp-transformers`
+  (legacy 0.2.0a* line still on PyPI).
+- Optional-extras NOT cut in WU-J — pin floors carried forward to
+  the latest published 0.1.0a*: kaos-office (`[office]`),
+  kaos-web (`[web]`), kaos-tabular (`[tabular]`). The `<0.2`
+  ceiling carries them forward once their own WU lands.
+- Dev pins follow the same split: rc1 floors where WU-J cut a pin,
+  alpha floors for kaos-office / kaos-web / kaos-tabular /
+  kaos-ml-core, ceiling `<0.2` across the board.
+- `uv.lock` refreshed: kaos-citations, kaos-content, kaos-core,
+  kaos-graph, kaos-llm-client, kaos-llm-core, kaos-mcp,
+  kaos-nlp-core, kaos-nlp-transformers, kaos-pdf, kaos-source all
+  → 0.1.0rc1; kaos-ml-core 0.1.0a4, kaos-office 0.1.0a8,
+  kaos-tabular 0.1.0a5, kaos-web 0.1.0a6 (latest published).
+
+### Verified
+
+- `ruff format --check`, `ruff check`, `ty check`,
+  `pytest -m "not live and not network and not slow and not integration"`
+  → 2798 passed, 5 skipped (kaos-graph[rdf] / pyoxigraph not
+  installed in dev group), 393 deselected.
+
+
 ## [0.1.0a19] — 2026-05-20
 
 kaos-agents 0.1.0a19 — multi-turn corpus context retention (#352);
