@@ -706,7 +706,7 @@ def _register_routes(app: FastAPI) -> None:
             # always runs to keep ``turn_count`` honest.
             try:
                 await memory.summarize_turn()
-            except Exception as exc:  # noqa: BLE001 — best-effort
+            except Exception as exc:
                 logger.warning(
                     "memory.summarize_turn failed (session=%s): %s — "
                     "canonical turn append continues without summary",
