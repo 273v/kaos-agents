@@ -76,6 +76,10 @@ from xml.sax.saxutils import escape as _xml_escape
 
 from kaos_core.logging import get_logger
 
+from kaos_agents.security.injection import (
+    is_injection_suspected as _security_is_injection_suspected,
+)
+
 if TYPE_CHECKING:
     from kaos_content.views import DocumentView
 
@@ -1055,27 +1059,14 @@ def low_recall_warning(
 # aggressive payload could still slip past any one of these, so all
 # three layers stay.
 
-# Patterns chosen from observed prompt-injection corpora and
-# OWASP LLM01 examples. Tuned for low false-positive rate on
-# real legal/financial text (the typical kaos-agents corpus).
-_INJECTION_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"^\s*(IGNORE|DISREGARD|FORGET|OVERRIDE)\b", re.IGNORECASE | re.MULTILINE),
-    re.compile(r"\bOutput\s+ONLY\b", re.IGNORECASE),
-    re.compile(r"^[A-Z][A-Z \t]{8,}$", re.MULTILINE),
-    re.compile(r"<\s*/?\s*(system|instruction|assistant|user|admin)\s*[^>]*>", re.IGNORECASE),
-    re.compile(r"\bIGNORE\s+(ALL\s+)?(PRIOR|PREVIOUS|ABOVE)\s+INSTRUCTIONS?\b", re.IGNORECASE),
-    re.compile(
-        r"\bthe\s+(actual|real|true)\s+(user\s+)?(question|task|instruction)\b", re.IGNORECASE
-    ),
-    re.compile(r"\b(?:you\s+are\s+now|act\s+as|role[- ]play)\b", re.IGNORECASE),
-)
-"""Heuristic patterns for likely-injection content.
-
-Conservative — designed to flag obvious payloads from public
-red-team corpora without firing on ordinary contract or filing
-language. Loose matches are fine; the LLM filter still adjudicates
-relevance, and downstream audit gets the flag either way.
-"""
+# B0.9: ``_INJECTION_PATTERNS`` + ``is_injection_suspected`` were
+# hoisted to ``kaos_agents.security.injection`` so the default
+# ChatAgent ingestion path (``context/assemble.py``) can wrap
+# untrusted corpus content without importing FindingsAgent. The
+# delegation below preserves the public surface this module shipped
+# pre-B0.9 — no downstream caller needs to change imports. The
+# ``import`` for ``_security_is_injection_suspected`` lives at the
+# top of this module (under the other top-level imports).
 
 
 def is_injection_suspected(text: str) -> bool:
@@ -1084,10 +1075,14 @@ def is_injection_suspected(text: str) -> bool:
     Pure function. Exposed for callers (UIs, audit tooling) that want
     to check arbitrary text against the same heuristic the filter
     pipeline uses.
+
+    .. note::
+       Pre-B0.9 this function lived here; post-B0.9 it delegates to
+       :func:`kaos_agents.security.injection.is_injection_suspected`
+       so the default ChatAgent ingestion path can use the same
+       heuristic without importing the FindingsAgent module.
     """
-    if not text:
-        return False
-    return any(pattern.search(text) for pattern in _INJECTION_PATTERNS)
+    return _security_is_injection_suspected(text)
 
 
 def flag_injection_suspected(
