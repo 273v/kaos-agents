@@ -179,6 +179,25 @@ def kaos_tool_to_llm_tool(
 
         from kaos_llm_core.errors import ToolReportedError
 
+        # B0.7: pre-execution PII scrubber. Closes the adversarial
+        # F-03 path where an agent forwards client SSN / EIN / credit-
+        # card numbers from corpus content into a third-party tool
+        # call (kaos-web-search, kaos-source-edgar-*, anything that
+        # logs its args on the receiving side). The scrubber returns
+        # a new kwargs dict; the original payload is left intact for
+        # the caller. We log the matched pattern names so the audit
+        # trail records that PII was filtered before dispatch.
+        from kaos_agents.runtime.pii_scrubber import scrub_tool_args
+
+        _scrub = scrub_tool_args(kwargs)
+        if _scrub.scrubbed:
+            logger.info(
+                "tool_bridge.pii_scrubbed: tool=%s patterns=%s",
+                meta.name,
+                ",".join(_scrub.matches),
+            )
+            kwargs = _scrub.kwargs
+
         logger.debug("tool_bridge.execute_start: tool=%s", meta.name)
         t_start = _time.perf_counter()
         try:
