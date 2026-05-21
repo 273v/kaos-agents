@@ -26,6 +26,7 @@ is the primary barrier.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from fnmatch import fnmatch
 from typing import TYPE_CHECKING, Any
@@ -49,6 +50,7 @@ def kaos_tool_to_llm_tool(
     context: KaosContext | None = None,
     *,
     permission_policy: PermissionPolicy | None = None,
+    tool_timeout_seconds: float | None = None,
 ) -> Any:
     """Wrap a KaosTool as a kaos-llm-core Tool for use in ReAct.
 
@@ -68,6 +70,16 @@ def kaos_tool_to_llm_tool(
             to human approval. Pre-KC17 behaviour ("None = bypass all
             checks") is gone — callers that genuinely need that must
             construct a ``PermissionPolicy`` with explicit allow rules.
+        tool_timeout_seconds: Per-invocation timeout (B0.2). The
+            ``await kaos_tool.execute(...)`` call is wrapped in
+            ``async with asyncio.timeout(timeout_seconds)``; on
+            ``TimeoutError`` the executor raises
+            :class:`ToolReportedError` so ReAct records the failure
+            with ``is_error=True`` and the agent can re-plan. ``None``
+            (default) reads ``KaosAgentSettings().tool_timeout_seconds``
+            so chat-pattern ReAct picks up the same configurable bound
+            as planning's ``_act_tool``. Pre-B0.2 the bridge had no
+            timeout and a slow tool could pin a turn indefinitely.
 
     Returns:
         A kaos-llm-core Tool instance.
@@ -103,6 +115,16 @@ def kaos_tool_to_llm_tool(
         effective_policy = _PP.default_safe()
     else:
         effective_policy = permission_policy
+
+    # B0.2: per-invocation timeout. None = inherit from settings so the
+    # chat-pattern ReAct dispatch picks up the same bound as planning's
+    # _act_tool.
+    if tool_timeout_seconds is None:
+        from kaos_agents.settings import KaosAgentSettings
+
+        effective_timeout = KaosAgentSettings().tool_timeout_seconds
+    else:
+        effective_timeout = tool_timeout_seconds
 
     async def executor(**kwargs: Any) -> str:
         """Execute the wrapped KaosTool and return the result as text.
@@ -155,9 +177,41 @@ def kaos_tool_to_llm_tool(
 
         import time as _time
 
+        from kaos_llm_core.errors import ToolReportedError
+
         logger.debug("tool_bridge.execute_start: tool=%s", meta.name)
         t_start = _time.perf_counter()
-        result = await kaos_tool.execute(kwargs, context=context)
+        try:
+            async with asyncio.timeout(effective_timeout):
+                result = await kaos_tool.execute(kwargs, context=context)
+        except TimeoutError as exc:
+            t_elapsed = (_time.perf_counter() - t_start) * 1000
+            logger.warning(
+                "tool_bridge.execute_timeout: tool=%s timeout_s=%.1f elapsed_ms=%.0f",
+                meta.name,
+                effective_timeout,
+                t_elapsed,
+            )
+            # Same pattern as the result.isError branch below: raise
+            # ToolReportedError so ReAct's _invoke_one records the
+            # observation with is_error=True. The agent then sees the
+            # failure in its memory and can re-plan (e.g. swap tools or
+            # ask for a simpler query). Returning a string here would
+            # be recorded as is_error=False — the same failure mode that
+            # the inventory P0-1 #437 fix closed for explicit tool errors.
+            raise ToolReportedError(
+                {
+                    "error": True,
+                    "message": (
+                        f"Tool {meta.name!r} timed out after "
+                        f"{effective_timeout:.1f}s. The underlying tool was "
+                        "still running when the deadline fired. Try a "
+                        "simpler query, narrow the scope, or pick a faster "
+                        "tool variant."
+                    ),
+                    "timeout_seconds": effective_timeout,
+                }
+            ) from exc
         t_elapsed = (_time.perf_counter() - t_start) * 1000
         logger.debug(
             "tool_bridge.execute_result: tool=%s is_error=%s latency_ms=%.0f text_len=%d",
@@ -181,8 +235,6 @@ def kaos_tool_to_llm_tool(
             #
             # P0-1 / inventory item, kaos-modules/docs/plans/
             # 2026-05-19-consolidated-issue-inventory.md.
-            from kaos_llm_core.errors import ToolReportedError
-
             error_payload = {
                 "error": True,
                 "message": result.text or "Tool execution failed",
@@ -241,6 +293,7 @@ def bridge_runtime_tools(
     permission_policy: PermissionPolicy | None = None,
     relevance_query: str | None = None,
     retrieval_lexicon: Any = None,
+    tool_timeout_seconds: float | None = None,
 ) -> list[Any]:
     """Bridge KaosRuntime tools to ReAct-compatible Tools.
 
@@ -272,6 +325,11 @@ def bridge_runtime_tools(
             a populated OpenGloss lexicon to turn near-misses ("FR"
             vs "Federal Register") into hits. Only consulted when
             ``relevance_query`` is set. Default ``None`` (plain BM25).
+        tool_timeout_seconds: B0.2 per-invocation timeout threaded
+            into each bridged executor. ``None`` (default) lets each
+            executor inherit from ``KaosAgentSettings().tool_timeout_seconds``;
+            pass a float to override for a single bridge call (tests,
+            short-deadline gateways).
 
     Returns:
         List of kaos-llm-core Tool instances.
@@ -310,7 +368,14 @@ def bridge_runtime_tools(
     # Step 3: cap and bridge.
     tools = []
     for kaos_tool in candidates:
-        tools.append(kaos_tool_to_llm_tool(kaos_tool, context, permission_policy=permission_policy))
+        tools.append(
+            kaos_tool_to_llm_tool(
+                kaos_tool,
+                context,
+                permission_policy=permission_policy,
+                tool_timeout_seconds=tool_timeout_seconds,
+            )
+        )
         if len(tools) >= max_tools:
             if not relevance_query and len(candidates) > max_tools:
                 # Only warn on iteration-order capping — retrieval capping
