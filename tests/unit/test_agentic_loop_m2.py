@@ -391,6 +391,121 @@ async def test_m2_low_confidence_contradicts_tool_results_does_not_override() ->
     )
 
 
+class TestRemediationHintExtractor:
+    """0.1.1 (#549.B) — helper unit tests for the remediation-hint
+    threading logic in :func:`run_agentic_turn`.
+
+    The helper is on the module-private surface — import via the
+    `_extract_remediation_hints` / `_summarize_prior_tool_calls`
+    names; these are not exported from `__all__` but are documented
+    via their callers in the AgenticLoop body."""
+
+    def test_no_hints_when_calls_empty(self) -> None:
+        from kaos_agents.patterns.agentic_loop import _extract_remediation_hints
+
+        assert _extract_remediation_hints([]) == []
+
+    def test_no_hints_when_all_calls_succeed(self) -> None:
+        from kaos_agents.patterns.agentic_loop import _extract_remediation_hints
+
+        calls = [
+            {"name": "kaos-web-search", "is_error": False, "summary_excerpt": "10 results"},
+            {"name": "kaos-web-fetch-page", "is_error": False, "summary_excerpt": "blah"},
+        ]
+        assert _extract_remediation_hints(calls) == []
+
+    def test_extracts_try_hint_from_errored_call(self) -> None:
+        from kaos_agents.patterns.agentic_loop import _extract_remediation_hints
+
+        calls = [
+            {
+                "name": "kaos-web-domain-profile",
+                "is_error": True,
+                "summary_excerpt": (
+                    "Domain profiling failed for example.com: TaskGroup. "
+                    "Try kaos-web-dns-enumerate for DNS, "
+                    "kaos-web-whois-lookup for registration data."
+                ),
+            },
+        ]
+        hints = _extract_remediation_hints(calls)
+        assert any("Try kaos-web-dns-enumerate" in h for h in hints)
+        assert any("Try kaos-web-whois-lookup" in h for h in hints)
+
+    def test_caps_hints_at_3(self) -> None:
+        from kaos_agents.patterns.agentic_loop import _extract_remediation_hints
+
+        calls = [
+            {
+                "name": "kaos-web-domain-profile",
+                "is_error": True,
+                "summary_excerpt": (
+                    "Try kaos-tool-a. Try kaos-tool-b. Try kaos-tool-c. "
+                    "Try kaos-tool-d. Try kaos-tool-e."
+                ),
+            },
+        ]
+        hints = _extract_remediation_hints(calls)
+        assert len(hints) == 3
+
+
+class TestPriorToolCallSummary:
+    """0.1.1 (P2-B) — helper unit tests for the prior-call summary
+    threading logic. The summary is appended to the next iteration's
+    ``thinking_note`` so the worker LLM can avoid re-issuing near-
+    duplicate queries — the loop-level mitigation for the over-
+    specified-search-storm pattern observed in WU-K v2 Case C1."""
+
+    def test_empty_summary_when_no_calls(self) -> None:
+        from kaos_agents.patterns.agentic_loop import _summarize_prior_tool_calls
+
+        assert _summarize_prior_tool_calls([]) == ""
+
+    def test_one_line_per_call_with_is_error(self) -> None:
+        from kaos_agents.patterns.agentic_loop import _summarize_prior_tool_calls
+
+        calls = [
+            {
+                "name": "kaos-web-search",
+                "is_error": False,
+                "summary_excerpt": "10 results for site:sec.gov 2025 ...",
+            },
+            {
+                "name": "kaos-web-fetch-page",
+                "is_error": True,
+                "summary_excerpt": "403 Forbidden on sec.gov/...",
+            },
+        ]
+        summary = _summarize_prior_tool_calls(calls)
+        assert "kaos-web-search" in summary and "is_error=False" in summary
+        assert "kaos-web-fetch-page" in summary and "is_error=True" in summary
+        # Bullet shape
+        assert summary.count("\n- ") == 1  # 2 lines = 1 newline-plus-dash
+
+    def test_truncates_long_summaries_at_120_chars(self) -> None:
+        from kaos_agents.patterns.agentic_loop import _summarize_prior_tool_calls
+
+        calls = [
+            {"name": "kaos-x", "is_error": False, "summary_excerpt": "a" * 500},
+        ]
+        summary = _summarize_prior_tool_calls(calls)
+        assert "…" in summary
+        # The bullet line should be at most ~150 chars total (120 chars
+        # of summary + "- kaos-x(is_error=False) — " prefix).
+        assert all(len(line) <= 160 for line in summary.splitlines())
+
+    def test_caps_at_10_calls(self) -> None:
+        from kaos_agents.patterns.agentic_loop import _summarize_prior_tool_calls
+
+        calls = [
+            {"name": f"kaos-tool-{i}", "is_error": False, "summary_excerpt": "x"} for i in range(20)
+        ]
+        summary = _summarize_prior_tool_calls(calls)
+        # 10 lines = 9 internal newlines + 1 trailing newline (no
+        # trailing newline in our output) → 10 lines total.
+        assert len(summary.splitlines()) == 10
+
+
 @pytest.mark.asyncio
 async def test_m2_at_confidence_floor_does_override() -> None:
     """At exactly ``confidence == 0.85`` (the rubric's own threshold

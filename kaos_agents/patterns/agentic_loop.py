@@ -71,6 +71,7 @@ The caller sees one continuous event stream per turn.
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
@@ -619,6 +620,43 @@ async def run_agentic_turn(
                 # Stash for the max_iterations refusal-override path.
                 state.last_critic_rationale = outcome.result.rationale
                 state.last_critic_next_action = outcome.result.next_action
+
+            # ── 7a. 0.1.1 (#549.B) — Remediation-hint threading ────
+            # If any tool call this iteration returned is_error=True
+            # AND its summary_excerpt contains a "Try kaos-{module}-
+            # {tool}" remediation hint (the kaos-mcp tool-design
+            # standard for error messages), thread the hint into the
+            # next iteration's thinking_note. Pre-fix the worker
+            # would retry the same broken tool 4x because nothing
+            # surfaced the hint at the loop level. See task #549.B.
+            remediation_hints = _extract_remediation_hints(worker_result.tool_calls_made)
+            if remediation_hints:
+                state.thinking_note = (
+                    f"{state.thinking_note}\n\n"
+                    "Tool-error remediation hints from iteration "
+                    f"{state.iteration} (act on these instead of "
+                    "retrying the same broken tools):\n"
+                    + "\n".join(f"- {hint}" for hint in remediation_hints)
+                )
+
+            # ── 7b. 0.1.1 (P2-B) — Prior-tool-call summary threading ─
+            # Append a short summary of what tools have been called
+            # this turn so the next iteration doesn't re-issue near-
+            # duplicate queries. This is the loop-level fix for the
+            # over-specified-query-storm pattern documented in WU-K
+            # v2 Case C1 (13 near-identical site:sec.gov searches
+            # before the cost-cap fired). Note: the deeper fix is
+            # planner / ranker work — see the plan's deferred
+            # backlog. This summary is the cheap, immediate mitigant.
+            prior_summary = _summarize_prior_tool_calls(worker_result.tool_calls_made)
+            if prior_summary:
+                state.thinking_note = (
+                    f"{state.thinking_note}\n\n"
+                    "Tool calls you already ran this turn (do NOT "
+                    "re-issue near-duplicate queries — try a "
+                    "different angle if you need more evidence):\n"
+                    f"{prior_summary}"
+                )
             # Track elapsed time for the wall-clock guard.
             _ = iteration_started
 
@@ -1047,6 +1085,88 @@ def _format_tool_results_for_m2(
         if per_call_char_budget is not None and len(summary_str) > per_call_char_budget:
             summary_str = summary_str[:per_call_char_budget] + "…"
         lines.append(f"{name}: {summary_str}")
+    return "\n".join(lines)
+
+
+# 0.1.1: matches kaos-* tool references inside remediation hints.
+# The kaos-mcp tool-design contract says errors must name an
+# alternative tool, typically as "Try kaos-X" or in a comma-separated
+# list "Try kaos-X, kaos-Y for Z". This regex catches every "kaos-..."
+# token appearing in such a hint. The "Try" anchor is checked
+# separately to avoid false positives on bare tool names in unrelated
+# error text.
+_TRY_HINT_ANCHOR_RE = re.compile(r"\bTry\b", re.IGNORECASE)
+_KAOS_TOOL_RE = re.compile(r"\bkaos-[a-z0-9]+(?:-[a-z0-9]+)+\b")
+
+
+def _extract_remediation_hints(tool_calls_made: list[dict]) -> list[str]:
+    """Pull "Try kaos-{module}-{tool}" hints from this iteration's errored calls.
+
+    0.1.1 (#549.B). Worker errors carry remediation hints per the
+    kaos-mcp tool-design contract: every error must include
+    *(1) what went wrong, (2) how to fix it, (3) alternative tool*.
+    When the agent's worker hits an error, the AgenticLoop threads
+    these hints into the next iteration's ``thinking_note`` so the
+    worker doesn't retry the same broken tool blindly.
+
+    Returns a list of unique ``"Try {tool}"`` hint sentences (max 3
+    hints). Multi-tool "Try X, Y, Z" remediations expand into
+    individual entries so each alternative is visible to the next
+    iteration. Empty list when there were no errored calls or none
+    carried a Try-X remediation.
+    """
+    if not tool_calls_made:
+        return []
+    hints: list[str] = []
+    seen: set[str] = set()
+    for call in tool_calls_made:
+        if not bool(call.get("is_error") or False):
+            continue
+        text = str(call.get("summary_excerpt") or call.get("result_summary") or "")
+        if not text:
+            continue
+        # The "Try" anchor must be in the same string as the tool
+        # name — i.e. inside a remediation sentence — to avoid
+        # promoting an unrelated kaos-X mention into a "hint".
+        if not _TRY_HINT_ANCHOR_RE.search(text):
+            continue
+        for match in _KAOS_TOOL_RE.finditer(text):
+            tool_name = match.group(0)
+            hint = f"Try {tool_name}"
+            if hint not in seen:
+                seen.add(hint)
+                hints.append(hint)
+                if len(hints) >= 3:
+                    return hints
+    return hints
+
+
+def _summarize_prior_tool_calls(tool_calls_made: list[dict]) -> str:
+    """Render a short bullet summary of this iteration's tool calls.
+
+    0.1.1 (P2-B). Threaded into the next iteration's thinking_note so
+    the worker sees what was already tried and avoids re-issuing
+    near-duplicate queries (the over-specified-search-storm pattern
+    documented in WU-K v2 Case C1).
+
+    Output shape (one bullet per call, max 10):
+
+        - tool_name(is_error=False) — first 120 chars of result
+        - tool_name(is_error=True) — first 120 chars of result
+
+    Empty string when no calls were made.
+    """
+    if not tool_calls_made:
+        return ""
+    lines: list[str] = []
+    for call in tool_calls_made[:10]:
+        name = str(call.get("name") or call.get("tool_name") or "tool")
+        is_error = bool(call.get("is_error") or False)
+        summary = call.get("summary_excerpt") or call.get("result_summary") or ""
+        summary_str = str(summary).strip().replace("\n", " ")
+        if len(summary_str) > 120:
+            summary_str = summary_str[:120] + "…"
+        lines.append(f"- {name}(is_error={is_error}) — {summary_str}")
     return "\n".join(lines)
 
 

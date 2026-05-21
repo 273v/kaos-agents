@@ -9,6 +9,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.1] — 2026-05-21
 
+### Added
+
+- **AgenticLoop replan threads remediation hints + prior-call summary
+  into the next iteration's ``thinking_note``** (P0 cluster
+  Day 3-4 — #549.B + P2-B). After each iteration that ends in
+  ``needs_more_work`` or an M2/M3 override, the loop now appends
+  two extra sections to ``state.thinking_note``:
+
+  1. **Remediation-hint threading (#549.B).** For every tool call
+     this iteration with ``is_error=True`` whose ``summary_excerpt``
+     contains the standard kaos-mcp ``"Try kaos-{module}-{tool}"``
+     remediation pattern, the loop extracts each suggested tool
+     name (multi-tool ``"Try X, Y, Z"`` remediations expand into
+     individual entries) and threads up to 3 ``"Try kaos-X"`` hints
+     into the next iteration. Pre-fix the agent could retry the
+     same broken tool 4x because the hint was buried in the
+     error body and only the worker saw it; now the loop surfaces
+     it explicitly.
+
+  2. **Prior-call summary threading (P2-B mitigant).** Renders up
+     to 10 ``- tool_name(is_error=Bool) — first-120-chars`` bullets
+     of the iteration's tool calls and appends them with a "do NOT
+     re-issue near-duplicate queries" directive. Loop-level
+     mitigation for the over-specified-search-storm pattern
+     documented in WU-K v2 Case C1 (13 near-identical
+     ``site:sec.gov`` queries in 10s). The deeper fix is in the
+     planner / ranker; this is the cheap, immediate-impact path.
+
+- **ToolFitnessSignature rubric tightened to prefer atomic tools
+  over composite "profile" / "snapshot" / "intel" tools** when the
+  query targets a single axis (#549.A). Worked example anchored to
+  the ``kaos-web-dns-enumerate`` vs ``kaos-web-domain-profile``
+  pattern from WU-K v2 Case E6: an "IP address of example.com"
+  query should pick the atomic DNS tool first; the composite is
+  appropriate only when the query genuinely needs ≥2 of its
+  axes ("security snapshot", "everything about example.com").
+
 ### Fixed
 
 - **M2 ConsistencyChecker false-positive on grounded RAG answers**

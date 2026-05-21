@@ -292,6 +292,40 @@ class ToolFitnessSignature(Signature):
     * Returning an empty ``picks`` just because the catalog is
       large; "I don't know which to use" is a worker-side
       decision, not a ranker-side decision.
+
+    **0.1.1 (#549.A) — atomic-over-composite preference for tool
+    families with a "profile" / "summary" / "domain-intel" rollup.**
+    Some tool families ship a *composite* rollup tool (e.g.
+    ``kaos-web-domain-profile`` bundles DNS + WHOIS + TLS + HTTP
+    headers + DKIM/DMARC/SPF under one call) alongside the
+    *atomic* tools the rollup wraps (``kaos-web-dns-enumerate``,
+    ``kaos-web-whois-lookup``, ``kaos-web-service-detect``,
+    ``kaos-web-dns-security``, ...). When the user's query targets
+    a single atomic axis (e.g. "what is the IP address of
+    example.com" → DNS only; "who registered example.com" → WHOIS
+    only), PREFER the atomic tool over the composite. Worked
+    example (WU-K v2 Case E6, the documented failure mode):
+
+      Query: "what is the IP address of example.com"
+      Catalog includes ``kaos-web-domain-profile`` AND
+      ``kaos-web-dns-enumerate``.
+      RIGHT: ``picks=["kaos-web-dns-enumerate", "kaos-web-domain-profile"]``
+      WRONG: ``picks=["kaos-web-domain-profile", "kaos-web-dns-enumerate"]``
+
+      Reason: ``kaos-web-domain-profile`` is a heavy composite
+      with multiple sub-failure modes (any of DNS / WHOIS / TLS
+      can raise and the whole call surfaces as
+      ``BaseExceptionGroup``). When the query needs only DNS, the
+      atomic tool is the cheaper, lower-risk fit. The composite
+      is appropriate ONLY when the query genuinely needs ≥2 of
+      its axes (e.g. "give me a security snapshot of example.com",
+      "is example.com legitimate", "show me everything about
+      example.com").
+
+    Identify composite tools by the words ``profile``, ``summary``,
+    ``snapshot``, ``intel``, or ``overview`` in the description, OR
+    when the description enumerates ≥3 axes ("DNS, WHOIS, TLS, ..."
+    -shape). Atomic tools have one-axis descriptions.
     """
 
     # inputs
