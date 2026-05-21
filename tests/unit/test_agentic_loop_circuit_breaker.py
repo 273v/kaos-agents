@@ -137,6 +137,37 @@ def _make_tool_complete_span(
     )
 
 
+def _make_sse_dict_tool_complete(
+    tool_name: str,
+    *,
+    is_error: bool = False,
+    result_summary: str = "",
+) -> dict[str, str]:
+    """Build the SSE-record shape the SPA's worker forwards.
+
+    R1.1: ``app/services/agentic_worker.py:158-171`` builds events of
+    this shape directly from the upstream wire — ``{"event": "<type>",
+    "data": "<json-string>"}`` where the JSON payload includes the
+    serialized ``Span`` discriminator + fields. The orchestrator's
+    circuit-breaker observer must accept this shape (not just typed
+    ``Span`` objects) or the SPA-mode breaker is dead code.
+    """
+    import json as _json
+
+    payload = {
+        "type": "span",
+        "subject": "tool_call",
+        "phase": "complete",
+        "attributes": {
+            "tool_name": tool_name,
+            "call_id": "c1",
+            "is_error": is_error,
+            "result_summary": result_summary,
+        },
+    }
+    return {"event": "span", "data": _json.dumps(payload)}
+
+
 async def _collect(gen) -> list[Any]:
     out: list[Any] = []
     async for ev in gen:
@@ -222,15 +253,134 @@ async def test_circuit_breaker_trips_on_consecutive_uninformative_results() -> N
     assert len(terminated_events) == 1
     assert terminated_events[0].reason == "circuit_breaker_tripped"
 
-    # The refusal pair (TextDelta + TurnSummary) must come BEFORE
-    # LoopTerminated and AFTER the CircuitBreakerTripped event.
+    # 0.1.2 (R0.1) contract change: the worker drafted substantive
+    # text ("I tried multiple searches but nothing worked.", 47 chars)
+    # AND no critic had explicitly rejected the draft (the loop hit the
+    # circuit breaker before any GoalCheck verdict could land). Per R0.1
+    # the loop now PRESERVES the worker draft + appends a budget footer
+    # explaining the cap, rather than clobbering with a generic
+    # boilerplate template. The TurnSummary's intent reflects this
+    # change: ``respond_with_caveat`` instead of ``refuse``.
     text_deltas = [e for e in events if isinstance(e, TextDelta)]
     turn_summaries = [e for e in events if isinstance(e, TurnSummary)]
+    # Worker draft must survive into the streamed TextDelta + final
+    # TurnSummary.text.
+    assert any("tried multiple searches" in td.content.lower() for td in text_deltas), (
+        "worker draft text should be preserved on circuit-breaker exit (R0.1)"
+    )
+    # The budget footer must explain the circuit-breaker exit reason
+    # so the user understands the caveat (not just the worker draft).
     assert any("circuit breaker" in td.content.lower() for td in text_deltas), (
         "refusal text should mention circuit breaker"
     )
+    # The final TurnSummary intent is ``respond_with_caveat`` for the
+    # preserve-worker-draft path (was ``refuse`` pre-R0.1 — that
+    # behavior is now reserved for the case where the worker text was
+    # empty/trivial OR a critic rejected the draft).
+    caveat_summaries = [ts for ts in turn_summaries if ts.intent == "respond_with_caveat"]
     refuse_summaries = [ts for ts in turn_summaries if ts.intent == "refuse"]
-    assert len(refuse_summaries) == 1
+    assert len(caveat_summaries) == 1, (
+        "exactly one TurnSummary with intent=respond_with_caveat when the "
+        "worker had drafted substantive text and the loop exited for a "
+        "non-critic reason (circuit breaker, cost cap, wall-clock cap, "
+        "stuck-detection, max-iter without critic rejection)"
+    )
+    assert len(refuse_summaries) == 0, (
+        "no refuse-intent TurnSummary: the worker's draft was not rejected "
+        "by a critic, so it's not a refusal — it's a partial answer with "
+        "a budget caveat"
+    )
+
+
+@pytest.mark.asyncio
+async def test_circuit_breaker_with_empty_worker_text_uses_template() -> None:
+    """0.1.2 (R0.1) sibling case to the preserve-worker-draft test
+    above.
+
+    When the worker emitted NO substantive draft text (empty or below
+    the 40-char threshold), the budget-cap path falls back to the
+    legacy refusal template + intent="refuse" because there's no
+    worker draft worth preserving.
+
+    Without this fallback, the SPA's #508 refusal-replace contract
+    would receive a 3-char "ok" or empty string and persist nothing
+    useful.
+    """
+    policy = SessionPolicy.default()
+    plan = _StubPlan(kept={"web"}, dropped=set())
+
+    five_zero_result_spans = [
+        _make_tool_complete_span(
+            "kaos-web-search",
+            is_error=False,
+            result_summary=f"No results found for: query {i}",
+        )
+        for i in range(5)
+    ]
+
+    worker = _worker_stub(
+        WorkerResult(
+            text="",  # Empty draft — fall through to template path.
+            tool_calls_made=[
+                {"tool_name": "kaos-web-search", "result_summary": f"No results found {i}"}
+                for i in range(5)
+            ],
+            cost_usd=0.001,
+            latency_ms=200.0,
+            events=list(five_zero_result_spans),
+        )
+    )
+
+    check = _check_stub(
+        GoalCheckOutcome(
+            result=GoalCheckNeedsMoreWork(
+                next_action="try a different search strategy",
+                confidence=0.4,
+                rationale="searches kept returning empty",
+            ),
+            cost_usd=0.0001,
+            latency_ms=50.0,
+            iteration=1,
+        )
+    )
+
+    with (
+        patch(
+            "kaos_agents.patterns.agentic_loop.plan_turn_tool_policy",
+            new=_plan_stub(plan),
+        ),
+        patch(
+            "kaos_agents.patterns.agentic_loop.check_goal",
+            new=check,
+        ),
+    ):
+        events = await _collect(
+            run_agentic_turn(
+                user_message="What is the current Fed funds rate?",
+                policy=policy,
+                worker=worker,
+                available_groups=["web"],
+                session_id="s1",
+                run_id="r1",
+                circuit_breaker_threshold=5,
+            )
+        )
+
+    breaker_events = [e for e in events if isinstance(e, CircuitBreakerTripped)]
+    assert len(breaker_events) == 1
+    terminated_events = [e for e in events if isinstance(e, LoopTerminated)]
+    assert terminated_events[0].reason == "circuit_breaker_tripped"
+
+    # Empty worker draft → fall back to legacy refusal template +
+    # intent="refuse". The TextDelta must contain the boilerplate
+    # "I stopped after..." pattern.
+    text_deltas = [e for e in events if isinstance(e, TextDelta)]
+    turn_summaries = [e for e in events if isinstance(e, TurnSummary)]
+    assert any("i stopped after" in td.content.lower() for td in text_deltas), (
+        "empty worker draft → legacy template fires"
+    )
+    refuse_summaries = [ts for ts in turn_summaries if ts.intent == "refuse"]
+    assert len(refuse_summaries) == 1, "intent=refuse when there's no worker draft to preserve"
 
 
 @pytest.mark.asyncio
@@ -430,6 +580,12 @@ async def test_circuit_breaker_disabled_when_threshold_zero() -> None:
                 session_id="s1",
                 run_id="r1",
                 circuit_breaker_threshold=0,  # disabled
+                # R1.3 #563: 25 calls would trip the new per-iteration
+                # tool-call cap (default 10) before this test could
+                # exercise the circuit-breaker=0 branch. Disable it for
+                # this test so the test continues to verify what it
+                # advertises (circuit-breaker=0 → no breaker trip).
+                max_tool_calls_per_iteration=0,
             )
         )
 
@@ -578,3 +734,164 @@ async def test_circuit_breaker_per_tool_isolation() -> None:
         )
 
     assert not any(isinstance(e, CircuitBreakerTripped) for e in events)
+
+
+# ── R1.1: SSE-dict event shape (SPA worker) ──────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_circuit_breaker_trips_on_sse_dict_records() -> None:
+    """R1.1 — the SPA's worker forwards raw SSE record dicts (not typed
+    Spans). The orchestrator's ``_observe_for_circuit_breaker`` must
+    accept both shapes.
+
+    Pre-R1.1 the ``isinstance(event, Span)`` guard silently returned for
+    every forwarded SSE dict — making the loop-level circuit breaker
+    dead code in the SPA. Cost-storm sessions ran all the way to
+    cost/wall-clock cap (WU-K v3 C1 with 17 tool calls, Agent 4's C7
+    with 12 consecutive "No results found"). This test fixtures 5
+    consecutive SSE-shaped tool-complete records and asserts the
+    breaker still trips.
+    """
+    policy = SessionPolicy.default()
+    plan = _StubPlan(kept={"web"}, dropped=set())
+
+    sse_dict_records = [
+        _make_sse_dict_tool_complete(
+            "kaos-web-search",
+            is_error=False,
+            result_summary=f"No results found for: query {i}",
+        )
+        for i in range(5)
+    ]
+
+    worker = _worker_stub(
+        WorkerResult(
+            text="I tried multiple searches but nothing worked.",
+            tool_calls_made=[
+                {"tool_name": "kaos-web-search", "result_summary": f"No results found {i}"}
+                for i in range(5)
+            ],
+            cost_usd=0.001,
+            latency_ms=200.0,
+            events=list(sse_dict_records),
+        )
+    )
+
+    check = _check_stub(
+        GoalCheckOutcome(
+            result=GoalCheckNeedsMoreWork(
+                next_action="try a different search strategy",
+                confidence=0.4,
+                rationale="searches kept returning empty",
+            ),
+            cost_usd=0.0001,
+            latency_ms=50.0,
+            iteration=1,
+        )
+    )
+
+    with (
+        patch(
+            "kaos_agents.patterns.agentic_loop.plan_turn_tool_policy",
+            new=_plan_stub(plan),
+        ),
+        patch(
+            "kaos_agents.patterns.agentic_loop.check_goal",
+            new=check,
+        ),
+    ):
+        events = await _collect(
+            run_agentic_turn(
+                user_message="What is the current Fed funds rate?",
+                policy=policy,
+                worker=worker,
+                available_groups=["web"],
+                session_id="s1",
+                run_id="r1",
+                circuit_breaker_threshold=5,
+            )
+        )
+
+    breaker_events = [e for e in events if isinstance(e, CircuitBreakerTripped)]
+    assert len(breaker_events) == 1, (
+        "circuit breaker must trip even when the worker forwards "
+        "SSE-record dicts (SPA shape) rather than typed Spans"
+    )
+    assert breaker_events[0].tool_name == "kaos-web-search"
+    assert breaker_events[0].consecutive_failures == 5
+
+    terminated_events = [e for e in events if isinstance(e, LoopTerminated)]
+    assert len(terminated_events) == 1
+    assert terminated_events[0].reason == "circuit_breaker_tripped"
+
+
+@pytest.mark.asyncio
+async def test_circuit_breaker_handles_malformed_sse_dict() -> None:
+    """R1.1 defensive — a malformed SSE record (bad JSON, missing
+    fields, wrong subject) must NOT crash the observer; it should
+    silently skip the record."""
+    policy = SessionPolicy.default()
+    plan = _StubPlan(kept={"web"}, dropped=set())
+
+    malformed_records: list[dict[str, str]] = [
+        {"event": "span", "data": "{not valid json"},
+        {"event": "span", "data": '{"type": "span"}'},  # missing subject/phase
+        {"event": "text_delta", "data": '{"content": "hi"}'},  # wrong type
+        # Even one valid uninformative result should NOT trip on its own
+        _make_sse_dict_tool_complete(
+            "kaos-web-search",
+            is_error=False,
+            result_summary="No results found",
+        ),
+    ]
+
+    from kaos_agents.planning.goal_check import GoalCheckSatisfied
+
+    worker = _worker_stub(
+        WorkerResult(
+            text="Tried but nothing found.",
+            tool_calls_made=[{"tool_name": "kaos-web-search"}],
+            cost_usd=0.001,
+            latency_ms=200.0,
+            events=list(malformed_records),
+        )
+    )
+
+    check = _check_stub(
+        GoalCheckOutcome(
+            result=GoalCheckSatisfied(confidence=0.6, rationale="answered"),
+            cost_usd=0.0001,
+            latency_ms=50.0,
+            iteration=1,
+        )
+    )
+
+    with (
+        patch(
+            "kaos_agents.patterns.agentic_loop.plan_turn_tool_policy",
+            new=_plan_stub(plan),
+        ),
+        patch(
+            "kaos_agents.patterns.agentic_loop.check_goal",
+            new=check,
+        ),
+    ):
+        events = await _collect(
+            run_agentic_turn(
+                user_message="search query",
+                policy=policy,
+                worker=worker,
+                available_groups=["web"],
+                session_id="s1",
+                run_id="r1",
+                circuit_breaker_threshold=5,
+            )
+        )
+
+    # Threshold is 5; we only emitted 1 uninformative result and 3
+    # malformed events. The breaker MUST NOT trip.
+    breaker_events = [e for e in events if isinstance(e, CircuitBreakerTripped)]
+    assert len(breaker_events) == 0, (
+        "single uninformative result + malformed events must not trip the breaker"
+    )
