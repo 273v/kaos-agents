@@ -694,6 +694,26 @@ def _register_routes(app: FastAPI) -> None:
             appended += 1
 
         if appended > 0:
+            # B0.3: fire end-of-turn summarization on the canonical
+            # append path. Pre-fix this endpoint wrote via memory.add()
+            # only and never called summarize_turn() / end_turn() —
+            # MESSAGES grew unbounded across long sessions until the
+            # assemble-context call OOM'd the planner's prompt budget.
+            # Summary trigger is best-effort: ON_OVERFLOW sections that
+            # are over budget get summarized; LLM failures (no API
+            # key, transport error) fall through to a logged warning
+            # so the canonical write still completes. ``end_turn()``
+            # always runs to keep ``turn_count`` honest.
+            try:
+                await memory.summarize_turn()
+            except Exception as exc:  # noqa: BLE001 — best-effort
+                logger.warning(
+                    "memory.summarize_turn failed (session=%s): %s — "
+                    "canonical turn append continues without summary",
+                    effective_session_id,
+                    exc,
+                )
+            memory.end_turn()
             await store.save(memory)
 
         return MemoryTurnResponse(

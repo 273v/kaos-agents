@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] — 2026-05-21
+
+Broad-reliability roadmap §B0.3 — long-session memory-budget regression.
+
+### Fixed
+
+- **#577 B0.3 — `append_memory_turn` never called `summarize_turn()` /
+  `end_turn()`.** Direct regression from the #458 iteration-leak fix
+  that moved per-iteration writes off the canonical path: after that
+  change, `POST /v1/sessions/{id}/memory/messages/turn` became the
+  SOLE persistence surface for MESSAGES but wrote via `memory.add()`
+  only. A real attorney 50-turn session built up ~50k tokens of
+  unsummarized MESSAGES by turn 25 and the `assemble_context` call
+  OOM'd the planner's prompt budget — planning quality silently
+  degraded from turn 25.
+
+  Post-fix, `append_memory_turn` now:
+  1. Calls `memory.add(MemoryType.MESSAGES, ...)` for user / assistant
+     content (unchanged).
+  2. Awaits `memory.summarize_turn()` (best-effort — LLM failures
+     fall through to a logged warning so the canonical write still
+     completes).
+  3. Calls `memory.end_turn()` to keep `turn_count` honest.
+  4. Persists via `store.save(memory)` (unchanged).
+
+  `turn_count` now increments per canonical-turn POST instead of
+  staying at 0 forever — long-session bookkeeping is honest again.
+
+### Added
+
+- 4 regression tests in `tests/unit/test_canonical_turn_summarization.py`:
+  - `turn_count` increments per canonical append (was always 0 pre-fix).
+  - LLM summarizer failure does not break the canonical write
+    (best-effort contract).
+  - `summarize_turn` invoked exactly once per request (load-bearing
+    wiring test).
+  - Empty user + assistant skips both summarize_turn and end_turn.
+
 ## [0.1.5] — 2026-05-21
 
 Broad-reliability roadmap §B0.9 — engine-layer adversarial defense
