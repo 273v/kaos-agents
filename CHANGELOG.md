@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4] — 2026-05-21
+
+Broad-reliability roadmap §B0.7 — engine-layer adversarial defense.
+
+### Added
+
+- **#575 B0.7 — Tool-call argument PII scrubber.** New
+  `kaos_agents.runtime.pii_scrubber` module with `scrub_tool_args()`
+  pre-execution gate. `actions/tool_bridge.py` now scrubs every
+  tool-call kwargs payload BEFORE the underlying
+  `KaosTool.execute()` invocation (after the permission gate, before
+  the asyncio.timeout-wrapped invoke). Matched patterns:
+  - **SSN** — `NNN-NN-NNNN` and bare 9-digit runs with non-digit
+    context. Whole-string SSN values get a labeled placeholder
+    (`***SCRUBBED:ssn***`) for audit-trail clarity.
+  - **EIN** — `NN-NNNNNNN`.
+  - **Credit card** — 13-19 digit runs, Luhn-validated to suppress
+    false positives on invoice / order IDs.
+
+  Closes adversarial-robustness audit F-03: an agent that lifted
+  client PII from a corpus document into a third-party tool call
+  (e.g. `kaos-web-search(query="John Q. Public 123-45-6789 fraud
+  case")`) leaked the PII into SerpAPI / Brave / Exa logs. Post-fix
+  the kwargs reach the third-party provider with the PII masked.
+
+  Conservative-by-design — only inspects `str` values, recurses
+  through `dict` / `list` / `tuple` containers, leaves numeric /
+  bool / None / unknown types untouched. Returns a fresh kwargs
+  dict (never mutates caller input). Audit logs include the
+  matched-pattern names so operators can see what fired.
+
+- 19 regression tests in `tests/unit/test_pii_scrubber.py` covering
+  pattern coverage, Luhn validation, nested containers, no-op + caller-
+  immutability, and `ScrubResult` frozen-dataclass guarantees.
+
 ## [0.1.3] — 2026-05-21
 
 Broad-reliability roadmap layer 2 — first P0
