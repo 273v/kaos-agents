@@ -233,6 +233,7 @@ async def run_agentic_turn(
     m3_grounding_model: str | None = None,
     circuit_breaker_threshold: int = 5,
     max_tool_calls_per_iteration: int = 10,
+    citation_verification_enabled: bool = False,
 ) -> AsyncIterator[Any]:
     """Run one agent turn as an event-streaming loop.
 
@@ -376,6 +377,45 @@ async def run_agentic_turn(
             # preserve the worker's draft via
             # ``_should_preserve_worker_draft``.
             state.current_iter_text = worker_result.text
+
+            # B0.8: post-worker citation verification gate. Opt-in via
+            # ``citation_verification_enabled`` so existing callers
+            # don't acquire a CourtListener dependency or per-turn
+            # network cost. When enabled, we extract every case
+            # citation in the worker's draft, resolve each against
+            # CourtListener (gated separately by
+            # ``KAOS_AGENT_CITATION_VERIFY_ENABLED``), emit a
+            # :class:`CitationVerified` event per result, and fold any
+            # ``mismatch`` / ``not_found`` diagnostic into
+            # ``thinking_note`` so the next iteration sees the
+            # specific failure. ``unreachable`` / ``skipped`` are
+            # recorded but do NOT force a replan (the cite might be
+            # correct; we just can't confirm).
+            if citation_verification_enabled and worker_result.text.strip():
+                from kaos_agents.citations import verify_citations_in_text
+                from kaos_agents.events.research import CitationVerified
+
+                verification_results = await verify_citations_in_text(worker_result.text)
+                _replan_diagnostics: list[str] = []
+                for v_result in verification_results:
+                    yield CitationVerified(
+                        **_evt_base(state, session_id, run_id),
+                        raw_cite=v_result.raw_cite,
+                        status=v_result.status,
+                        courtlistener_url=v_result.courtlistener_url or "",
+                        observed_case_name=v_result.observed_case_name or "",
+                        observed_year=v_result.observed_year or 0,
+                        diagnostic=v_result.diagnostic or "",
+                    )
+                    if v_result.is_problem:
+                        _replan_diagnostics.append(
+                            f"cite {v_result.raw_cite!r}: {v_result.diagnostic}"
+                        )
+                if _replan_diagnostics:
+                    state.thinking_note = (
+                        "Citation verification failed for one or more cites — "
+                        "re-check authority before answering: " + "; ".join(_replan_diagnostics)
+                    )
 
             # Forward worker events verbatim. While we're walking them,
             # observe ``Span(TOOL_CALL, COMPLETE)`` events for the

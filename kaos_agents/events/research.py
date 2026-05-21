@@ -50,8 +50,58 @@ class GroundingRefusalTriggered(LifecycleEvent):
     reason: str = ""
 
 
+class CitationVerified(LifecycleEvent):
+    """B0.8 — post-worker citation verification result.
+
+    Emitted once per case citation found in the worker's draft after
+    the AgenticLoop's post-worker gate ran
+    :func:`kaos_agents.citations.verify_case_citation` against
+    CourtListener.
+
+    Status semantics (see
+    :class:`kaos_agents.citations.VerificationStatus`):
+
+    - ``verified`` — CourtListener echoed the cite (canonical pass).
+    - ``mismatch`` — case_name or year disagrees with CourtListener.
+    - ``not_found`` — CourtListener has no cluster for this cite.
+    - ``unreachable`` — network / 5xx / disabled (no verdict).
+    - ``skipped`` — missing structural fields (volume / reporter / page).
+
+    The AgenticLoop folds ``mismatch`` and ``not_found`` results into
+    a forced replan with the diagnostic surfaced in
+    ``thinking_note``; ``unreachable`` and ``skipped`` are recorded
+    for the audit trail but do not force a replan.
+    """
+
+    raw_cite: str = ""
+    """The ``Citation.raw`` text we verified — audit-trail anchor."""
+
+    status: str = ""
+    """``VerificationStatus`` literal as a string (event payloads are
+    serializable; we keep the Literal type-system constraint at the
+    callsite, not on the wire)."""
+
+    courtlistener_url: str = ""
+    """Canonical CourtListener URL when the cite matched a cluster.
+    Empty string otherwise. Frontend can render this as a click-target
+    so reviewers can compare the cited cluster to the agent's claim."""
+
+    observed_case_name: str = ""
+    """What CourtListener said the case is called (for ``mismatch``
+    audit). Empty when not applicable."""
+
+    observed_year: int = 0
+    """What CourtListener said the decision year is (for ``mismatch``
+    audit). Zero when not applicable."""
+
+    diagnostic: str = ""
+    """One-sentence rationale for non-``verified`` outcomes — the same
+    text the AgenticLoop folds into ``thinking_note`` on replan."""
+
+
 __all__ = [
     "CitationFound",
+    "CitationVerified",
     "EvidenceInsufficient",
     "GroundingRefusalTriggered",
 ]

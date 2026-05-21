@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7] — 2026-05-21
+
+Broad-reliability roadmap §B0.8 — the final P0 item. Closes the
+citation-fabrication failure mode that drove Harvey to publish a
+0.2% citation-error rate; pre-fix we didn't measure ours.
+
+### Added
+
+- **#578 B0.8 — Citation verification against CourtListener.** Per
+  the kaos-citations AGENTS.md ("Do not add citation resolution, URL
+  fetching, source retrieval, or claim verification") the
+  verification primitive lives in kaos-agents:
+  - New module `kaos_agents.citations` with `verify_case_citation`
+    + `verify_citations_in_text` + frozen
+    `CitationVerificationResult` value type. Resolves a
+    `kaos_citations.CaseCitation` against CourtListener's v4
+    `citation-lookup` endpoint and returns a structured outcome
+    (`verified | mismatch | not_found | unreachable | skipped`).
+  - Self-contained httpx client — no new optional-dependency
+    footprint, no kaos-source detour. API key resolved from
+    `KAOS_AGENT_COURTLISTENER_API_KEY` (legacy
+    `COURTLISTENER_API_KEY`).
+  - Live HTTP is sandbox-safe by default — gated by
+    `KAOS_AGENT_CITATION_VERIFY_ENABLED=1`. Offline tests + CI runs
+    return `status="unreachable"` without network traffic.
+  - Conservative semantics: ±1 year tolerance for opinion-vs-
+    publication-year skew; either-direction substring containment
+    for case names (so "Brown v. Board of Education of Topeka" still
+    matches "Brown v. Board of Education").
+- New `CitationVerified` event in `kaos_agents.events.research` —
+  one per cite checked, carrying `raw_cite` + `status` +
+  `courtlistener_url` + `observed_case_name` + `observed_year` +
+  `diagnostic`. Public surface; auto-registered in
+  `ALL_EVENT_TYPES`.
+- `run_agentic_turn` accepts `citation_verification_enabled=False`
+  (default off). When enabled, the loop runs the verifier on each
+  iteration's worker draft, emits `CitationVerified` events, and
+  folds any `mismatch` / `not_found` diagnostic into
+  `thinking_note` so the next iteration sees the specific failure.
+  `unreachable` / `skipped` are recorded but do NOT force a replan
+  (the cite might be correct; we just can't confirm).
+- 18 regression tests in `tests/unit/test_citation_verifier.py`
+  covering gating, every status code, off-by-one year tolerance,
+  loose-name matching, network errors, skipped-without-network
+  for incomplete cites, multi-cite extraction, and the frozen-
+  dataclass contract.
+
 ## [0.1.6] — 2026-05-21
 
 Broad-reliability roadmap §B0.3 — long-session memory-budget regression.
