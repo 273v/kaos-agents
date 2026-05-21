@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] — 2026-05-21
+
+Broad-reliability roadmap layer 2 — first P0
+(`kaos-modules/docs/plans/2026-05-22-broad-reliability-adaptability-roadmap.md`).
+
+### Fixed
+
+- **#571 B0.2 — chat-pattern ReAct dispatch had no per-tool timeout.**
+  Pre-0.1.3, `planning/act.py` wrapped each tool invocation in
+  `asyncio.timeout(KaosAgentSettings.tool_timeout_seconds)`, but the
+  `actions/tool_bridge.py` executor used by the chat pattern's ReAct
+  loop did not. A slow gov-source crawler (or any tool blocked on a
+  remote that never sent FIN) could pin an entire turn indefinitely —
+  the loop's wall-clock budget would expire while the inner
+  `await kaos_tool.execute(...)` was still running. Now every executor
+  produced by `kaos_tool_to_llm_tool()` wraps its execute call in
+  `async with asyncio.timeout(effective_timeout)`; on `TimeoutError`
+  the executor raises `ToolReportedError` so ReAct's `_invoke_one`
+  records the failure with `is_error=True` (preserving the inventory
+  P0-1 #437 contract) and the agent can re-plan. Default deadline is
+  read from `KaosAgentSettings().tool_timeout_seconds` (120s), with a
+  `tool_timeout_seconds` override on both `kaos_tool_to_llm_tool()`
+  and `bridge_runtime_tools()` for tests / short-deadline gateways.
+
+### Added
+
+- `tool_timeout_seconds` parameter on `kaos_tool_to_llm_tool()` and
+  `bridge_runtime_tools()` (default `None` → inherit from settings).
+- 6 new regression tests in `tests/unit/test_tool_bridge_timeout.py`.
+
 ## [0.1.2] — 2026-05-21
 
 Reliability roadmap layer 2 — kaos-agents
