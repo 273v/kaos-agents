@@ -38,10 +38,10 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  "kaos-core>=0.1.0rc1,<0.2",
-  "kaos-content[markdown,html]>=0.1.0rc1,<0.2",
-  "kaos-graph>=0.1.0rc1,<0.2",
-  "kaos-nlp-core>=0.1.0rc1,<0.2",
+  "kaos-core>=0.1.0,<0.2",
+  "kaos-content[markdown,html]>=0.1.0,<0.2",
+  "kaos-graph>=0.1.0,<0.2",
+  "kaos-nlp-core>=0.1.0,<0.2",
   "pydantic>=2.11.0",
   "pydantic-settings>=2.8.1",
 ]
@@ -52,28 +52,28 @@ dependencies = [
 # from KC16-2 / per-module kaos-llm-core 0.1.0a6 — required so the
 # Sprint-3 #9 cost-cap contract is enforceable on every published
 # provider, not just Anthropic.
-llm = ["kaos-llm-client>=0.1.0rc1,<0.2", "kaos-llm-core>=0.1.0rc1,<0.2"]
+llm = ["kaos-llm-client>=0.1.0,<0.2", "kaos-llm-core>=0.1.0,<0.2"]
 # MCP server bridge (kaos-agents-serve --http and --stdio)
-mcp = ["kaos-mcp>=0.1.0rc1,<0.2"]
+mcp = ["kaos-mcp>=0.1.0,<0.2"]
 # FastAPI HTTP API surface (kaos-agents-serve --api)
 api = ["fastapi[standard]>=0.115"]
 # OpenTelemetry export hook
 otel = ["opentelemetry-api>=1.20"]
 # Cross-encoder rerank + dense embeddings
-rerank = ["kaos-nlp-transformers[torch]>=0.1.0rc1,<0.2"]
+rerank = ["kaos-nlp-transformers[torch]>=0.1.0,<0.2"]
 
 # Per-tool-module extras — each maps 1:1 to a `--with-X` CLI flag.
 # Users opt in via e.g. `pip install 'kaos-agents[pdf,source,web]'`.
-pdf = ["kaos-pdf>=0.1.0rc1,<0.2"]
+pdf = ["kaos-pdf>=0.1.0,<0.2"]
 # WU-J cuts kaos-pdf / kaos-source / kaos-citations to rc1; kaos-office,
 # kaos-web, and kaos-tabular ship in a later WU. Keep their pin floors
 # at the latest published 0.1.0a* until those WUs land — the `<0.2`
 # ceiling guarantees forward-compatibility once rc1 propagates.
-office = ["kaos-office[pptx]>=0.1.0a8,<0.2"]
-source = ["kaos-source>=0.1.0rc1,<0.2"]
-web = ["kaos-web>=0.1.0a6,<0.2"]
-citations = ["kaos-citations>=0.1.0rc1,<0.2"]
-tabular = ["kaos-tabular>=0.1.0a5,<0.2"]
+office = ["kaos-office[pptx]>=0.1.0,<0.2"]
+source = ["kaos-source>=0.1.0,<0.2"]
+web = ["kaos-web>=0.1.0,<0.2"]
+citations = ["kaos-citations>=0.1.0,<0.2"]
+tabular = ["kaos-tabular>=0.1.0,<0.2"]
 
 # Live-tier integration tests. Installs only what the live suite imports
 # beyond the base `dev` group — `pytesseract` for `test_pdf_ocr_legal_live.py`
@@ -95,23 +95,23 @@ full = [
 
 [dependency-groups]
 dev = [
-  "kaos-llm-client>=0.1.0rc1,<0.2",
-  "kaos-llm-core>=0.1.0rc1,<0.2",
-  "kaos-mcp>=0.1.0rc1,<0.2",
-  "kaos-pdf>=0.1.0rc1,<0.2",
+  "kaos-llm-client>=0.1.0,<0.2",
+  "kaos-llm-core>=0.1.0,<0.2",
+  "kaos-mcp>=0.1.0,<0.2",
+  "kaos-pdf>=0.1.0,<0.2",
   # WU-J does not cut kaos-office / kaos-web / kaos-tabular / kaos-ml-core.
   # Keep their dev pin floors at latest published 0.1.0a* — the `<0.2`
   # ceiling carries them forward once their own WU lands.
-  "kaos-office[pptx]>=0.1.0a8,<0.2",
-  "kaos-source>=0.1.0rc1,<0.2",
-  "kaos-web>=0.1.0a6,<0.2",
-  "kaos-citations>=0.1.0rc1,<0.2",
-  "kaos-tabular>=0.1.0a5,<0.2",
+  "kaos-office[pptx]>=0.1.0,<0.2",
+  "kaos-source>=0.1.0,<0.2",
+  "kaos-web>=0.1.0,<0.2",
+  "kaos-citations>=0.1.0,<0.2",
+  "kaos-tabular>=0.1.0,<0.2",
   # kaos-ml-core is unused in production code but referenced by two
   # research-corpus tests (soft-imported via importlib.util.find_spec).
   # Keeping it in `dev` so those tests RUN rather than silently skip.
-  "kaos-ml-core>=0.1.0a4,<0.2",
-  "kaos-nlp-transformers[torch]>=0.1.0rc1,<0.2",
+  "kaos-ml-core>=0.1.0,<0.2",
+  "kaos-nlp-transformers[torch]>=0.1.0,<0.2",
   "pytest>=8.3.5",
   "pytest-asyncio>=0.26.0",
   "pytest-cov>=6.0.0",
