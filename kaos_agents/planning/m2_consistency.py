@@ -91,6 +91,31 @@ Edge cases:
   contradict (e.g. headline says "definitely X", body says
   "probably X") — treat as ``consistent``. This rubric catches
   contradictions, not over-confidence.
+* **RAG "pick one from many" pattern is NOT a contradiction.**
+  When the response names a specific load-bearing entity (firm
+  name, person, statute, URL, document title, date, dollar
+  amount) AND that entity appears verbatim (case-insensitive
+  substring match) in the ``context`` tool results, the response
+  is GROUNDED in the tool results — emit ``consistent``. This
+  holds even when the same ``context`` surfaces OTHER candidate
+  entities the response did not select. Selecting one hit from
+  a multi-result search is the canonical RAG output shape and is
+  not a contradiction. Worked example: tool results show 10
+  search hits including ``Meridian Financial, LLC`` (hit #5) and
+  ``Vanguard Advisers, Inc.`` (hit #3); the response cites only
+  ``Meridian Financial, LLC``. → ``consistent`` (NOT
+  ``contradicts_tool_results``), because Meridian is in the
+  context — even though Vanguard is also in the context and the
+  response did not mention it.
+* **"Honest can't-verify" pattern is NOT a contradiction.**
+  When the response explicitly acknowledges the limits of the
+  evidence gathered ("I searched X but couldn't verify Y", "the
+  tools returned candidates but none could be confirmed", "anti-
+  bot blocked the fetch so I cannot confirm") AND does NOT state
+  the unverified claim as a definitive fact, emit ``consistent``.
+  The user often invites this shape with "say so explicitly if
+  you cannot verify"; the response honoring that invitation is
+  the correct grounded behavior.
 * When both ``contradicts_tool_results`` AND ``contradicts_reasoning``
   apply, emit ``contradicts_tool_results`` (the more fundamental
   failure — the response is ungrounded, not just self-contradicting).
@@ -98,7 +123,11 @@ Edge cases:
 ``confidence`` should be high (>= 0.85) when the contradiction is
 explicit (the response literally says "X" in one place and "not X"
 in another). Reserve lower confidence for cases where the
-contradiction requires interpretation."""
+contradiction requires interpretation. The two NOT-A-CONTRADICTION
+patterns above (RAG pick-one and honest can't-verify) are not
+contradictions, regardless of how high the surface-level confidence
+in flagging them might feel — these classifications are the failure
+mode this rubric is being tightened to prevent."""
 
 
 M2_ALLOWED_LABELS: tuple[str, ...] = (

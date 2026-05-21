@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-05-21
+
+### Fixed
+
+- **M2 ConsistencyChecker false-positive on grounded RAG answers**
+  (WU-K v2 Case E1, ships as part of kaos-* 0.1.1 P0 cluster). The
+  M2 critic was returning `contradicts_tool_results` at high
+  confidence (0.92) when the response cited a specific entity that
+  was verbatim present in the tool-call context, just because the
+  context also surfaced *other* candidate entities the response
+  did not select. This is the canonical RAG "pick one from many"
+  output shape and is NOT a contradiction. Two changes land
+  together:
+  1. **Rubric carve-outs** in
+     `kaos_agents/planning/m2_consistency.py` — two new edge cases
+     under "Edge cases" explicitly call out (a) the RAG
+     pick-one-from-many pattern and (b) the honest "I searched
+     but couldn't verify Y" pattern as NOT-A-CONTRADICTION, with
+     concrete exemplars the model can pattern-match on.
+  2. **Confidence-floor backstop** in
+     `kaos_agents/patterns/agentic_loop.py` — the M2 override now
+     fires only when `verdict.confidence >= 0.85` (the rubric's
+     own threshold for "explicit contradiction"). Below-floor
+     flags still emit their `ConsistencyChecked` event for
+     observability but do not flip a satisfied terminator into a
+     replan. Defensive belt against an over-eager critic LLM
+     emitting a high-confidence flag despite the rubric
+     carve-outs.
+
+  Live verification on SPA session `01KS5HCX72E0SXPYZ1FEKJWT35`:
+  Haiku 4.5 with the SEC RIA enforcement prompt, response cites
+  `Meridian Financial, LLC` + the canonical `ia-6916-s` URL. M2
+  verdict flips from `contradicts_tool_results @ 0.92` (overrides
+  satisfied → 2 iterations → persisted refusal text) under 0.1.0
+  to `consistent @ 0.95` (no override → 1 iteration → persisted
+  grounded answer) under 0.1.1. Memory == UI; cost drops from
+  $0.0602 to $0.0157.
+
+### Tests
+
+- New rubric-shape tests in
+  `tests/unit/planning/test_m2_consistency.py`:
+  `test_rubric_carves_out_rag_pick_one_pattern`,
+  `test_rubric_carves_out_honest_cant_verify_pattern`.
+- New override-path tests in `tests/unit/test_agentic_loop_m2.py`:
+  `test_m2_low_confidence_contradicts_tool_results_does_not_override`
+  (0.7 confidence — below floor → no override, observability
+  event still emits with `overrode_satisfied=False`) and
+  `test_m2_at_confidence_floor_does_override` (0.85 confidence —
+  AT floor → override fires, pinning the `>=` boundary semantics).
+- Full unit suite green: 2756 passed, 5 skipped.
+
+
 ## [0.1.0] — 2026-05-20
 
 ### Released

@@ -419,7 +419,27 @@ async def run_agentic_turn(
                     tool_results_text=_format_tool_results_for_m2(worker_result.tool_calls_made),
                 )
                 state.cumulative_cost_usd += m2_verdict.cost_usd
-                if not m2_verdict.fell_back:
+                # Confidence floor — only an explicit contradiction (per
+                # the rubric's own ">= 0.85" guidance) overrides a
+                # satisfied verdict. Lower-confidence flags are real
+                # observability signals (emitted via the event +
+                # structured log below) but must not flip a passing
+                # turn into a replan. Without this gate, an over-eager
+                # critic LLM can refuse correctly-grounded answers on
+                # weak heuristics — WU-K v2 Case E1 (2026-05-21):
+                # response cited "Meridian Financial, LLC" verbatim
+                # present in tool results, M2 returned
+                # contradicts_tool_results @ 0.92 anyway. The rubric
+                # has been tightened with explicit "RAG pick-one" and
+                # "honest can't-verify" carve-outs (see
+                # planning/m2_consistency.py); this floor is the
+                # defensive backstop when the model still flags those
+                # patterns despite the carve-outs.
+                M2_OVERRIDE_CONFIDENCE_FLOOR: float = 0.85
+                if (
+                    not m2_verdict.fell_back
+                    and m2_verdict.confidence >= M2_OVERRIDE_CONFIDENCE_FLOOR
+                ):
                     if m2_verdict.label == "contradicts_reasoning":
                         m2_override_note = (
                             "M2 consistency critic flagged contradicts_reasoning: "

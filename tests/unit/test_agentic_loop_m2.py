@@ -288,6 +288,191 @@ async def test_m2_contradicts_reasoning_overrides_satisfied() -> None:
     assert term.cost_usd >= 0.0006
 
 
+# ── 2b. Confidence floor — low-confidence flags do NOT override ──────
+#
+# 0.1.1 fix (WU-K v2 Case E1, 2026-05-21): the M2 override path now
+# requires ``verdict.confidence >= 0.85`` before flipping a satisfied
+# terminator into a replan. The rubric itself says "high confidence
+# (>=0.85) when the contradiction is explicit"; the loop must honor
+# that threshold. Without this floor, an over-eager critic LLM can
+# refuse correctly-grounded answers on weak heuristics — live E1
+# repro returned ``contradicts_tool_results @ 0.92`` despite the
+# response citing an entity ("Meridian Financial, LLC") that
+# appeared verbatim 8x in the tool results.
+
+
+@pytest.mark.asyncio
+async def test_m2_low_confidence_contradicts_tool_results_does_not_override() -> None:
+    """``contradicts_tool_results`` BELOW the 0.85 floor must NOT
+    override a satisfied GoalCheck. The verdict is still emitted as a
+    ConsistencyChecked event for observability, but the loop
+    terminates on iteration 1 without forcing a replan."""
+    policy = SessionPolicy.default()
+    plan = _StubPlan(kept={"web"}, dropped=set())
+    worker = _worker_stub(
+        WorkerResult(
+            text=(
+                "On September 4, 2025, the SEC charged Meridian Financial, LLC "
+                "with violations of the Marketing Rule."
+            ),
+            tool_calls_made=[
+                {
+                    "name": "kaos-web-search",
+                    "is_error": False,
+                    "summary_excerpt": "Meridian Financial, LLC ... Marketing Rule",
+                }
+            ],
+            cost_usd=0.002,
+            latency_ms=200.0,
+        )
+    )
+    check = _check_stub(
+        GoalCheckOutcome(
+            result=GoalCheckSatisfied(confidence=0.9, rationale="grounded answer"),
+            cost_usd=0.0001,
+            latency_ms=50.0,
+            iteration=1,
+        )
+    )
+    # Critic flags contradicts_tool_results but with confidence 0.7 —
+    # below the 0.85 floor → must NOT override.
+    m2 = _m2_stub(
+        JudgeVerdict(
+            label="contradicts_tool_results",
+            confidence=0.7,
+            reasoning="weak contradiction signal",
+            cost_usd=0.0003,
+            latency_ms=80.0,
+            fell_back=False,
+        )
+    )
+
+    with (
+        patch(
+            "kaos_agents.patterns.agentic_loop.plan_turn_tool_policy",
+            new=_plan_stub(plan),
+        ),
+        patch(
+            "kaos_agents.patterns.agentic_loop.check_goal",
+            new=check,
+        ),
+        patch(
+            "kaos_agents.patterns.agentic_loop.judge_reasoning_action_consistency",
+            new=m2,
+        ),
+    ):
+        events = await _collect(
+            run_agentic_turn(
+                user_message="Recent SEC enforcement action against RIA?",
+                policy=policy,
+                worker=worker,
+                available_groups=list(policy.soft_ceiling),
+                m2_consistency_model="anthropic:claude-haiku-4-5",
+            )
+        )
+
+    # Loop must terminate on iteration 1 — the 0.7 flag is observability,
+    # not an override.
+    term = next(e for e in events if isinstance(e, LoopTerminated))
+    assert term.reason == "satisfied"
+    assert term.iterations_used == 1, (
+        f"low-confidence M2 flag must NOT force a replan; "
+        f"got iterations_used={term.iterations_used}"
+    )
+    # ConsistencyChecked still emits with the raw verdict (operator
+    # surface preserved even when the override doesn't fire).
+    cc = [e for e in events if isinstance(e, ConsistencyChecked)]
+    assert len(cc) == 1
+    assert cc[0].label == "contradicts_tool_results"
+    assert cc[0].confidence == pytest.approx(0.7)
+    assert cc[0].overrode_satisfied is False, (
+        "below-floor confidence must record overrode_satisfied=False so "
+        "downstream cost/SLO analysis can distinguish the silenced flags."
+    )
+
+
+@pytest.mark.asyncio
+async def test_m2_at_confidence_floor_does_override() -> None:
+    """At exactly ``confidence == 0.85`` (the rubric's own threshold
+    for "explicit contradiction"), the override DOES fire. This
+    boundary test pins the floor's >= semantics."""
+    policy = SessionPolicy.default()
+    plan = _StubPlan(kept={"web"}, dropped=set())
+    worker = _worker_stub(
+        WorkerResult(
+            text="Headline asserts X but body computed not-X.",
+            tool_calls_made=[],
+            cost_usd=0.001,
+            latency_ms=100.0,
+        ),
+        WorkerResult(
+            text="Corrected: X is consistent throughout.",
+            tool_calls_made=[],
+            cost_usd=0.001,
+            latency_ms=100.0,
+        ),
+    )
+    check = _check_stub(
+        GoalCheckOutcome(
+            result=GoalCheckSatisfied(confidence=0.9, rationale="ok"),
+            cost_usd=0.0001,
+            latency_ms=50.0,
+            iteration=1,
+        ),
+        GoalCheckOutcome(
+            result=GoalCheckSatisfied(confidence=0.95, rationale="clean"),
+            cost_usd=0.0001,
+            latency_ms=50.0,
+            iteration=2,
+        ),
+    )
+    m2 = _m2_stub(
+        JudgeVerdict(
+            label="contradicts_reasoning",
+            confidence=0.85,  # exactly at floor
+            reasoning="boundary",
+            cost_usd=0.0003,
+            latency_ms=80.0,
+            fell_back=False,
+        ),
+        JudgeVerdict(
+            label="consistent",
+            confidence=0.9,
+            reasoning="ok",
+            cost_usd=0.0003,
+            latency_ms=80.0,
+            fell_back=False,
+        ),
+    )
+
+    with (
+        patch(
+            "kaos_agents.patterns.agentic_loop.plan_turn_tool_policy",
+            new=_plan_stub(plan, plan),
+        ),
+        patch(
+            "kaos_agents.patterns.agentic_loop.check_goal",
+            new=check,
+        ),
+        patch(
+            "kaos_agents.patterns.agentic_loop.judge_reasoning_action_consistency",
+            new=m2,
+        ),
+    ):
+        events = await _collect(
+            run_agentic_turn(
+                user_message="any",
+                policy=policy,
+                worker=worker,
+                available_groups=list(policy.soft_ceiling),
+                m2_consistency_model="anthropic:claude-haiku-4-5",
+            )
+        )
+
+    term = next(e for e in events if isinstance(e, LoopTerminated))
+    assert term.iterations_used == 2, "confidence == 0.85 is AT the floor, override must fire"
+
+
 # ── 3. M2 active + consistent verdict preserves satisfied ────────────
 
 
