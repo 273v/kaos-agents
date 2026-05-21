@@ -13,7 +13,6 @@ import pytest
 
 from kaos_agents.planning.tool_fitness import ToolFitnessSignature
 
-
 pytestmark = pytest.mark.unit
 
 
