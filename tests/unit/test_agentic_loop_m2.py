@@ -288,6 +288,306 @@ async def test_m2_contradicts_reasoning_overrides_satisfied() -> None:
     assert term.cost_usd >= 0.0006
 
 
+# ── 2b. Confidence floor — low-confidence flags do NOT override ──────
+#
+# 0.1.1 fix (WU-K v2 Case E1, 2026-05-21): the M2 override path now
+# requires ``verdict.confidence >= 0.85`` before flipping a satisfied
+# terminator into a replan. The rubric itself says "high confidence
+# (>=0.85) when the contradiction is explicit"; the loop must honor
+# that threshold. Without this floor, an over-eager critic LLM can
+# refuse correctly-grounded answers on weak heuristics — live E1
+# repro returned ``contradicts_tool_results @ 0.92`` despite the
+# response citing an entity ("Meridian Financial, LLC") that
+# appeared verbatim 8x in the tool results.
+
+
+@pytest.mark.asyncio
+async def test_m2_low_confidence_contradicts_tool_results_does_not_override() -> None:
+    """``contradicts_tool_results`` BELOW the 0.85 floor must NOT
+    override a satisfied GoalCheck. The verdict is still emitted as a
+    ConsistencyChecked event for observability, but the loop
+    terminates on iteration 1 without forcing a replan."""
+    policy = SessionPolicy.default()
+    plan = _StubPlan(kept={"web"}, dropped=set())
+    worker = _worker_stub(
+        WorkerResult(
+            text=(
+                "On September 4, 2025, the SEC charged Meridian Financial, LLC "
+                "with violations of the Marketing Rule."
+            ),
+            tool_calls_made=[
+                {
+                    "name": "kaos-web-search",
+                    "is_error": False,
+                    "summary_excerpt": "Meridian Financial, LLC ... Marketing Rule",
+                }
+            ],
+            cost_usd=0.002,
+            latency_ms=200.0,
+        )
+    )
+    check = _check_stub(
+        GoalCheckOutcome(
+            result=GoalCheckSatisfied(confidence=0.9, rationale="grounded answer"),
+            cost_usd=0.0001,
+            latency_ms=50.0,
+            iteration=1,
+        )
+    )
+    # Critic flags contradicts_tool_results but with confidence 0.7 —
+    # below the 0.85 floor → must NOT override.
+    m2 = _m2_stub(
+        JudgeVerdict(
+            label="contradicts_tool_results",
+            confidence=0.7,
+            reasoning="weak contradiction signal",
+            cost_usd=0.0003,
+            latency_ms=80.0,
+            fell_back=False,
+        )
+    )
+
+    with (
+        patch(
+            "kaos_agents.patterns.agentic_loop.plan_turn_tool_policy",
+            new=_plan_stub(plan),
+        ),
+        patch(
+            "kaos_agents.patterns.agentic_loop.check_goal",
+            new=check,
+        ),
+        patch(
+            "kaos_agents.patterns.agentic_loop.judge_reasoning_action_consistency",
+            new=m2,
+        ),
+    ):
+        events = await _collect(
+            run_agentic_turn(
+                user_message="Recent SEC enforcement action against RIA?",
+                policy=policy,
+                worker=worker,
+                available_groups=list(policy.soft_ceiling),
+                m2_consistency_model="anthropic:claude-haiku-4-5",
+            )
+        )
+
+    # Loop must terminate on iteration 1 — the 0.7 flag is observability,
+    # not an override.
+    term = next(e for e in events if isinstance(e, LoopTerminated))
+    assert term.reason == "satisfied"
+    assert term.iterations_used == 1, (
+        f"low-confidence M2 flag must NOT force a replan; "
+        f"got iterations_used={term.iterations_used}"
+    )
+    # ConsistencyChecked still emits with the raw verdict (operator
+    # surface preserved even when the override doesn't fire).
+    cc = [e for e in events if isinstance(e, ConsistencyChecked)]
+    assert len(cc) == 1
+    assert cc[0].label == "contradicts_tool_results"
+    assert cc[0].confidence == pytest.approx(0.7)
+    assert cc[0].overrode_satisfied is False, (
+        "below-floor confidence must record overrode_satisfied=False so "
+        "downstream cost/SLO analysis can distinguish the silenced flags."
+    )
+
+
+class TestRemediationHintExtractor:
+    """0.1.1 (#549.B) — helper unit tests for the remediation-hint
+    threading logic in :func:`run_agentic_turn`.
+
+    The helper is on the module-private surface — import via the
+    `_extract_remediation_hints` / `_summarize_prior_tool_calls`
+    names; these are not exported from `__all__` but are documented
+    via their callers in the AgenticLoop body."""
+
+    def test_no_hints_when_calls_empty(self) -> None:
+        from kaos_agents.patterns.agentic_loop import _extract_remediation_hints
+
+        assert _extract_remediation_hints([]) == []
+
+    def test_no_hints_when_all_calls_succeed(self) -> None:
+        from kaos_agents.patterns.agentic_loop import _extract_remediation_hints
+
+        calls = [
+            {"name": "kaos-web-search", "is_error": False, "summary_excerpt": "10 results"},
+            {"name": "kaos-web-fetch-page", "is_error": False, "summary_excerpt": "blah"},
+        ]
+        assert _extract_remediation_hints(calls) == []
+
+    def test_extracts_try_hint_from_errored_call(self) -> None:
+        from kaos_agents.patterns.agentic_loop import _extract_remediation_hints
+
+        calls = [
+            {
+                "name": "kaos-web-domain-profile",
+                "is_error": True,
+                "summary_excerpt": (
+                    "Domain profiling failed for example.com: TaskGroup. "
+                    "Try kaos-web-dns-enumerate for DNS, "
+                    "kaos-web-whois-lookup for registration data."
+                ),
+            },
+        ]
+        hints = _extract_remediation_hints(calls)
+        assert any("Try kaos-web-dns-enumerate" in h for h in hints)
+        assert any("Try kaos-web-whois-lookup" in h for h in hints)
+
+    def test_caps_hints_at_3(self) -> None:
+        from kaos_agents.patterns.agentic_loop import _extract_remediation_hints
+
+        calls = [
+            {
+                "name": "kaos-web-domain-profile",
+                "is_error": True,
+                "summary_excerpt": (
+                    "Try kaos-tool-a. Try kaos-tool-b. Try kaos-tool-c. "
+                    "Try kaos-tool-d. Try kaos-tool-e."
+                ),
+            },
+        ]
+        hints = _extract_remediation_hints(calls)
+        assert len(hints) == 3
+
+
+class TestPriorToolCallSummary:
+    """0.1.1 (P2-B) — helper unit tests for the prior-call summary
+    threading logic. The summary is appended to the next iteration's
+    ``thinking_note`` so the worker LLM can avoid re-issuing near-
+    duplicate queries — the loop-level mitigation for the over-
+    specified-search-storm pattern observed in WU-K v2 Case C1."""
+
+    def test_empty_summary_when_no_calls(self) -> None:
+        from kaos_agents.patterns.agentic_loop import _summarize_prior_tool_calls
+
+        assert _summarize_prior_tool_calls([]) == ""
+
+    def test_one_line_per_call_with_is_error(self) -> None:
+        from kaos_agents.patterns.agentic_loop import _summarize_prior_tool_calls
+
+        calls = [
+            {
+                "name": "kaos-web-search",
+                "is_error": False,
+                "summary_excerpt": "10 results for site:sec.gov 2025 ...",
+            },
+            {
+                "name": "kaos-web-fetch-page",
+                "is_error": True,
+                "summary_excerpt": "403 Forbidden on sec.gov/...",
+            },
+        ]
+        summary = _summarize_prior_tool_calls(calls)
+        assert "kaos-web-search" in summary and "is_error=False" in summary
+        assert "kaos-web-fetch-page" in summary and "is_error=True" in summary
+        # Bullet shape
+        assert summary.count("\n- ") == 1  # 2 lines = 1 newline-plus-dash
+
+    def test_truncates_long_summaries_at_120_chars(self) -> None:
+        from kaos_agents.patterns.agentic_loop import _summarize_prior_tool_calls
+
+        calls = [
+            {"name": "kaos-x", "is_error": False, "summary_excerpt": "a" * 500},
+        ]
+        summary = _summarize_prior_tool_calls(calls)
+        assert "…" in summary
+        # The bullet line should be at most ~150 chars total (120 chars
+        # of summary + "- kaos-x(is_error=False) — " prefix).
+        assert all(len(line) <= 160 for line in summary.splitlines())
+
+    def test_caps_at_10_calls(self) -> None:
+        from kaos_agents.patterns.agentic_loop import _summarize_prior_tool_calls
+
+        calls = [
+            {"name": f"kaos-tool-{i}", "is_error": False, "summary_excerpt": "x"} for i in range(20)
+        ]
+        summary = _summarize_prior_tool_calls(calls)
+        # 10 lines = 9 internal newlines + 1 trailing newline (no
+        # trailing newline in our output) → 10 lines total.
+        assert len(summary.splitlines()) == 10
+
+
+@pytest.mark.asyncio
+async def test_m2_at_confidence_floor_does_override() -> None:
+    """At exactly ``confidence == 0.85`` (the rubric's own threshold
+    for "explicit contradiction"), the override DOES fire. This
+    boundary test pins the floor's >= semantics."""
+    policy = SessionPolicy.default()
+    plan = _StubPlan(kept={"web"}, dropped=set())
+    worker = _worker_stub(
+        WorkerResult(
+            text="Headline asserts X but body computed not-X.",
+            tool_calls_made=[],
+            cost_usd=0.001,
+            latency_ms=100.0,
+        ),
+        WorkerResult(
+            text="Corrected: X is consistent throughout.",
+            tool_calls_made=[],
+            cost_usd=0.001,
+            latency_ms=100.0,
+        ),
+    )
+    check = _check_stub(
+        GoalCheckOutcome(
+            result=GoalCheckSatisfied(confidence=0.9, rationale="ok"),
+            cost_usd=0.0001,
+            latency_ms=50.0,
+            iteration=1,
+        ),
+        GoalCheckOutcome(
+            result=GoalCheckSatisfied(confidence=0.95, rationale="clean"),
+            cost_usd=0.0001,
+            latency_ms=50.0,
+            iteration=2,
+        ),
+    )
+    m2 = _m2_stub(
+        JudgeVerdict(
+            label="contradicts_reasoning",
+            confidence=0.85,  # exactly at floor
+            reasoning="boundary",
+            cost_usd=0.0003,
+            latency_ms=80.0,
+            fell_back=False,
+        ),
+        JudgeVerdict(
+            label="consistent",
+            confidence=0.9,
+            reasoning="ok",
+            cost_usd=0.0003,
+            latency_ms=80.0,
+            fell_back=False,
+        ),
+    )
+
+    with (
+        patch(
+            "kaos_agents.patterns.agentic_loop.plan_turn_tool_policy",
+            new=_plan_stub(plan, plan),
+        ),
+        patch(
+            "kaos_agents.patterns.agentic_loop.check_goal",
+            new=check,
+        ),
+        patch(
+            "kaos_agents.patterns.agentic_loop.judge_reasoning_action_consistency",
+            new=m2,
+        ),
+    ):
+        events = await _collect(
+            run_agentic_turn(
+                user_message="any",
+                policy=policy,
+                worker=worker,
+                available_groups=list(policy.soft_ceiling),
+                m2_consistency_model="anthropic:claude-haiku-4-5",
+            )
+        )
+
+    term = next(e for e in events if isinstance(e, LoopTerminated))
+    assert term.iterations_used == 2, "confidence == 0.85 is AT the floor, override must fire"
+
+
 # ── 3. M2 active + consistent verdict preserves satisfied ────────────
 
 

@@ -55,6 +55,49 @@ class TestRubricShape:
         rubric_lower = M2_REASONING_ACTION_RUBRIC.lower()
         assert "no tools" in rubric_lower or "empty" in rubric_lower
 
+    def test_rubric_carves_out_rag_pick_one_pattern(self) -> None:
+        # 0.1.1 fix (WU-K v2 Case E1): a response that names an entity
+        # also present verbatim in the tool-call context must NOT be
+        # flagged as ``contradicts_tool_results`` just because the same
+        # context surfaces OTHER candidate entities the response did
+        # not select. The rubric must call this out explicitly.
+        rubric_lower = M2_REASONING_ACTION_RUBRIC.lower()
+        assert "pick one" in rubric_lower or "rag" in rubric_lower
+        # The exemplar — Meridian + Vanguard — must be present to
+        # ground the rule in a concrete scenario the model can pattern-
+        # match on.
+        assert "meridian" in rubric_lower
+        assert "vanguard" in rubric_lower
+        # The carve-out must use a NOT-A-CONTRADICTION framing so the
+        # model doesn't read it as a softer version of "still emit
+        # contradicts_tool_results but with lower confidence".
+        assert "not a contradiction" in rubric_lower
+
+    def test_rubric_carves_out_honest_cant_verify_pattern(self) -> None:
+        # 0.1.1 fix (WU-K v2 Case E2): a response that explicitly
+        # acknowledges the limits of the evidence ("I searched but
+        # couldn't verify Y") and does not state the unverified claim
+        # as definitive must be ``consistent``, not contradictory.
+        # Use whitespace-collapsed text so line-wraps inside the rubric
+        # docstring don't make the assertion brittle.
+        import re
+
+        rubric_flat = re.sub(r"\s+", " ", M2_REASONING_ACTION_RUBRIC.lower())
+        assert (
+            "can't-verify" in rubric_flat
+            or "can't verify" in rubric_flat
+            or "couldn't verify" in rubric_flat
+            or "could not verify" in rubric_flat
+        )
+        # The rubric line-wraps "anti-bot" across lines as "anti-\nbot",
+        # so check for the post-whitespace-collapse variants or the
+        # adjacent canonical phrase "blocked the fetch".
+        assert (
+            "anti-bot" in rubric_flat
+            or "anti- bot" in rubric_flat
+            or "blocked the fetch" in rubric_flat
+        )
+
 
 class TestHelperContract:
     """The wrapper function must proxy to ``judge_with_rubric``."""

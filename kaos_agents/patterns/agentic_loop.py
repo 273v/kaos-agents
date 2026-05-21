@@ -71,6 +71,8 @@ The caller sees one continuous event stream per turn.
 from __future__ import annotations
 
 import asyncio
+import json
+import re
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
@@ -151,12 +153,46 @@ class _LoopState:
     last_text: str = ""
     last_tool_call_count: int = 0
     thinking_note: str = ""
+    # 0.1.2 (R0.1): mirror of the most recent worker_result.text,
+    # captured immediately after the worker call. Distinct from
+    # ``last_text`` (which holds the PRIOR iteration's text for
+    # stuck-detection comparison). Budget caps firing mid-iteration
+    # consult this to preserve the worker's draft.
+    current_iter_text: str = ""
     # The most recent GoalCheck rationale + next_action — captured so
     # the max_iterations refusal-override can render an honest "I
     # tried and failed" message instead of letting the last
     # hallucinated worker text through. See task #505.
     last_critic_rationale: str = ""
     last_critic_next_action: str = ""
+    # 0.1.2 (R0.1 / R1.2): tracks whether the most recent terminal
+    # verdict was an actual critic rejection (worker text was the
+    # rejected hallucination) or something else (budget cap fired
+    # before the critic could verdict, OR critic satisfied → loop
+    # would terminate normally).
+    #
+    # Values:
+    #   ""               — no critic verdict yet this iteration
+    #                      (worker may have substantive text;
+    #                      preserve it on budget-cap exit)
+    #   "needs_more_work" — GoalCheck rejected (legacy behavior;
+    #                      clobber worker text on max-iter exit)
+    #   "override"       — M2 or M3 overrode satisfied (the
+    #                      worker draft was flagged by a critic;
+    #                      clobber)
+    #
+    # The refusal builder uses this to decide whether to preserve
+    # ``last_text`` (worker draft was substantive + uncriticized)
+    # or substitute the boilerplate template (worker draft was
+    # criticized). Three audits independently flagged the failure
+    # of the previous unconditional clobber: workers had drafted
+    # nuanced 1k-5k char answers and the loop discarded them for
+    # budget reasons (cost / wall-clock / stuck), shipping a
+    # 400-char generic "I stopped..." template to the persisted
+    # record. See ``docs/audits/2026-05-21-worker-honesty.md``,
+    # ``docs/audits/2026-05-21-loop-state-machine.md``,
+    # ``docs/audits/2026-05-21-persistence-audit.md``.
+    last_terminal_verdict: str = ""
     # Monotonic counter for KaosEvent.sequence — increments per event emission.
     sequence: int = 0
     # Per-tool consecutive failure counter for the loop-level circuit
@@ -196,6 +232,7 @@ async def run_agentic_turn(
     m2_consistency_model: str | None = None,
     m3_grounding_model: str | None = None,
     circuit_breaker_threshold: int = 5,
+    max_tool_calls_per_iteration: int = 10,
 ) -> AsyncIterator[Any]:
     """Run one agent turn as an event-streaming loop.
 
@@ -263,6 +300,12 @@ async def run_agentic_turn(
         while state.iteration < policy.max_loop_iterations:
             state.iteration += 1
             iteration_started = time.monotonic()
+            # 0.1.2 (R0.1): reset the terminal verdict at iteration
+            # start so a budget cap firing mid-iteration sees "" (no
+            # critic verdict yet) rather than the previous iteration's
+            # value. The verdict is set later in the iteration when
+            # GoalCheck or M2/M3 actually runs.
+            state.last_terminal_verdict = ""
 
             # ── 1. Plan ──────────────────────────────────────────────
             plan = await plan_turn_tool_policy(
@@ -324,6 +367,15 @@ async def run_agentic_turn(
                 iteration=state.iteration,
             )
             state.cumulative_cost_usd += worker_result.cost_usd
+            # 0.1.2 (R0.1): capture the worker's draft text in a
+            # separate field — DO NOT overwrite ``state.last_text``
+            # here because stuck-detection (below) compares prior vs
+            # current iteration text via that field. The dedicated
+            # ``current_iter_text`` field lets budget caps firing
+            # mid-iteration (cost / wall-clock / circuit-breaker)
+            # preserve the worker's draft via
+            # ``_should_preserve_worker_draft``.
+            state.current_iter_text = worker_result.text
 
             # Forward worker events verbatim. While we're walking them,
             # observe ``Span(TOOL_CALL, COMPLETE)`` events for the
@@ -360,6 +412,35 @@ async def run_agentic_turn(
                 ):
                     yield ev
                 yield _terminate(state, policy, "circuit_breaker_tripped", session_id, run_id)
+                return
+
+            # 0.1.2 (R1.3 — reliability roadmap #563): per-iteration
+            # tool-call cap. The audit anchor is Agent 1's Sonnet P5
+            # case which ran 32 tool calls in iteration 1 and burned
+            # $0.67 before ``cost_exceeded`` fired mid-synthesis. The
+            # iteration-level cap returns control to the orchestrator
+            # so M2/circuit-breaker/budget-cap layers can intervene
+            # BEFORE the cost-storm completes. Default 10. Disable
+            # with 0.
+            if (
+                max_tool_calls_per_iteration > 0
+                and len(worker_result.tool_calls_made) >= max_tool_calls_per_iteration
+            ):
+                logger.warning(
+                    "agentic_loop: per-iteration tool-call cap fired "
+                    "iteration=%d tool_calls=%d cap=%d",
+                    state.iteration,
+                    len(worker_result.tool_calls_made),
+                    max_tool_calls_per_iteration,
+                )
+                async for ev in _emit_failure_refusal(
+                    reason="tool_call_cap_exceeded",
+                    state=state,
+                    session_id=session_id,
+                    run_id=run_id,
+                ):
+                    yield ev
+                yield _terminate(state, policy, "tool_call_cap_exceeded", session_id, run_id)
                 return
 
             if _budget_exceeded(state, policy):
@@ -419,7 +500,27 @@ async def run_agentic_turn(
                     tool_results_text=_format_tool_results_for_m2(worker_result.tool_calls_made),
                 )
                 state.cumulative_cost_usd += m2_verdict.cost_usd
-                if not m2_verdict.fell_back:
+                # Confidence floor — only an explicit contradiction (per
+                # the rubric's own ">= 0.85" guidance) overrides a
+                # satisfied verdict. Lower-confidence flags are real
+                # observability signals (emitted via the event +
+                # structured log below) but must not flip a passing
+                # turn into a replan. Without this gate, an over-eager
+                # critic LLM can refuse correctly-grounded answers on
+                # weak heuristics — WU-K v2 Case E1 (2026-05-21):
+                # response cited "Meridian Financial, LLC" verbatim
+                # present in tool results, M2 returned
+                # contradicts_tool_results @ 0.92 anyway. The rubric
+                # has been tightened with explicit "RAG pick-one" and
+                # "honest can't-verify" carve-outs (see
+                # planning/m2_consistency.py); this floor is the
+                # defensive backstop when the model still flags those
+                # patterns despite the carve-outs.
+                M2_OVERRIDE_CONFIDENCE_FLOOR: float = 0.85
+                if (
+                    not m2_verdict.fell_back
+                    and m2_verdict.confidence >= M2_OVERRIDE_CONFIDENCE_FLOOR
+                ):
                     if m2_verdict.label == "contradicts_reasoning":
                         m2_override_note = (
                             "M2 consistency critic flagged contradicts_reasoning: "
@@ -589,6 +690,37 @@ async def run_agentic_turn(
             # object is still satisfied.
             if override_note:
                 state.thinking_note = override_note
+                # 0.1.2 (R1.2): set last_critic_rationale on the
+                # override path too so a downstream max-iter refusal
+                # surfaces the critic that actually flagged the
+                # response. Pre-fix the override branch set
+                # ``state.thinking_note`` but not the rationale, so
+                # a subsequent max_iter exit rendered the previous
+                # iteration's GoalCheck rationale (often empty or
+                # stale clarification-loop text) instead of M2/M3's
+                # actual directive.
+                #
+                # Use the M2 verdict's reasoning when M2 overrode
+                # (most common case); fall back to M3 reasoning when
+                # only M3 fired; the override_note itself contains
+                # the actionable directive so use that as
+                # next_action.
+                if m2_override_note and not m2_verdict.fell_back:
+                    state.last_critic_rationale = (
+                        f"M2 ({m2_verdict.label}): {m2_verdict.reasoning}"
+                        if m2_verdict.reasoning
+                        else f"M2 flagged {m2_verdict.label} at "
+                        f"confidence {m2_verdict.confidence:.2f}"
+                    )
+                elif m3_override_note and not m3_verdict.fell_back:
+                    state.last_critic_rationale = (
+                        f"M3 ({m3_verdict.label}): {m3_verdict.reasoning}"
+                        if m3_verdict.reasoning
+                        else f"M3 flagged {m3_verdict.label} at "
+                        f"confidence {m3_verdict.confidence:.2f}"
+                    )
+                state.last_critic_next_action = override_note
+                state.last_terminal_verdict = "override"  # R0.1
             else:
                 assert isinstance(outcome.result, GoalCheckNeedsMoreWork)
                 state.thinking_note = (
@@ -599,6 +731,44 @@ async def run_agentic_turn(
                 # Stash for the max_iterations refusal-override path.
                 state.last_critic_rationale = outcome.result.rationale
                 state.last_critic_next_action = outcome.result.next_action
+                state.last_terminal_verdict = "needs_more_work"  # R0.1
+
+            # ── 7a. 0.1.1 (#549.B) — Remediation-hint threading ────
+            # If any tool call this iteration returned is_error=True
+            # AND its summary_excerpt contains a "Try kaos-{module}-
+            # {tool}" remediation hint (the kaos-mcp tool-design
+            # standard for error messages), thread the hint into the
+            # next iteration's thinking_note. Pre-fix the worker
+            # would retry the same broken tool 4x because nothing
+            # surfaced the hint at the loop level. See task #549.B.
+            remediation_hints = _extract_remediation_hints(worker_result.tool_calls_made)
+            if remediation_hints:
+                state.thinking_note = (
+                    f"{state.thinking_note}\n\n"
+                    "Tool-error remediation hints from iteration "
+                    f"{state.iteration} (act on these instead of "
+                    "retrying the same broken tools):\n"
+                    + "\n".join(f"- {hint}" for hint in remediation_hints)
+                )
+
+            # ── 7b. 0.1.1 (P2-B) — Prior-tool-call summary threading ─
+            # Append a short summary of what tools have been called
+            # this turn so the next iteration doesn't re-issue near-
+            # duplicate queries. This is the loop-level fix for the
+            # over-specified-query-storm pattern documented in WU-K
+            # v2 Case C1 (13 near-identical site:sec.gov searches
+            # before the cost-cap fired). Note: the deeper fix is
+            # planner / ranker work — see the plan's deferred
+            # backlog. This summary is the cheap, immediate mitigant.
+            prior_summary = _summarize_prior_tool_calls(worker_result.tool_calls_made)
+            if prior_summary:
+                state.thinking_note = (
+                    f"{state.thinking_note}\n\n"
+                    "Tool calls you already ran this turn (do NOT "
+                    "re-issue near-duplicate queries — try a "
+                    "different angle if you need more evidence):\n"
+                    f"{prior_summary}"
+                )
             # Track elapsed time for the wall-clock guard.
             _ = iteration_started
 
@@ -654,6 +824,63 @@ _REFUSAL_LEAD_BY_REASON: dict[str, str] = {
         "tool kept failing or returning no usable result (circuit "
         "breaker tripped). The critic's last diagnosis:"
     ),
+    "tool_call_cap_exceeded": (
+        "I stopped after {iterations} iteration(s) because I hit the "
+        "per-iteration tool-call cap before finishing. The orchestrator "
+        "preferred returning what I had over a runaway tool-storm:"
+    ),
+}
+
+
+# 0.1.2 (R0.1): the minimum worker-draft length we consider "substantive"
+# for the preserve-on-budget-exit path. Below this threshold (in chars
+# stripped of whitespace) we still substitute the boilerplate template —
+# the user gets a more useful refusal than 3 chars of "ok".
+_MIN_WORKER_DRAFT_CHARS = 40
+
+
+def _build_budget_footer(
+    *,
+    reason: str,
+    iterations: int,
+) -> str:
+    """Render the short footer appended to a preserved worker draft.
+
+    0.1.2 (R0.1). When the worker had drafted substantive text and the
+    loop terminated for a budget reason BEFORE any critic could reject
+    the draft, we preserve the worker text and tack a short, honest
+    footer on the end explaining what budget ran out. The reader sees
+    the work-in-progress + the caveat, not 400 chars of generic
+    boilerplate that throws away the work.
+    """
+    reason_phrase = _BUDGET_REASON_PHRASE.get(reason, "the iteration budget was exhausted")
+    return (
+        "\n\n---\n"
+        f"_Note: I stopped after {iterations} iteration(s) because "
+        f"{reason_phrase}. The answer above represents my work-in-"
+        "progress at that point; please verify any specific claims "
+        "before relying on them, and consider re-prompting with a "
+        "higher budget if you need a more complete response._"
+    )
+
+
+# 0.1.2 (R0.1): per-reason phrasing for the budget-cap footer. Distinct
+# from ``_REFUSAL_LEAD_BY_REASON`` because the footer is rendered AFTER
+# the worker draft (not as a replacement) and uses different grammar.
+_BUDGET_REASON_PHRASE: dict[str, str] = {
+    "max_iterations": "the iteration budget was exhausted",
+    "stuck_no_progress": (
+        "the loop's stuck-detection fired — my last few iterations were no longer making progress"
+    ),
+    "cost_exceeded": "the cost budget was exhausted",
+    "wall_clock_exceeded": "the wall-clock budget was exhausted",
+    "circuit_breaker_tripped": (
+        "a single tool kept failing or returning no usable result (circuit breaker tripped)"
+    ),
+    "tool_call_cap_exceeded": (
+        "I hit the per-iteration tool-call cap before finishing — the loop "
+        "preferred returning what I have over a runaway tool-storm"
+    ),
 }
 
 
@@ -673,6 +900,12 @@ def _build_failure_refusal(
     honest "I tried and failed" message derived from the last critic
     rationale + next_action so the user sees the failure mode, not
     the fabrication.
+
+    This path is used when the worker draft was actually CRITICIZED
+    (last_terminal_verdict in ("needs_more_work", "override")). For
+    the case where the budget cap fired BEFORE any critic verdict,
+    see ``_build_budget_footer`` + the preserve-worker-text branch
+    in ``_emit_failure_refusal``.
 
     Args:
         reason: One of the ``_REFUSAL_LEAD_BY_REASON`` keys. Unknown
@@ -710,6 +943,55 @@ def _build_failure_refusal(
 _build_max_iterations_refusal = _build_failure_refusal
 
 
+def _draft_for_preserve(state: _LoopState) -> str:
+    """The worker draft to consider for preserve-on-budget-exit.
+
+    0.1.2 (R0.1). Prefer the current iteration's draft (captured
+    immediately after the worker call into ``current_iter_text``);
+    fall back to ``last_text`` when ``current_iter_text`` is empty
+    (rare: only happens on max-iter exit after the post-critic
+    promote step has moved the text).
+    """
+    return state.current_iter_text or state.last_text
+
+
+def _should_preserve_worker_draft(state: _LoopState) -> bool:
+    """Decide whether a non-satisfied exit should preserve the worker draft.
+
+    0.1.2 (R0.1). Three audits found the same bug: the loop discarded
+    substantive worker drafts on budget-cap exits, replacing them with
+    a generic 400-char boilerplate. Cases observed:
+
+    - Sonnet 4.6 SCOTUS table: 4827-char draft with 14 citations →
+      cost-cap fired during synthesis → persisted 426-char template.
+    - gpt-5.4-mini SEC RIA: 1102-char honest "couldn't verify, here
+      are 2 candidates" answer → max-iter fired → persisted 432-char
+      template.
+    - Multiple Memory ≠ UI sessions where the streamed bubble showed
+      a real answer and the persisted record showed boilerplate.
+
+    Preserve worker draft when ALL of the following hold:
+      1. ``state.last_text`` is at least ``_MIN_WORKER_DRAFT_CHARS``
+         non-whitespace characters (rules out empty or 3-char-yes
+         answers).
+      2. ``state.last_terminal_verdict`` is "" (no critic verdict yet
+         this iteration — budget cap fired before GoalCheck/M2/M3
+         could weigh in) OR "satisfied" (critic accepted the draft;
+         should never reach refusal, but be defensive).
+
+    Clobber the draft (existing template behavior) when:
+      - "needs_more_work" — GoalCheck rejected the draft as
+        confident-but-wrong. The text was exactly the hallucination
+        the critic caught; do NOT ship.
+      - "override" — M2 or M3 overrode satisfied. The draft was
+        flagged by the consistency / grounding critic. The text was
+        rejected by a second critic; do NOT ship.
+    """
+    return len(
+        _draft_for_preserve(state).strip()
+    ) >= _MIN_WORKER_DRAFT_CHARS and state.last_terminal_verdict in ("", "satisfied")
+
+
 async def _emit_failure_refusal(
     *,
     reason: str,
@@ -720,16 +1002,43 @@ async def _emit_failure_refusal(
     """Emit the TextDelta + TurnSummary pair carrying a clean refusal.
 
     Used by every non-satisfied terminator (max_iterations,
-    stuck_no_progress, cost_exceeded, wall_clock_exceeded) so the
-    user sees an honest "I tried and failed" message instead of the
-    last worker attempt the critic just rejected. See task #505.
+    stuck_no_progress, cost_exceeded, wall_clock_exceeded,
+    circuit_breaker_tripped). Per 0.1.2 R0.1 we now distinguish two
+    cases:
+
+    1. **Worker draft preservation path** (``_should_preserve_worker_draft``
+       returns True): the worker emitted substantive text AND no critic
+       has rejected it. The budget cap fired before the critic could
+       verdict. Ship the draft + a short footer explaining the cap.
+       The user gets the answer they paid for; the loop notes that
+       budget ran out so caveats apply.
+
+    2. **Refusal template path** (legacy): the worker text was either
+       empty/trivial OR a critic explicitly rejected it. Render the
+       honest "I tried and failed" template per task #505.
+
+    Three audits independently flagged the unconditional-clobber
+    behavior as the single biggest user-impact bug in the system
+    (see ``docs/audits/2026-05-21-{worker-honesty,loop-state-machine,
+    persistence-audit}.md`` for the convergent finding). Fixing this
+    one path is the highest-leverage change in the 0.1.2 release.
     """
-    refusal_text = _build_failure_refusal(
-        reason=reason,
-        iterations=state.iteration,
-        critic_rationale=state.last_critic_rationale,
-        critic_next_action=state.last_critic_next_action,
-    )
+    if _should_preserve_worker_draft(state):
+        # Preserve worker draft + budget footer. The user sees the
+        # work-in-progress + a clear caveat — much better than
+        # discarding the work for a generic template.
+        worker_draft = _draft_for_preserve(state).rstrip()
+        footer = _build_budget_footer(reason=reason, iterations=state.iteration)
+        refusal_text = worker_draft + footer
+        intent = "respond_with_caveat"
+    else:
+        refusal_text = _build_failure_refusal(
+            reason=reason,
+            iterations=state.iteration,
+            critic_rationale=state.last_critic_rationale,
+            critic_next_action=state.last_critic_next_action,
+        )
+        intent = "refuse"
     yield TextDelta(
         **_evt_base(state, session_id, run_id),
         content=refusal_text,
@@ -737,9 +1046,76 @@ async def _emit_failure_refusal(
     yield TurnSummary(
         **_evt_base(state, session_id, run_id),
         text=refusal_text,
-        intent="refuse",
+        intent=intent,
         cost_usd=state.cumulative_cost_usd,
     )
+
+
+def _tool_call_complete_attrs(event: Any) -> dict[str, Any] | None:
+    """Extract the tool-call-complete attribute bag from either an event shape.
+
+    0.1.2 (R1.1 — reliability roadmap #561). The AgenticLoop's circuit
+    breaker observer was originally written against typed ``Span``
+    instances, but the SPA's ``agentic_worker`` (see
+    ``kaos-ui/examples/single-user-chat/backend/app/services/agentic_worker.py:158-171``)
+    forwards raw SSE records to the orchestrator — ``WorkerResult.events``
+    is ``list[dict[str, str]]`` of ``{"event": "<type>", "data": "<json>"}``
+    pairs, not deserialized ``Span`` objects. Pre-R1.1 the
+    ``isinstance(event, Span)`` guard at the head of
+    ``_observe_for_circuit_breaker`` silently returned for every
+    forwarded SSE record, so the loop-level breaker was dead code in the
+    SPA. Cost-storm sessions (WU-K v3 C1 with 17 tool calls, Agent 4's
+    C7 with 12 consecutive "No results found") ran all the way to
+    cost/wall-clock cap because the breaker never fired.
+
+    Returns the ``attributes`` dict for the event if and only if it is a
+    ``TOOL_CALL`` span in the ``COMPLETE`` phase. Returns ``None`` for
+    any other event (so the caller can return early). Handles three
+    shapes:
+
+    - **Typed Span** — checks ``event.subject`` /  ``event.phase`` /
+      ``event.attributes``.
+    - **SSE record dict** (``{"event": "span", "data": "<json>"}``) —
+      JSON-decodes the data field and routes through the parsed-dict
+      branch.
+    - **Already-parsed payload dict** (``{"type": "span", "subject":
+      "tool_call", "phase": "complete", "attributes": {...}}``) — the
+      shape ``app/services/agentic_worker.py:_parse_payload`` produces.
+
+    Any other shape returns ``None``. JSON-decoding failures are
+    swallowed — a malformed event must never take down a turn.
+    """
+    if isinstance(event, Span):
+        if event.subject != SpanSubject.TOOL_CALL or event.phase != SpanPhase.COMPLETE:
+            return None
+        attrs = event.attributes
+        return attrs if isinstance(attrs, dict) else None
+    if not isinstance(event, dict):
+        return None
+    # SSE record shape — {"event": "<type>", "data": "<json-string>"}
+    if "event" in event and "data" in event:
+        raw = event.get("data")
+        if not isinstance(raw, str):
+            return None
+        try:
+            payload: Any = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        return _tool_call_complete_attrs(payload)
+    # Already-parsed payload shape — {"type": "span", "subject": "tool_call",
+    # "phase": "complete", "attributes": {...}}. Match the wire
+    # discriminator ``type`` (kaos_agents.events.serde) AND the legacy
+    # ``subject``/``phase`` fields the SPA's ``_parse_payload`` produces.
+    if event.get("type") not in (None, "span"):
+        return None
+    if event.get("subject") != "tool_call":
+        return None
+    if event.get("phase") != "complete":
+        return None
+    attrs = event.get("attributes")
+    return attrs if isinstance(attrs, dict) else None
 
 
 def _observe_for_circuit_breaker(
@@ -765,17 +1141,17 @@ def _observe_for_circuit_breaker(
     :func:`kaos_agents.planning.result_check.is_uninformative_result`
     with the Runner-layer ``CircuitBreaker`` so the two layers agree
     on the predicate.
+
+    0.1.2 (R1.1): accepts both typed ``Span`` instances AND SSE record
+    dicts (the shape the SPA's worker forwards). See
+    :func:`_tool_call_complete_attrs` for the supported shapes.
     """
     if state.tripped_tool:
         return  # already tripped — don't keep counting
     if threshold < 1:
         return  # circuit breaker disabled
-    if not isinstance(event, Span):
-        return
-    if event.subject != SpanSubject.TOOL_CALL or event.phase != SpanPhase.COMPLETE:
-        return
-    attrs = event.attributes
-    if not isinstance(attrs, dict):
+    attrs = _tool_call_complete_attrs(event)
+    if attrs is None:
         return
     tool_name = str(attrs.get("tool_name", "") or "")
     if not tool_name:
@@ -935,6 +1311,42 @@ def _build_goal_checked_event(
     )
 
 
+def _char_3grams(text: str) -> set[str]:
+    """Character-level 3-gram set used for semantic similarity.
+
+    0.1.2 (R1.4 — reliability roadmap #564). Lowercased and stripped of
+    runs of whitespace so cosmetic reformatting between iterations
+    (e.g., the model adding bullet markers but otherwise saying the
+    same thing) does not defeat the comparison.
+    """
+    if not text:
+        return set()
+    normalized = re.sub(r"\s+", " ", text.strip().lower())
+    if len(normalized) < 3:
+        return {normalized} if normalized else set()
+    return {normalized[i : i + 3] for i in range(len(normalized) - 2)}
+
+
+def _jaccard_similarity(a: set[str], b: set[str]) -> float:
+    """Standard Jaccard similarity over n-gram sets. 0.0 when both empty."""
+    if not a and not b:
+        return 0.0
+    intersection = len(a & b)
+    union = len(a | b)
+    if union == 0:
+        return 0.0
+    return intersection / union
+
+
+# 0.1.2 (R1.4): two semantically-identical refusals with cosmetic wording
+# differences (Agent 4's C5 case) score ~0.85 Jaccard 3-gram similarity.
+# Pre-R1.4 the prefix/substring check missed these and the loop kept
+# burning budget on near-duplicate iterations. Threshold tuned to fire
+# on near-duplicates without flagging legitimate refinements (which
+# typically score < 0.7 on the 3-gram measure).
+_SEMANTIC_STUCK_JACCARD_THRESHOLD = 0.85
+
+
 def _is_stuck(
     *,
     last_text: str,
@@ -945,9 +1357,19 @@ def _is_stuck(
     """State-mutation stuck-detection.
 
     The iteration is "stuck" when BOTH:
-      - The new response text is byte-identical OR a prefix/suffix of
-        the last response (no new prose),
-      - AND no new tool calls happened (``new_tool_count <= last_tool_count``).
+      - The new response text is byte-identical, a prefix/suffix of
+        the last response, OR semantically near-identical (Jaccard
+        3-gram similarity ≥ ``_SEMANTIC_STUCK_JACCARD_THRESHOLD``) —
+        i.e., no genuinely new prose,
+      - AND no new tool calls happened
+        (``new_tool_count <= last_tool_count``).
+
+    0.1.2 (R1.4): adds the Jaccard 3-gram semantic check. Pre-R1.4 only
+    byte-identity + substring relationship were considered, which let
+    two semantically-identical refusals (e.g., "I cannot find this" vs
+    "I'm unable to find that information") bypass detection. The new
+    semantic check fires on cosmetic-only rewording while still
+    tolerating substantive refinements.
 
     Per LangGraph cycle-optimization best practice — don't burn budget
     on iterations that aren't moving forward.
@@ -959,7 +1381,12 @@ def _is_stuck(
     if last_text == new_text:
         return True
     # Substring relationship is a weaker but still useful signal.
-    return last_text in new_text or new_text in last_text
+    if last_text in new_text or new_text in last_text:
+        return True
+    # 0.1.2 (R1.4): Jaccard 3-gram semantic check. Catches the
+    # cosmetic-rewording pattern the substring check misses.
+    similarity = _jaccard_similarity(_char_3grams(last_text), _char_3grams(new_text))
+    return similarity >= _SEMANTIC_STUCK_JACCARD_THRESHOLD
 
 
 def _budget_exceeded(state: _LoopState, policy: SessionPolicy) -> bool:
@@ -1027,6 +1454,88 @@ def _format_tool_results_for_m2(
         if per_call_char_budget is not None and len(summary_str) > per_call_char_budget:
             summary_str = summary_str[:per_call_char_budget] + "…"
         lines.append(f"{name}: {summary_str}")
+    return "\n".join(lines)
+
+
+# 0.1.1: matches kaos-* tool references inside remediation hints.
+# The kaos-mcp tool-design contract says errors must name an
+# alternative tool, typically as "Try kaos-X" or in a comma-separated
+# list "Try kaos-X, kaos-Y for Z". This regex catches every "kaos-..."
+# token appearing in such a hint. The "Try" anchor is checked
+# separately to avoid false positives on bare tool names in unrelated
+# error text.
+_TRY_HINT_ANCHOR_RE = re.compile(r"\bTry\b", re.IGNORECASE)
+_KAOS_TOOL_RE = re.compile(r"\bkaos-[a-z0-9]+(?:-[a-z0-9]+)+\b")
+
+
+def _extract_remediation_hints(tool_calls_made: list[dict]) -> list[str]:
+    """Pull "Try kaos-{module}-{tool}" hints from this iteration's errored calls.
+
+    0.1.1 (#549.B). Worker errors carry remediation hints per the
+    kaos-mcp tool-design contract: every error must include
+    *(1) what went wrong, (2) how to fix it, (3) alternative tool*.
+    When the agent's worker hits an error, the AgenticLoop threads
+    these hints into the next iteration's ``thinking_note`` so the
+    worker doesn't retry the same broken tool blindly.
+
+    Returns a list of unique ``"Try {tool}"`` hint sentences (max 3
+    hints). Multi-tool "Try X, Y, Z" remediations expand into
+    individual entries so each alternative is visible to the next
+    iteration. Empty list when there were no errored calls or none
+    carried a Try-X remediation.
+    """
+    if not tool_calls_made:
+        return []
+    hints: list[str] = []
+    seen: set[str] = set()
+    for call in tool_calls_made:
+        if not bool(call.get("is_error") or False):
+            continue
+        text = str(call.get("summary_excerpt") or call.get("result_summary") or "")
+        if not text:
+            continue
+        # The "Try" anchor must be in the same string as the tool
+        # name — i.e. inside a remediation sentence — to avoid
+        # promoting an unrelated kaos-X mention into a "hint".
+        if not _TRY_HINT_ANCHOR_RE.search(text):
+            continue
+        for match in _KAOS_TOOL_RE.finditer(text):
+            tool_name = match.group(0)
+            hint = f"Try {tool_name}"
+            if hint not in seen:
+                seen.add(hint)
+                hints.append(hint)
+                if len(hints) >= 3:
+                    return hints
+    return hints
+
+
+def _summarize_prior_tool_calls(tool_calls_made: list[dict]) -> str:
+    """Render a short bullet summary of this iteration's tool calls.
+
+    0.1.1 (P2-B). Threaded into the next iteration's thinking_note so
+    the worker sees what was already tried and avoids re-issuing
+    near-duplicate queries (the over-specified-search-storm pattern
+    documented in WU-K v2 Case C1).
+
+    Output shape (one bullet per call, max 10):
+
+        - tool_name(is_error=False) — first 120 chars of result
+        - tool_name(is_error=True) — first 120 chars of result
+
+    Empty string when no calls were made.
+    """
+    if not tool_calls_made:
+        return ""
+    lines: list[str] = []
+    for call in tool_calls_made[:10]:
+        name = str(call.get("name") or call.get("tool_name") or "tool")
+        is_error = bool(call.get("is_error") or False)
+        summary = call.get("summary_excerpt") or call.get("result_summary") or ""
+        summary_str = str(summary).strip().replace("\n", " ")
+        if len(summary_str) > 120:
+            summary_str = summary_str[:120] + "…"
+        lines.append(f"- {name}(is_error={is_error}) — {summary_str}")
     return "\n".join(lines)
 
 

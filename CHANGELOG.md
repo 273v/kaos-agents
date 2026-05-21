@@ -7,6 +7,192 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-05-21
+
+Reliability roadmap layer 2 — kaos-agents
+(`kaos-modules/docs/plans/2026-05-21-reliability-roadmap.md`).
+Five fixes land together because they share the same code path
+(`kaos_agents/patterns/agentic_loop.py`) and the same release-test net.
+
+### Fixed
+
+- **#558 R0.1 — refusal template clobbers substantive worker draft on
+  budget-cap exit.** Pre-0.1.2, when the loop exited via cost cap, wall-
+  clock cap, max-iterations, stuck-detection, or circuit-breaker, the
+  worker's drafted text was overwritten with a generic refusal template
+  even when the draft was substantive and no critic had rejected it.
+  Audited 2026-05-21: Sonnet 4.6 lost a 4827-char SCOTUS table to a
+  426-char template; another session streamed 5265 chars and persisted
+  1156 (78% loss). Fix: introduce a verdict-tracking state machine
+  (`last_terminal_verdict: "" | "needs_more_work" | "override"`) and a
+  `_should_preserve_worker_draft` helper. On budget-cap exit with a
+  substantive worker draft and no critic rejection, the loop now
+  preserves the draft text and appends a `_build_budget_footer` caveat
+  with `intent="respond_with_caveat"`. When the draft is empty / below
+  40 chars, OR a critic has rejected the draft, fall back to the
+  legacy refusal template with `intent="refuse"`.
+
+- **#561 R1.1 — circuit-breaker observer was dead code in SPA mode.**
+  Pre-0.1.2, `_observe_for_circuit_breaker` guarded on
+  `isinstance(event, Span)`, but the SPA's worker
+  (`app/services/agentic_worker.py:158-171`) forwards raw SSE-record
+  dicts, not typed `Span` objects. The breaker silently returned for
+  every forwarded event and never tripped on SPA sessions. Cost-storm
+  sessions (WU-K v3 C1 with 17 tool calls, Agent 4's C7 with 12
+  consecutive "No results found") ran all the way to cost/wall-clock
+  cap. Fix: extract `_tool_call_complete_attrs(event)` which accepts
+  three shapes — typed `Span`, SSE record dict (`{"event": "<type>",
+  "data": "<json>"}`), and already-parsed payload dict
+  (`{"type": "span", "subject": "tool_call", "phase": "complete", ...}`).
+  The observer now trips on either shape; malformed records skip
+  silently.
+
+- **#562 R1.2 — M2/M3 override didn't update `last_critic_rationale`
+  or `last_critic_next_action`.** Pre-0.1.2, when M2 or M3 overrode a
+  `satisfied` GoalCheck verdict, those fields were updated only on the
+  `needs_more_work` branch — never on the `override_note` branch. If
+  the loop then hit `max_iterations` without converging, the persisted
+  refusal showed the LAST GoalCheck's rationale (often clarification-
+  loop boilerplate) instead of M2/M3's actual directive. Fix: also
+  update both fields on the override branch and set
+  `state.last_terminal_verdict = "override"` so the refusal renderer
+  uses the right text.
+
+- **#563 R1.3 — per-iteration tool-call cap.** Pre-0.1.2,
+  `run_agentic_turn` had `max_react_iterations` (per-react-loop cap)
+  and `circuit_breaker_threshold` (per-tool consecutive-failure cap)
+  but no per-iteration total tool-call cap. Audit anchor: Agent 1's
+  Sonnet P5 case ran 32 tool calls in iteration 1 and burned $0.67
+  before `cost_exceeded` fired mid-synthesis. Fix: new
+  `max_tool_calls_per_iteration=10` parameter on `run_agentic_turn`.
+  When a worker iteration yields ≥ N tool calls, the loop emits a
+  failure-refusal pair with `reason="tool_call_cap_exceeded"` +
+  `LoopTerminated(reason="tool_call_cap_exceeded")`. Disable with
+  `max_tool_calls_per_iteration=0`.
+
+- **#564 R1.4 — stuck-detection used byte-equality + substring only.**
+  Pre-0.1.2, `_is_stuck` only fired on byte-identical text OR a
+  substring relationship. Agent 4's C5 case had two semantically
+  identical refusals with cosmetic-wording differences — the substring
+  check missed them and the loop kept burning budget on near-duplicate
+  iterations. Fix: add `_char_3grams` + `_jaccard_similarity` helpers
+  and check against a `_SEMANTIC_STUCK_JACCARD_THRESHOLD = 0.85` after
+  the existing byte/substring checks. Catches cosmetic-only rewording
+  while still tolerating substantive refinements (which score < 0.7).
+
+### Added
+
+- New regression tests:
+  - `tests/unit/test_agentic_loop_refusal_preserves_worker_text.py` —
+    12 tests on the verdict-tracking state machine + preserve-vs-
+    clobber branch (R0.1).
+  - `tests/unit/test_agentic_loop_circuit_breaker.py` — 2 new tests
+    on SSE-dict shape + malformed-record defensive paths (R1.1);
+    existing 7 tests updated for the R0.1 contract change.
+  - `tests/unit/test_agentic_loop_tool_call_cap.py` — 4 tests on the
+    R1.3 cap.
+  - `tests/unit/test_agentic_loop_stuck_semantic.py` — 13 tests on
+    `_char_3grams`, `_jaccard_similarity`, and the R1.4 semantic
+    branch.
+
+### Verified
+
+- `ruff format --check kaos_agents tests`
+- `ruff check kaos_agents tests`
+- `ty check kaos_agents tests`
+- `pytest tests/unit/ -q --no-cov` — **2800 passed, 5 skipped**
+
+
+## [0.1.1] — 2026-05-21
+
+### Added
+
+- **AgenticLoop replan threads remediation hints + prior-call summary
+  into the next iteration's ``thinking_note``** (P0 cluster
+  Day 3-4 — #549.B + P2-B). After each iteration that ends in
+  ``needs_more_work`` or an M2/M3 override, the loop now appends
+  two extra sections to ``state.thinking_note``:
+
+  1. **Remediation-hint threading (#549.B).** For every tool call
+     this iteration with ``is_error=True`` whose ``summary_excerpt``
+     contains the standard kaos-mcp ``"Try kaos-{module}-{tool}"``
+     remediation pattern, the loop extracts each suggested tool
+     name (multi-tool ``"Try X, Y, Z"`` remediations expand into
+     individual entries) and threads up to 3 ``"Try kaos-X"`` hints
+     into the next iteration. Pre-fix the agent could retry the
+     same broken tool 4x because the hint was buried in the
+     error body and only the worker saw it; now the loop surfaces
+     it explicitly.
+
+  2. **Prior-call summary threading (P2-B mitigant).** Renders up
+     to 10 ``- tool_name(is_error=Bool) — first-120-chars`` bullets
+     of the iteration's tool calls and appends them with a "do NOT
+     re-issue near-duplicate queries" directive. Loop-level
+     mitigation for the over-specified-search-storm pattern
+     documented in WU-K v2 Case C1 (13 near-identical
+     ``site:sec.gov`` queries in 10s). The deeper fix is in the
+     planner / ranker; this is the cheap, immediate-impact path.
+
+- **ToolFitnessSignature rubric tightened to prefer atomic tools
+  over composite "profile" / "snapshot" / "intel" tools** when the
+  query targets a single axis (#549.A). Worked example anchored to
+  the ``kaos-web-dns-enumerate`` vs ``kaos-web-domain-profile``
+  pattern from WU-K v2 Case E6: an "IP address of example.com"
+  query should pick the atomic DNS tool first; the composite is
+  appropriate only when the query genuinely needs ≥2 of its
+  axes ("security snapshot", "everything about example.com").
+
+### Fixed
+
+- **M2 ConsistencyChecker false-positive on grounded RAG answers**
+  (WU-K v2 Case E1, ships as part of kaos-* 0.1.1 P0 cluster). The
+  M2 critic was returning `contradicts_tool_results` at high
+  confidence (0.92) when the response cited a specific entity that
+  was verbatim present in the tool-call context, just because the
+  context also surfaced *other* candidate entities the response
+  did not select. This is the canonical RAG "pick one from many"
+  output shape and is NOT a contradiction. Two changes land
+  together:
+  1. **Rubric carve-outs** in
+     `kaos_agents/planning/m2_consistency.py` — two new edge cases
+     under "Edge cases" explicitly call out (a) the RAG
+     pick-one-from-many pattern and (b) the honest "I searched
+     but couldn't verify Y" pattern as NOT-A-CONTRADICTION, with
+     concrete exemplars the model can pattern-match on.
+  2. **Confidence-floor backstop** in
+     `kaos_agents/patterns/agentic_loop.py` — the M2 override now
+     fires only when `verdict.confidence >= 0.85` (the rubric's
+     own threshold for "explicit contradiction"). Below-floor
+     flags still emit their `ConsistencyChecked` event for
+     observability but do not flip a satisfied terminator into a
+     replan. Defensive belt against an over-eager critic LLM
+     emitting a high-confidence flag despite the rubric
+     carve-outs.
+
+  Live verification on SPA session `01KS5HCX72E0SXPYZ1FEKJWT35`:
+  Haiku 4.5 with the SEC RIA enforcement prompt, response cites
+  `Meridian Financial, LLC` + the canonical `ia-6916-s` URL. M2
+  verdict flips from `contradicts_tool_results @ 0.92` (overrides
+  satisfied → 2 iterations → persisted refusal text) under 0.1.0
+  to `consistent @ 0.95` (no override → 1 iteration → persisted
+  grounded answer) under 0.1.1. Memory == UI; cost drops from
+  $0.0602 to $0.0157.
+
+### Tests
+
+- New rubric-shape tests in
+  `tests/unit/planning/test_m2_consistency.py`:
+  `test_rubric_carves_out_rag_pick_one_pattern`,
+  `test_rubric_carves_out_honest_cant_verify_pattern`.
+- New override-path tests in `tests/unit/test_agentic_loop_m2.py`:
+  `test_m2_low_confidence_contradicts_tool_results_does_not_override`
+  (0.7 confidence — below floor → no override, observability
+  event still emits with `overrode_satisfied=False`) and
+  `test_m2_at_confidence_floor_does_override` (0.85 confidence —
+  AT floor → override fires, pinning the `>=` boundary semantics).
+- Full unit suite green: 2756 passed, 5 skipped.
+
+
 ## [0.1.0] — 2026-05-20
 
 ### Released
