@@ -24,6 +24,7 @@ from kaos_agents.events import (
     BudgetExceeded,
     CapabilityRequested,
     CitationFound,
+    CitationVerified,
     EventEmitter,
     EvidenceInsufficient,
     GoalChecked,
@@ -199,6 +200,20 @@ def _make_all_events() -> list[KaosEvent]:
             original_confidence=0.4,
             min_confidence=0.7,
             reason="Answer confidence 0.40 below policy threshold 0.70",
+        ),
+        CitationVerified(
+            timestamp=_TS,
+            sequence=142,
+            session_id=_SID,
+            run_id=_RID,
+            raw_cite="347 U.S. 483 (1954)",
+            status="verified",
+            courtlistener_url=(
+                "https://www.courtlistener.com/opinion/103218/brown-v-board-of-education/"
+            ),
+            observed_case_name="Brown v. Board of Education",
+            observed_year=1954,
+            diagnostic="",
         ),
         MemoryEvent(
             timestamp=_TS,

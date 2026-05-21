@@ -76,6 +76,7 @@ from kaos_agents.events.policy import (
 )
 from kaos_agents.events.research import (
     CitationFound,
+    CitationVerified,
     EvidenceInsufficient,
     GroundingRefusalTriggered,
 )
@@ -114,6 +115,7 @@ ALL_EVENT_TYPES: tuple[type[KaosEvent], ...] = (
     IntentClassified,
     PlanProposed,
     CitationFound,
+    CitationVerified,
     UsageObserved,
     EvidenceInsufficient,
     GroundingRefusalTriggered,
@@ -140,6 +142,7 @@ __all__ = [
     "BudgetExceeded",
     "CapabilityRequested",
     "CitationFound",
+    "CitationVerified",
     "EscalationRequired",
     "EventCollector",
     "EventEmitter",
