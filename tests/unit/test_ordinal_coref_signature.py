@@ -18,6 +18,7 @@ import pytest
 
 from kaos_agents.context.coreference import (
     CoreferenceResolution,
+    format_coreference_tag,
     resolve_ordinal,
 )
 
@@ -217,6 +218,59 @@ def test_confidence_is_one_for_in_range_ordinals() -> None:
     r = resolve_ordinal("the second", CANDIDATES)
     assert r is not None
     assert r.confidence == 1.0
+
+
+# ── format_coreference_tag — wire-up to worker prompt ────────────────
+
+
+@pytest.mark.unit
+def test_format_tag_for_in_range_resolution() -> None:
+    """A confident in-range resolution renders the canonical
+    coref tag the worker reads."""
+    r = resolve_ordinal("the third NDA", CANDIDATES)
+    assert r is not None
+    tag = format_coreference_tag(r)
+    assert tag.startswith("<context>")
+    assert tag.endswith("</context>")
+    assert "the third NDA" in tag
+    assert "position 3" in tag
+    assert "<referent>" in tag
+    assert "doc-C" in tag  # repr of "doc-C" → "'doc-C'" contains doc-C
+
+
+@pytest.mark.unit
+def test_format_tag_for_out_of_range_resolution() -> None:
+    """Out-of-range resolution instructs the worker to ask for
+    clarification rather than silently binding to a wrong item."""
+    r = resolve_ordinal("the 99th doc", CANDIDATES)
+    assert r is not None
+    tag = format_coreference_tag(r)
+    assert "out of range" in tag
+    assert "clarify" in tag.lower()
+
+
+@pytest.mark.unit
+def test_format_tag_for_low_confidence_resolution() -> None:
+    """Heuristic 'the next' binding renders a low-confidence
+    flag so the worker treats the binding as suggestive, not
+    authoritative."""
+    r = resolve_ordinal("the next one", CANDIDATES)
+    assert r is not None
+    tag = format_coreference_tag(r)
+    assert "low confidence" in tag.lower()
+    assert "the next one" in tag
+
+
+@pytest.mark.unit
+def test_format_tag_uses_label_for_callback() -> None:
+    """The label_for callback maps the resolved candidate to a
+    display label — typically a document's filename rather than
+    raw repr. Pin the contract."""
+    candidates = ({"name": "nda-a.pdf"}, {"name": "nda-b.pdf"}, {"name": "nda-c.pdf"})
+    r = resolve_ordinal("the second NDA", candidates)
+    assert r is not None
+    tag = format_coreference_tag(r, label_for=lambda c: c["name"])
+    assert "<referent>nda-b.pdf</referent>" in tag
 
 
 @pytest.mark.unit

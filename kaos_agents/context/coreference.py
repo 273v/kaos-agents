@@ -228,4 +228,81 @@ def _bind_ordinal(
     )
 
 
-__all__ = ["CoreferenceResolution", "resolve_ordinal"]
+def format_coreference_tag(
+    resolution: CoreferenceResolution,
+    *,
+    label_for: Any | None = None,
+) -> str:
+    """Format a resolution as a ``<context>`` tag for the worker prompt.
+
+    Plan §Issue 8 says: "Inject resolved referent into worker
+    prompt as ``<context>`` tag". This helper produces the exact
+    string the assemble_context layer drops into the worker's
+    thinking_note (or prepends to the worker message).
+
+    Format:
+
+        <context>
+        coref: the user wrote "the third NDA" which resolves to
+        the document at position 3 (out of 5):
+        <referent>doc-C</referent>
+        Use this referent unless the user clarifies otherwise.
+        </context>
+
+    For low-confidence ambiguous resolutions (e.g. "the next"
+    heuristic, or out-of-range numerics), the tag flags the
+    ambiguity so the worker can ask for clarification rather than
+    silently binding.
+
+    The ``label_for`` callback optionally maps the resolved
+    candidate to a display label (e.g. a document's filename
+    rather than the raw dict). When ``None``, ``repr(candidate)``
+    is used.
+    """
+    if label_for is not None and resolution.resolved_candidate is not None:
+        label = label_for(resolution.resolved_candidate)
+    elif resolution.resolved_candidate is not None:
+        label = repr(resolution.resolved_candidate)
+    else:
+        label = "(out of range)"
+
+    phrase = resolution.matched_phrase
+    ordinal = resolution.ordinal
+
+    if resolution.resolved_index is None:
+        return (
+            "<context>\n"
+            f'coref: the user wrote "{phrase}" but ordinal '
+            f"{ordinal} is out of range. Ask the user to "
+            "clarify which item they mean, or refuse with an "
+            "explicit message about which ordinals are "
+            "available.\n"
+            "</context>"
+        )
+
+    if resolution.confidence < 0.99:
+        return (
+            "<context>\n"
+            f'coref (low confidence): the user wrote "{phrase}" '
+            f"which COULD resolve to:\n"
+            f"<referent>{label}</referent>\n"
+            "but the binding is heuristic. If the answer hinges "
+            "on which item is meant, ask the user to confirm.\n"
+            "</context>"
+        )
+
+    return (
+        "<context>\n"
+        f'coref: the user wrote "{phrase}" which resolves to '
+        f"the item at position {ordinal}:\n"
+        f"<referent>{label}</referent>\n"
+        "Use this referent unless the user clarifies otherwise.\n"
+        "</context>"
+    )
+
+
+__all__ = [
+    "CoreferenceResolution",
+    "format_coreference_tag",
+    "resolve_ordinal",
+]
