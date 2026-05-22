@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Launch-blocker plan §Issue 2 (per-matter tenancy) + §Issue 5 / B1.1
+(Runner-level CircuitBreaker default install). See
+`kaos-modules/docs/plans/2026-05-22-launch-blocker-top-10.md`.
+
+### Added
+
+- **Issue 2 — `SessionMemory.matter_id`** (`kaos_agents/memory/session.py`).
+  Optional firm-side ethical-wall identifier (e.g. `"ABC-2026-0042"`)
+  threaded through SessionMemory construction + `to_dict` / `from_dict`
+  persistence round-trip. `None` (default) keeps existing sessions
+  unscoped. Pre-0.1.8 snapshots rehydrate as `None`, never
+  retroactively scope into a matter the user did not opt into. 5 new
+  unit tests in `tests/unit/test_session_matter_id.py`.
+
+- **Issue 2 — `SessionStore.load_or_create(matter_id=...)`**
+  (`kaos_agents/memory/store.py`). Propagates the per-matter scope
+  into newly-created sessions. **Existing sessions keep their
+  persisted `matter_id`** — a stale kwarg cannot silently re-scope a
+  live session into a different matter (Model Rule 1.7
+  cross-current-client conflict protection). 3 new async unit tests.
+
+- **Issue 2 — `POST /v1/sessions` accepts `matter_id`**
+  (`kaos_agents/api/server.py`). `SessionCreateRequest.matter_id`
+  optional, `max_length=128` (Pydantic 422 on overflow).
+  `SessionResponse.matter_id` echoes the scope on both POST and GET
+  so a client can confirm round-trip without a follow-up call.
+  Backward-compatible — pre-0.1.8 clients ignore the new response
+  field. 4 new API tests + 1 amended existing test.
+
+- **Issue 5 / B1.1 — Runner installs `CircuitBreaker` by default**
+  (`kaos_agents/runtime/runner.py`, security-sensitive). New
+  `install_default_circuit_breaker: bool = True` kwarg on
+  `Runner.__init__`. Auto-appends a `CircuitBreaker()` to the hooks
+  tuple unless one is already present (idempotent on caller-supplied
+  instances) or the caller opts out via the kwarg or via the existing
+  `unsafe_bypass=True` escape hatch. Closes the runaway-empty-results
+  exposure surface — pre-fix, only the API server + the SPA backend
+  wired the breaker explicitly; CLI / bench / MCP-tool / direct embeds
+  ran without protection (root cause of session
+  01KS2DEBYT341F1F16B3BRQRV0). 5 new unit tests in
+  `tests/unit/test_runner_default_circuit_breaker.py`.
+
+### Test surface
+
+- 17 new unit tests across `test_session_matter_id.py` (8),
+  `test_api.py` (4 new + 1 amended), and
+  `test_runner_default_circuit_breaker.py` (5). Combined matter_id +
+  runner + memory + store + api surface: **87 tests passing**.
+  `ruff format`, `ruff check`, `ty check` all clean.
+
+### Compatibility
+
+- All four changes are additive at the API + Python surface. Pre-0.1.8
+  callers that don't know about `matter_id` get `None`; the Runner's
+  hooks tuple shape stays the same (now plus a default CircuitBreaker;
+  opt out via `install_default_circuit_breaker=False` if a downstream
+  test needs the historic behavior). No removed APIs, no behavior
+  changes to existing matter_id-less sessions.
+
 ## [0.1.7] — 2026-05-21
 
 Broad-reliability roadmap §B0.8 — the final P0 item. Closes the
