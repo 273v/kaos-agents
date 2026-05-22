@@ -36,6 +36,26 @@ Launch-blocker plan §Issue 2 (per-matter tenancy) + §Issue 5 / B1.1
   Backward-compatible — pre-0.1.8 clients ignore the new response
   field. 4 new API tests + 1 amended existing test.
 
+- **Issue 2 — `MatterIsolationHook` Runner-installable enforcement**
+  (`kaos_agents/memory/isolation.py`, security-sensitive). New
+  `KaosHook` subclass that fires on `Span(TOOL_CALL, START)` events
+  and refuses any tool call whose args reference a matter id
+  different from the bound session matter. `Runner.__init__` now
+  takes a `matter_id: str | None = None` kwarg; when set,
+  idempotently appends `MatterIsolationHook(matter_id=...)` to the
+  hooks tuple. Conservative default — `matter_id=None` (legacy
+  sessions) skips the install so existing callers stay unchanged.
+  `unsafe_bypass=True` cascades through. The scanner detects the
+  three canonical matter-id forms — `matter:<id>` URI,
+  `matters/<id>/...` VFS path, `matter_id=<id>` query fragment —
+  plus literal `{"matter_id": "..."}` kwargs nested one level
+  deep. On trip, raises `MatterIsolationError` with what / fix /
+  alternative agent-friendly text. Closes the engine-side §Issue 2
+  acceptance row ("Runner constructed with matter_id=A, tool calls
+  into matter=B raise MatterIsolationError"). 14 new unit tests in
+  `tests/unit/test_matter_isolation_hook.py` + 7 new tests in
+  `tests/unit/test_runner_default_matter_isolation_hook.py`.
+
 - **Issue 5 / B1.1 — Runner installs `CircuitBreaker` by default**
   (`kaos_agents/runtime/runner.py`, security-sensitive). New
   `install_default_circuit_breaker: bool = True` kwarg on
