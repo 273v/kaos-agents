@@ -42,13 +42,23 @@ def model_for_tier(tier: int) -> str:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _require_api_keys() -> None:
+def _require_api_keys(request: pytest.FixtureRequest) -> None:
     """Hard-fail (do not skip) when required keys are missing.
 
     The no-skips policy treats silent skipping as a worse outcome
     than a loud failure: skipped tests get ignored in CI dashboards.
     A missing key means the dev environment isn't set up — fix it.
+
+    Scoped to live-marked items only: deterministic offline tests in
+    this directory (e.g. test_baseline_drift) must remain runnable in
+    min-deps / compat lanes that exclude ``live`` via ``-m "not live"``.
+    Without this gate the autouse fixture trips on every run that
+    happens to include any ladder test in its selection, even when
+    that selection contains no live-API tests at all.
     """
+    needs_live = any(item.get_closest_marker("live") is not None for item in request.session.items)
+    if not needs_live:
+        return
     missing = [k for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY") if k not in os.environ]
     if missing:
         pytest.fail(
