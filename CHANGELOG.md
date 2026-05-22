@@ -13,6 +13,44 @@ Launch-blocker plan §Issue 2 (per-matter tenancy) + §Issue 5 / B1.1
 
 ### Added
 
+- **Issue 8 / B1.5 — `build_coref_context_tag` integration helper**
+  (`kaos_agents/context/coreference.py`). One-call wrapper that
+  composes `resolve_ordinal` + `format_coreference_tag` against a
+  SessionMemory section (DOCUMENTS by default) and returns a
+  worker-prompt-ready `<context>` tag string, or `None` when no
+  ordinal phrase fires. Candidates come from the FULL unpruned
+  section (`memory.get(DOCUMENTS)`) rather than the post-BM25
+  assembled-context window — "the third NDA" refers to the third
+  NDA the user uploaded across the whole session, not the third
+  that happened to survive token-budget trimming this turn.
+
+  Defaults: `section=MemoryType.DOCUMENTS`, `label_for=` an
+  internal `_default_doc_label` that mirrors the WU-G.2 corpus-
+  handle anchor (filename → uri → source_uri → name → source →
+  first non-empty content line → `item:<id>`), and
+  `min_confidence=0.5` (which keeps the "the next" heuristic
+  surfacing a clarify-ambiguity tag; bump to 0.99 to keep only
+  confident in-range resolutions).
+
+  11 new unit tests in `tests/unit/test_build_coref_context_tag.py`:
+  no-ordinal → None, empty-section → None, "the third NDA"
+  resolves against five DOCUMENTS items with the expected
+  `position 3` + filename, out-of-range "the eighth NDA" renders
+  the clarify-ambiguity branch, "the next" renders the low-
+  confidence branch at default threshold but is suppressed at
+  `min_confidence=0.99`, default label uses filename metadata,
+  default label falls back to first content line when metadata
+  is absent, custom `label_for` overrides the default, the
+  `section` kwarg lets a research agent resolve "the third
+  finding" against FINDINGS, and an invariant-pin test confirms
+  candidates come from the full unpruned section rather than the
+  assembled-context window.
+
+  The follow-on agent.py wire-in (call `build_coref_context_tag`
+  after Step 4 `assemble_context` and inject the returned tag
+  into the worker prompt) is a separate atomic commit so this PR
+  stays reviewable.
+
 - **Issue 8 / B1.5 — Ordinal coreference resolver primitive**
   (`kaos_agents/context/coreference.py`). Deterministic,
   zero-LLM regex + index-map resolver. Given a user message and

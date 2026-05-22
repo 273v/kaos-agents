@@ -38,7 +38,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from kaos_agents.memory.session import SessionMemory
+    from kaos_agents.types.memory import MemoryItem, MemoryType
 
 # Ordinal word → 1-based index. Covers the cases the plan
 # acceptance fixture exercises: first / second / third / ... /
@@ -301,8 +305,106 @@ def format_coreference_tag(
     )
 
 
+def _default_doc_label(item: MemoryItem) -> str:
+    """Default ``label_for`` for a DOCUMENTS-section MemoryItem.
+
+    Prefers the metadata anchor used by the WU-G.2 corpus-handle
+    builder (``filename`` / ``uri`` / ``source_uri`` / ``name`` /
+    ``source``) so the rendered tag matches the same identifier the
+    rest of the system already shows the user.
+
+    Falls back to the first non-empty line of the item content, then
+    to a short ``repr``-style anchor so we never emit an empty
+    ``<referent></referent>`` block.
+    """
+    metadata = item.metadata or {}
+    anchor = (
+        metadata.get("filename")
+        or metadata.get("uri")
+        or metadata.get("source_uri")
+        or metadata.get("name")
+        or metadata.get("source")
+    )
+    if anchor:
+        return str(anchor)
+    content = item.content or ""
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped[:120]
+    return f"item:{item.id}"
+
+
+def build_coref_context_tag(
+    memory: SessionMemory,
+    message: str,
+    *,
+    section: MemoryType | None = None,
+    label_for: Any | None = None,
+    min_confidence: float = 0.5,
+) -> str | None:
+    """Compose ``resolve_ordinal`` + ``format_coreference_tag`` against
+    the SessionMemory DOCUMENTS section (default) and return a worker-
+    prompt-ready ``<context>`` tag, or ``None`` when no ordinal phrase
+    fires.
+
+    Plan §Issue 8 acceptance: "Inject resolved referent into worker
+    prompt as ``<context>`` tag". This is the integration helper the
+    run loop calls AFTER ``assemble_context`` and BEFORE intent
+    classification, so the worker sees the resolved referent even
+    when the DOCUMENTS section has been BM25-pruned by retrieval.
+
+    The candidates come from the full unpruned DOCUMENTS section
+    (``memory.get(DOCUMENTS)``), NOT from the assembled context —
+    "the third NDA" refers to the third NDA the user has uploaded
+    across the whole session, not the third one that happened to
+    survive token-budget trimming this turn.
+
+    Args:
+        memory: SessionMemory carrying the DOCUMENTS section.
+        message: User's current turn message.
+        section: Which memory section to resolve against. Defaults
+            to ``MemoryType.DOCUMENTS`` (the deal-room use case).
+            Passing e.g. ``MemoryType.FINDINGS`` lets a research
+            agent resolve "the third finding" against the same
+            primitive.
+        label_for: Callback mapping a candidate MemoryItem to a
+            display label. Defaults to ``_default_doc_label`` which
+            mirrors the corpus-handle metadata anchor (filename /
+            uri / ...).
+        min_confidence: Below this, the tag is suppressed (returns
+            ``None``). Defaults to ``0.5`` so the "the next"
+            heuristic (confidence=0.5) still surfaces a clarify-
+            ambiguity tag; bump to ``0.99`` to keep only confident
+            in-range resolutions.
+
+    Returns:
+        The formatted ``<context>`` tag string when a resolution
+        fires and meets ``min_confidence``; ``None`` otherwise.
+    """
+    from kaos_agents.types.memory import MemoryType as _MemoryType
+
+    target_section = section if section is not None else _MemoryType.DOCUMENTS
+
+    if not memory.has_section(target_section):
+        return None
+    candidates: list[MemoryItem] = list(memory.get(target_section))
+    if not candidates:
+        return None
+
+    resolution = resolve_ordinal(message, candidates)
+    if resolution is None:
+        return None
+    if resolution.confidence < min_confidence:
+        return None
+
+    selected_label_for = label_for if label_for is not None else _default_doc_label
+    return format_coreference_tag(resolution, label_for=selected_label_for)
+
+
 __all__ = [
     "CoreferenceResolution",
+    "build_coref_context_tag",
     "format_coreference_tag",
     "resolve_ordinal",
 ]
