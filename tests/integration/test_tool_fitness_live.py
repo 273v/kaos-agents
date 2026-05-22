@@ -192,6 +192,104 @@ _CASES: tuple[FitnessCase, ...] = (
 )
 
 
+def _build_real_catalog() -> tuple[tuple[str, str], ...]:
+    """Return the full kaos-pdf+kaos-web+kaos-tabular+kaos-office tool
+    catalog as the ranker would see it in production.
+
+    Mirrors :func:`_make_real_catalog_runtime` in
+    ``test_g_capabilities_integration.py`` but produces (name, desc)
+    pairs in the shape ``rank_tools_for_query`` expects.
+    """
+    import importlib
+
+    from kaos_core.registry.container import KaosRuntime
+
+    runtime = KaosRuntime()
+    loaded = 0
+    for mod_name, fn_name in (
+        ("kaos_pdf.tools", "register_pdf_tools"),
+        ("kaos_web.tools", "register_web_tools"),
+        ("kaos_tabular.tools", "register_tabular_tools"),
+        ("kaos_office.tools", "register_office_tools"),
+    ):
+        try:
+            mod = importlib.import_module(mod_name)
+        except ImportError:
+            continue
+        register_fn = getattr(mod, fn_name, None)
+        if register_fn is None:
+            continue
+        register_fn(runtime)
+        loaded += 1
+    if loaded < 3:
+        return ()
+    catalog: list[tuple[str, str]] = []
+    for tool in runtime.tools.list_tool_objects():
+        name = getattr(getattr(tool, "metadata", None), "name", None)
+        if not name:
+            continue
+        desc = (
+            getattr(getattr(tool, "metadata", None), "description", None)
+            or getattr(tool, "description", None)
+            or ""
+        )
+        if not isinstance(desc, str):
+            desc = str(desc)
+        catalog.append((str(name), desc.replace("\n", " ").strip()))
+    return tuple(catalog)
+
+
+@pytest.mark.live
+@pytest.mark.parametrize("model", MODELS, ids=lambda m: m.replace(":", "_"))
+async def test_tool_fitness_ranks_office_first_on_full_catalog_docx(model: str) -> None:
+    """Production regression for #581.
+
+    The DOCX vs PDF mis-dispatch only manifests against the full ~50-tool
+    real catalog where multiple tools mention generic "extract"/"parse"
+    verbs. The hand-curated 4-tool ``docx-parser-first`` case in
+    ``_CASES`` cannot exercise the failure mode it documents — the
+    catalog is too sparse for the ranker to confuse itself.
+
+    This test passes the real production catalog to the ranker and asserts
+    that for a clear DOCX query, the first valid pick belongs to the
+    kaos-office family — never kaos-pdf-*. Skips when fewer than three
+    tool modules are installed.
+    """
+    if not _have_key_for(model):
+        pytest.skip(f"no API key for {model}")
+    catalog = _build_real_catalog()
+    if not catalog:
+        pytest.skip("kaos-pdf+kaos-web+kaos-tabular+kaos-office not all installed")
+
+    result: ToolFitnessResult = await rank_tools_for_query(
+        query="I attached a NDA called Acme-MNDA.docx — what is the governing law clause?",
+        catalog=catalog,
+        model=model,
+        top_k=5,
+    )
+    assert result.valid_picks, (
+        f"[full-catalog-docx/{model}] expected non-empty picks, got "
+        f"fell_back={result.fell_back} raw_picks={result.picks!r} "
+        f"rationale={result.rationale!r}"
+    )
+    first = result.valid_picks[0]
+    assert first.startswith("kaos-office-"), (
+        f"[full-catalog-docx/{model}] top pick must be kaos-office-* "
+        f"for a DOCX query; got {first!r}. All picks: {result.valid_picks!r}. "
+        f"Rationale: {result.rationale!r}"
+    )
+    # Anti-regression: kaos-pdf-extract-parse must not lead the picks.
+    # The earlier bug (PDF parse leading on DOCX queries) was the worst
+    # class because the worker LLM then loops on a tool that can never
+    # succeed against the actual file.
+    assert first != "kaos-pdf-extract-parse", (
+        f"[full-catalog-docx/{model}] kaos-pdf-extract-parse leading "
+        f"on a DOCX query is the documented production regression "
+        f"(#581). Got picks: {result.valid_picks!r}. "
+        f"Rationale: {result.rationale!r}"
+    )
+
+
 @pytest.mark.live
 @pytest.mark.parametrize("model", MODELS, ids=lambda m: m.replace(":", "_"))
 @pytest.mark.parametrize("case", _CASES, ids=lambda c: c.case_id)
