@@ -48,24 +48,34 @@ def _make_real_catalog_runtime() -> KaosRuntime:
     distinct domains, ~50 tools total. Each registrar lives in the
     monorepo's installed packages; if any are missing the test is
     skipped.
+
+    Calls each module's canonical ``register_<module>_tools`` umbrella —
+    NOT a discover-first-match-via-dir() walk. The previous
+    discover-first-match path picked ``register_pdf_authoring_tools``
+    alphabetically before ``register_pdf_tools`` and silently registered
+    zero PDF tools, which made BM25 rank only kaos-web-* tools at the
+    top for a PDF query (because the PDF tools weren't in the catalog
+    at all). The umbrella name is the documented public surface every
+    kaos-* tool module ships; live agent runtimes wire through it
+    directly.
     """
     runtime = KaosRuntime()
     loaded = 0
-    for mod_name in (
-        "kaos_pdf.tools",
-        "kaos_web.tools",
-        "kaos_tabular.tools",
-        "kaos_office.tools",
+    for mod_name, fn_name in (
+        ("kaos_pdf.tools", "register_pdf_tools"),
+        ("kaos_web.tools", "register_web_tools"),
+        ("kaos_tabular.tools", "register_tabular_tools"),
+        ("kaos_office.tools", "register_office_tools"),
     ):
         try:
             mod = importlib.import_module(mod_name)
         except ImportError:
             continue
-        for attr in dir(mod):
-            if attr.startswith("register_") and "tool" in attr:
-                getattr(mod, attr)(runtime)
-                loaded += 1
-                break
+        register_fn = getattr(mod, fn_name, None)
+        if register_fn is None:
+            continue
+        register_fn(runtime)
+        loaded += 1
     if loaded < 2:
         pytest.skip(
             f"Only {loaded} kaos-* tool modules available; need at least 2 "
