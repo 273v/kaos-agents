@@ -59,11 +59,15 @@ Launch-blocker plan §Issue 2 (per-matter tenancy) + §Issue 5 / B1.1
   unit tests cover the default, explicit cap round-trip, independence
   from `max_loop_cost_usd`, and the persona-helper preservation.
 
-  **Note:** the field landed; the actual enforcement (trip + emit
-  `BudgetExceeded` mid-tool-call) is the next iteration's
-  `agentic_loop.py` change. Adding the data field first means
-  downstream consumers (SPA, MCP tools) can read + persist the
-  policy now and the engine-side gate lights up on the next minor.
+  **Enforcement also shipped** in `agentic_loop.py`: new
+  `_per_tool_budget_exceeded` helper + check after every worker step.
+  When the per-call delta exceeds the cap (and the cap is non-zero),
+  the loop emits the standard failure-refusal pair and terminates
+  with `LoopTerminated(reason="cost_exceeded")` — same shape as the
+  cumulative-cap path, so SSE / SPA consumers don't need to
+  distinguish the two. Three additional helper-level tests (disabled
+  at zero, fires above cap with strict `>`, negative cap treated as
+  disabled) bring the field+enforcement surface to 7 tests passing.
 
 ### Test surface
 

@@ -378,6 +378,21 @@ async def run_agentic_turn(
             # ``_should_preserve_worker_draft``.
             state.current_iter_text = worker_result.text
 
+            # Plan §Issue 9 / B1.7 — per-call cost cap. Disabled by
+            # default (max_per_tool_cost_usd == 0.0); operators tighten
+            # to e.g. 0.05 to catch a misconfigured-model runaway that
+            # the cumulative loop cap wouldn't trip on a single shot.
+            if _per_tool_budget_exceeded(worker_result.cost_usd, policy):
+                async for ev in _emit_failure_refusal(
+                    reason="cost_exceeded",
+                    state=state,
+                    session_id=session_id,
+                    run_id=run_id,
+                ):
+                    yield ev
+                yield _terminate(state, policy, "cost_exceeded", session_id, run_id)
+                return
+
             # B0.8: post-worker citation verification gate. Opt-in via
             # ``citation_verification_enabled`` so existing callers
             # don't acquire a CourtListener dependency or per-turn
@@ -1431,6 +1446,25 @@ def _is_stuck(
 
 def _budget_exceeded(state: _LoopState, policy: SessionPolicy) -> bool:
     return state.cumulative_cost_usd >= policy.max_loop_cost_usd
+
+
+def _per_tool_budget_exceeded(cost_delta_usd: float, policy: SessionPolicy) -> bool:
+    """Plan §Issue 9 / B1.7 — single-call cost cap check.
+
+    Returns True when the operator has tightened ``max_per_tool_cost_usd``
+    to a non-zero value AND the most recent cost delta (one LLM call
+    inside the loop iteration — planner, worker, critic, or judge)
+    billed above that ceiling. The loop terminates with
+    ``LoopTerminated(reason="cost_exceeded")`` exactly as the
+    cumulative-cap path does; downstream consumers don't need to
+    distinguish the two.
+
+    The 0.0 default means "disabled" — historic behavior preserved
+    for every caller that hasn't opted in.
+    """
+    if policy.max_per_tool_cost_usd <= 0.0:
+        return False
+    return cost_delta_usd > policy.max_per_tool_cost_usd
 
 
 def _wall_clock_exceeded(state: _LoopState, policy: SessionPolicy) -> bool:
