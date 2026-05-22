@@ -7,8 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Launch-blocker plan §Issue 2 (per-matter tenancy) + §Issue 5 / B1.1
-(Runner-level CircuitBreaker default install). See
+## [0.1.8] — 2026-05-22
+
+Launch-blocker plan §Issues 1 + 2 + 5 + 6 + 8 + 9 — PR #69 (27
+commits). See
 `kaos-modules/docs/plans/2026-05-22-launch-blocker-top-10.md`.
 
 ### Added
