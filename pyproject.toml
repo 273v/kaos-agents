@@ -304,3 +304,6 @@ exclude-newer = "72 hours"
 "kaos-source" = false
 "kaos-tabular" = false
 "kaos-web" = false
+# Security-patch exemptions — CVE fixes shipped in the last 72h are
+# allowed to flow through pip-audit. Add lines here with rationale.
+"starlette" = false  # PYSEC-2026-161, fixed in 1.0.1 (uploaded 2026-05-21)
