@@ -140,6 +140,16 @@ DEFAULT_MAX_LOOP_ITERATIONS: int = 3
 DEFAULT_MAX_LOOP_COST_USD: float = 0.25
 DEFAULT_MAX_LOOP_WALL_CLOCK_SECONDS: float = 60.0
 
+# Plan §Issue 9 / B1.7 — per-tool-call intra-iteration cost cap.
+# Defense-in-depth alongside the loop-level ``max_loop_cost_usd``:
+# the loop cap catches "many cheap calls accumulating"; this cap
+# catches "one runaway call" (e.g. a kaos-llm-core ReAct with a
+# misconfigured model that bills $5 in one shot). Defaults are
+# permissive — the loop cap is the primary control — but operators
+# running budget-sensitive workloads can tighten this to a hard
+# per-invocation ceiling. ``0.0`` disables (the historic behavior).
+DEFAULT_MAX_PER_TOOL_COST_USD: float = 0.0
+
 
 @dataclass(frozen=True, slots=True)
 class SessionPolicy:
@@ -198,6 +208,14 @@ class SessionPolicy:
     max_loop_iterations: int = DEFAULT_MAX_LOOP_ITERATIONS
     max_loop_cost_usd: float = DEFAULT_MAX_LOOP_COST_USD
     max_loop_wall_clock_seconds: float = DEFAULT_MAX_LOOP_WALL_CLOCK_SECONDS
+    # Plan §Issue 9 / B1.7 — per-tool-call intra-iteration cost cap.
+    # A single tool invocation that bills above this threshold trips a
+    # ``BudgetExceeded`` event and short-circuits the loop, even if
+    # the loop-level ``max_loop_cost_usd`` has headroom. ``0.0``
+    # (default) disables the cap — preserves historic behavior; the
+    # loop cap remains the primary control. Operators tighten this
+    # to e.g. ``0.05`` to catch a misconfigured-model runaway.
+    max_per_tool_cost_usd: float = DEFAULT_MAX_PER_TOOL_COST_USD
 
     # ─── Construction helpers ────────────────────────────────────────
 
@@ -318,6 +336,7 @@ __all__ = [
     "DEFAULT_MAX_LOOP_COST_USD",
     "DEFAULT_MAX_LOOP_ITERATIONS",
     "DEFAULT_MAX_LOOP_WALL_CLOCK_SECONDS",
+    "DEFAULT_MAX_PER_TOOL_COST_USD",
     "DRAFTING_SOFT_CEILING",
     "FORENSICS_SOFT_CEILING",
     "RESEARCH_SOFT_CEILING",

@@ -49,13 +49,31 @@ Launch-blocker plan §Issue 2 (per-matter tenancy) + §Issue 5 / B1.1
   01KS2DEBYT341F1F16B3BRQRV0). 5 new unit tests in
   `tests/unit/test_runner_default_circuit_breaker.py`.
 
+- **Issue 9 / B1.7 — `SessionPolicy.max_per_tool_cost_usd` field**
+  (`kaos_agents/types/session_policy.py`). Defense-in-depth alongside
+  the loop-level `max_loop_cost_usd` cap. The loop cap catches "many
+  cheap calls accumulating"; this field catches "one runaway call"
+  (e.g. a misconfigured-model invocation billing $5 in one shot).
+  Default `0.0` (disabled, historic behavior); operators tighten to
+  e.g. `0.05`. Exported as `DEFAULT_MAX_PER_TOOL_COST_USD`. 4 new
+  unit tests cover the default, explicit cap round-trip, independence
+  from `max_loop_cost_usd`, and the persona-helper preservation.
+
+  **Note:** the field landed; the actual enforcement (trip + emit
+  `BudgetExceeded` mid-tool-call) is the next iteration's
+  `agentic_loop.py` change. Adding the data field first means
+  downstream consumers (SPA, MCP tools) can read + persist the
+  policy now and the engine-side gate lights up on the next minor.
+
 ### Test surface
 
-- 17 new unit tests across `test_session_matter_id.py` (8),
-  `test_api.py` (4 new + 1 amended), and
-  `test_runner_default_circuit_breaker.py` (5). Combined matter_id +
-  runner + memory + store + api surface: **87 tests passing**.
-  `ruff format`, `ruff check`, `ty check` all clean.
+- 21 new unit tests across `test_session_matter_id.py` (8),
+  `test_api.py` (4 new + 1 amended),
+  `test_runner_default_circuit_breaker.py` (5), and
+  `test_session_policy_max_per_tool_cost.py` (4). Combined surface:
+  **91 tests passing** on the matter_id + runner + memory + store +
+  api + session_policy stack. `ruff format`, `ruff check`,
+  `ty check` all clean.
 
 ### Compatibility
 
