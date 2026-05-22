@@ -83,3 +83,71 @@ def test_matter_id_is_independent_of_session_id() -> None:
     assert mem_a.matter_id == mem_b.matter_id
     assert mem_a.session_id != mem_b.session_id
     assert mem_c.matter_id != mem_a.matter_id
+
+
+# ── SessionStore.load_or_create matter_id propagation ─────────────
+
+
+@pytest.mark.asyncio
+async def test_load_or_create_propagates_matter_id_to_new_session() -> None:
+    """``SessionStore.load_or_create(sid, matter_id=...)`` must construct
+    the fresh ``SessionMemory`` with that matter scope. This is the
+    integration point the SPA backend / chat router will call when a
+    matter-scoped session is opened.
+    """
+    from kaos_core.vfs.core import IsolationMode, StorageBackend, VFSConfig, VirtualFileSystem
+
+    from kaos_agents.memory.store import SessionStore
+
+    vfs = VirtualFileSystem(
+        config=VFSConfig(default_backend=StorageBackend.MEMORY, isolation_mode=IsolationMode.GLOBAL)
+    )
+    store = SessionStore(vfs)
+    mem = await store.load_or_create(
+        "01STOREMATTER",
+        load_recipes=False,
+        matter_id="ABC-2026-0042",
+    )
+    assert mem.matter_id == "ABC-2026-0042"
+
+
+@pytest.mark.asyncio
+async def test_load_or_create_omits_matter_id_when_unscoped() -> None:
+    """No ``matter_id`` arg → unscoped (None). Backward-compat for
+    every existing caller that doesn't know about the field yet."""
+    from kaos_core.vfs.core import IsolationMode, StorageBackend, VFSConfig, VirtualFileSystem
+
+    from kaos_agents.memory.store import SessionStore
+
+    vfs = VirtualFileSystem(
+        config=VFSConfig(default_backend=StorageBackend.MEMORY, isolation_mode=IsolationMode.GLOBAL)
+    )
+    store = SessionStore(vfs)
+    mem = await store.load_or_create("01STORENOSCOPE", load_recipes=False)
+    assert mem.matter_id is None
+
+
+@pytest.mark.asyncio
+async def test_load_or_create_preserves_existing_matter_id_on_reload() -> None:
+    """An existing session's persisted matter_id is the source of truth.
+    Calling ``load_or_create(sid, matter_id="OVERRIDE")`` on an already-
+    existing session loads the persisted matter, NOT the new one. This
+    prevents a stale arg from silently re-scoping a live session.
+    """
+    from kaos_core.vfs.core import IsolationMode, StorageBackend, VFSConfig, VirtualFileSystem
+
+    from kaos_agents.memory.store import SessionStore
+
+    vfs = VirtualFileSystem(
+        config=VFSConfig(default_backend=StorageBackend.MEMORY, isolation_mode=IsolationMode.GLOBAL)
+    )
+    store = SessionStore(vfs)
+    # Create + save a session scoped to MATTER-1.
+    sid = "01STOREPRESERVE"
+    mem = await store.load_or_create(sid, load_recipes=False, matter_id="MATTER-1")
+    assert mem.matter_id == "MATTER-1"
+    await store.save(mem)
+
+    # Reload with a different matter_id arg — the persisted value wins.
+    reloaded = await store.load_or_create(sid, load_recipes=False, matter_id="MATTER-OVERRIDE")
+    assert reloaded.matter_id == "MATTER-1"
