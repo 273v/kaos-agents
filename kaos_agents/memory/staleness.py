@@ -89,9 +89,7 @@ def _get_fetched_at(item: Any) -> float | None:
     dataclass / pydantic model) and dict access (``item["fetched_at"]``
     on a JSONL-deserialised payload).
     """
-    value = (
-        item.get("fetched_at") if isinstance(item, dict) else getattr(item, "fetched_at", None)
-    )
+    value = item.get("fetched_at") if isinstance(item, dict) else getattr(item, "fetched_at", None)
     if value is None:
         return None
     try:
