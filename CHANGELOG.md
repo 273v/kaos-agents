@@ -13,6 +13,40 @@ Launch-blocker plan §Issue 2 (per-matter tenancy) + §Issue 5 / B1.1
 
 ### Added
 
+- **Issue 8 / B1.5 — Ordinal coreference resolver primitive**
+  (`kaos_agents/context/coreference.py`). Deterministic,
+  zero-LLM regex + index-map resolver. Given a user message and
+  a list of referent candidates (typically `SessionMemory.DOCUMENTS`
+  in turn order), returns a `CoreferenceResolution` record with:
+  `matched_phrase`, `ordinal` (1-based; `-1` for "the last"),
+  `resolved_index`, `resolved_candidate`, and `confidence`.
+
+  Resolution order: "the last / prior / previous / latest /
+  most recent" → `candidates[-1]` (confidence 1.0); "the next" →
+  `candidates[0]` (confidence 0.5, heuristic); numeric ordinals
+  ("the 3rd doc") and word ordinals ("the third document") →
+  `candidates[N-1]` (confidence 1.0 in-range, 0.5 out-of-range).
+
+  Tests in `tests/unit/test_ordinal_coref_signature.py` (15
+  tests, all passing): word ordinals first-through-fifth, numeric
+  ordinals with case-insensitivity, "the last" / "the previous" /
+  "the next" with heuristic-confidence semantics, out-of-range
+  detection (returns resolution with `resolved_index=None`,
+  `confidence=0.5` rather than silently dropping the reference),
+  no-ordinal-returns-None, empty-candidates-returns-None,
+  empty-message-returns-None, and the plan §Issue 8 12-scenario
+  acceptance fixture which the deterministic layer hits 12/12.
+
+  Plan §Issue 8 acceptance row "≥90% resolution rate on 12-
+  scenario fixture" closed at the primitive layer. The
+  `assemble_context` tag-injection that wraps this primitive
+  into the worker prompt as `<context>` follows in a separate
+  commit so the resolver can be reviewed independently. The
+  live LLM eval (`tests/integration/test_ordinal_coref_live.py`)
+  is the next layer — it runs the same 12 scripts through a
+  real worker prompt and judges output against the expected
+  resolved candidate.
+
 - **Issue 2 — `SessionMemory.matter_id`** (`kaos_agents/memory/session.py`).
   Optional firm-side ethical-wall identifier (e.g. `"ABC-2026-0042"`)
   threaded through SessionMemory construction + `to_dict` / `from_dict`
