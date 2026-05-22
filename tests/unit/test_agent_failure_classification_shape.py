@@ -90,7 +90,7 @@ def test_surfacing_failure_kinds_is_immutable_frozenset() -> None:
     membership is O(1) for the hot dispatch path."""
     assert isinstance(SURFACING_FAILURE_KINDS, frozenset)
     with pytest.raises((AttributeError, TypeError)):
-        SURFACING_FAILURE_KINDS.add("new_kind")  # type: ignore[attr-defined]
+        SURFACING_FAILURE_KINDS.add("new_kind")  # ty: ignore[unresolved-attribute]
 
 
 @pytest.mark.unit

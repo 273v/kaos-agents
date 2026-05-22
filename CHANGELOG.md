@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.9] — 2026-05-22
+
+Re-release of 0.1.8 against kaos-llm-client 0.1.5 (which ships
+the typed `KaosLLMProviderPolicyError` + `emit_vendor_egress_log`
+symbols needed by the launch-blocker cross-issue smoke). Also
+swaps `# type: ignore[attr-defined]` for `# ty: ignore[unresolved-attribute]`
+on the frozenset-immutability test so pre-publish ty check passes.
+
+No functional changes to kaos-agents itself versus 0.1.8.
+
 ## [0.1.8] — 2026-05-22
 
 Launch-blocker plan §Issues 1 + 2 + 5 + 6 + 8 + 9 — PR #69 (27
