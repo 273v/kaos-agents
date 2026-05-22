@@ -106,6 +106,36 @@ class TestToolRetrievalRealCatalog:
             f"Expected at least 2 kaos-pdf-* tools in top-3 for PDF query; got: {top_names}"
         )
 
+    def test_docx_query_ranks_office_tools_first(self) -> None:
+        """A DOCX-specific query must rank kaos-office-* tools above
+        kaos-pdf-*.
+
+        Production regression for #581. The earlier failure mode (also
+        seen in the SPA NDA upload incidents) was that the agent reached
+        for ``kaos-pdf-extract-parse`` when handed a DOCX because the
+        PDF tools' descriptions emphasised generic verbs ("extract
+        text", "parse a document") more strongly than the office
+        descriptions emphasised "DOCX". After the #604 description
+        audit, BM25 on the literal token "DOCX" should rank office
+        tools first.
+        """
+        runtime = _make_real_catalog_runtime()
+        retrieval = ToolRetrieval.from_runtime(runtime)
+        hits = retrieval.search("extract text from a DOCX file", top_k=5)
+        assert hits, "Expected at least one hit for a clear DOCX query"
+        top_names = [h.tool.metadata.name for h in hits[:3]]
+        office_count = sum(1 for n in top_names if n.startswith("kaos-office-"))
+        assert office_count >= 2, (
+            f"Expected at least 2 kaos-office-* tools in top-3 for DOCX query; got: {top_names}"
+        )
+        # Anti-regression: a DOCX query must NOT have a PDF parser as the
+        # single top hit. Mixed is fine (BM25 reaches for the generic
+        # "extract" verb too), but the top-1 must belong to the office
+        # family or the agent will reach for the PDF parser first.
+        assert top_names[0].startswith("kaos-office-"), (
+            f"Top-1 hit for DOCX query must be a kaos-office-* tool; got: {top_names[0]}"
+        )
+
     def test_web_query_ranks_web_tools_first(self) -> None:
         """A web-specific query must rank kaos-web-* tools above non-web."""
         runtime = _make_real_catalog_runtime()
