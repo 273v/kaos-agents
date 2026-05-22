@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.11] — 2026-05-22
+
+CVE patches + CI infrastructure fixes. No functional code changes.
+
+### Security
+
+- **idna 3.11 → 3.15** (transitive dep) — CVE-2026-45409
+- **starlette 1.0.0 → 1.0.1** (transitive dep) — PYSEC-2026-161
+
+Both fixes shipped within the last 24 hours and required documented
+exemptions from the org-wide 72-hour supply-chain quarantine
+(`[tool.uv.exclude-newer-package]` in pyproject.toml). The exemption
+entries are kept in place so future CVE patches on these packages
+land without delay.
+
+### CI / Tooling
+
+- `security-full.yml`: swap `pypa/gh-action-pip-audit@v1.x` →
+  `uvx --python 3.13 --from pip-audit pip-audit`. The action's
+  bundled venv was pinned to Python 3.10/3.11/3.12 and couldn't
+  resolve our Requires-Python>=3.13 dep wheels. Per the canonical
+  pattern in `kaos-modules/docs/oss/40-ci-cd/security.yml.md`.
+- `tests/integration/ladder/conftest.py`: gate the autouse
+  `_require_api_keys` fixture on `live`-marked items in the
+  selection. The "no skips in CI" policy still applies to actual
+  live runs; offline drift-detection tests (`test_baseline_drift.py`)
+  in the same directory no longer trip the hard-fail when the lane
+  excludes live via `-m "not live"`.
+
+### Test fixtures
+
+- `tests/integration/test_g_capabilities_integration.py`: replace
+  the alphabetical first-match `register_*tool*` discovery in
+  `_make_real_catalog_runtime` with explicit calls to each module's
+  canonical `register_<module>_tools` umbrella. The old discovery
+  picked `register_pdf_authoring_tools` (a stub registering zero
+  tools) over `register_pdf_tools` (seven), so min-deps + compat
+  lanes ran the BM25 ranker against a catalog with zero PDF tools
+  and reported a false ranker bug.
+
+### Security tooling
+
+- `kaos_agents/security/url_content_scrubber.py`: rewrite the
+  invisible/bidi character class in `_INVISIBLE_CHARS_RE` using
+  `\uXXXX` escape sequences instead of literal Unicode characters.
+  Identical compiled regex; bandit B613 (trojansource) no longer
+  flags the file. The D3 url-content-scrubber test suite (20/20)
+  still passes.
+
 ## [0.1.10] — 2026-05-22
 
 Re-release of 0.1.9 with `uv.lock` upgraded to kaos-llm-client 0.1.5
