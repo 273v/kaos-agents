@@ -23,7 +23,6 @@ import pytest
 from kaos_agents.events.budget import BudgetExceeded
 from kaos_agents.types.plan import StopReason
 
-
 # ── Canonical kind strings (the StopReason alignment) ──────────────
 
 
@@ -159,9 +158,26 @@ def test_audit_triple_all_present_on_constructed_event() -> None:
 def test_distinct_kinds_produce_distinct_events() -> None:
     """A cost overshoot is not the same event class as a wall-clock
     overshoot. Pin the per-kind dispatch contract."""
-    base = dict(timestamp=0.0, sequence=0, session_id="s", run_id="r")
-    cost = BudgetExceeded(**base, kind="cost", limit=0.25, actual=0.27, reason="cost")
-    wall = BudgetExceeded(**base, kind="wall_clock", limit=60.0, actual=75.0, reason="time")
+    cost = BudgetExceeded(
+        timestamp=0.0,
+        sequence=0,
+        session_id="s",
+        run_id="r",
+        kind="cost",
+        limit=0.25,
+        actual=0.27,
+        reason="cost",
+    )
+    wall = BudgetExceeded(
+        timestamp=0.0,
+        sequence=0,
+        session_id="s",
+        run_id="r",
+        kind="wall_clock",
+        limit=60.0,
+        actual=75.0,
+        reason="time",
+    )
     assert cost.kind != wall.kind
     # Field-value comparison (event types are equality-compared by
     # value via pydantic).
