@@ -106,20 +106,20 @@ _HTML_COMMENT_RE = re.compile(
 
 _INVISIBLE_CHARS_RE = re.compile(
     "["
-    "​"  # zero-width space
-    "‌"  # zero-width non-joiner
-    "‍"  # zero-width joiner
-    "⁠"  # word joiner
-    "‪"  # LTR embedding
-    "‫"  # RTL embedding
-    "‬"  # pop directional formatting
-    "‭"  # LTR override
-    "‮"  # RTL override
-    "⁦"  # LTR isolate
-    "⁧"  # RTL isolate
-    "⁨"  # first-strong isolate
-    "⁩"  # pop directional isolate
-    "﻿"  # BOM / zero-width no-break space
+    "\u200b"  # zero-width space
+    "\u200c"  # zero-width non-joiner
+    "\u200d"  # zero-width joiner
+    "\u2060"  # word joiner
+    "\u202a"  # LTR embedding
+    "\u202b"  # RTL embedding
+    "\u202c"  # pop directional formatting
+    "\u202d"  # LTR override
+    "\u202e"  # RTL override
+    "\u2066"  # LTR isolate
+    "\u2067"  # RTL isolate
+    "\u2068"  # first-strong isolate
+    "\u2069"  # pop directional isolate
+    "\ufeff"  # BOM / zero-width no-break space
     "]+",
 )
 
