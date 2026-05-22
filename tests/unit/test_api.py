@@ -58,6 +58,56 @@ class TestSessionEndpoints:
         assert data["session_id"] == "test-1"
         assert data["turn_count"] == 0
         assert isinstance(data["sections"], list)
+        # Plan §Issue 2 — sessions created without ``matter_id`` are
+        # unscoped. The response carries the field explicitly so
+        # clients can detect the scope without a follow-up GET.
+        assert data["matter_id"] is None
+
+    @pytest.mark.asyncio
+    async def test_create_session_returns_matter_id_in_body(self, client: AsyncClient) -> None:
+        """Plan §Issue 2 — POST /v1/sessions with ``matter_id`` echoes
+        the per-matter scope on the response body. (Reload semantics +
+        persistence round-trip are covered at the SessionStore layer in
+        ``test_session_matter_id.py``; the historic create-session API
+        only persists once a message lands, so the API-level test
+        focuses on the wire-shape contract.)"""
+        resp = await client.post(
+            "/v1/sessions",
+            json={"session_id": "matter-roundtrip", "matter_id": "ABC-2026-0042"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["matter_id"] == "ABC-2026-0042"
+        assert data["session_id"] == "matter-roundtrip"
+
+    @pytest.mark.asyncio
+    async def test_create_session_with_long_matter_id_still_accepted(
+        self, client: AsyncClient
+    ) -> None:
+        """Matter ids at the 128-char cap (typical firm-internal slug)
+        must be accepted; we don't want the wire to reject reasonable
+        identifiers."""
+        long_matter = "MATTER-" + "X" * 100
+        resp = await client.post(
+            "/v1/sessions",
+            json={"session_id": "matter-long", "matter_id": long_matter},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["matter_id"] == long_matter
+
+    @pytest.mark.asyncio
+    async def test_create_session_rejects_matter_id_over_128_chars(
+        self, client: AsyncClient
+    ) -> None:
+        """Pydantic's ``max_length=128`` constraint on ``matter_id``
+        must reject runaway strings with a 422 — guards against the
+        accidental "entire firm's matter dump pasted as a header"
+        misuse."""
+        resp = await client.post(
+            "/v1/sessions",
+            json={"session_id": "matter-too-long", "matter_id": "X" * 129},
+        )
+        assert resp.status_code == 422
 
     @pytest.mark.asyncio
     async def test_get_session_not_found(self, client: AsyncClient) -> None:
