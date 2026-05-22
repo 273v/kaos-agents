@@ -341,6 +341,7 @@ class SessionStore:
         session_id: str,
         *,
         load_recipes: bool = True,
+        matter_id: str | None = None,
     ) -> SessionMemory:
         """Load an existing session or create a fresh one.
 
@@ -353,6 +354,11 @@ class SessionStore:
             session_id: Session identifier.
             load_recipes: Whether to load built-in recipes into PLAN_EXAMPLES
                 for new sessions. Default True.
+            matter_id: Plan §Issue 2 — optional firm-side ethical-wall
+                identifier (e.g. ``"ABC-2026-0042"``). Only applied to
+                newly-created sessions; existing sessions keep their
+                persisted ``matter_id``. ``None`` (default) leaves the
+                session unscoped.
 
         Returns:
             A SessionMemory — either restored from VFS or freshly created.
@@ -364,6 +370,7 @@ class SessionStore:
         memory = SessionMemory(
             session_id=session_id,
             sections=self._sections,
+            matter_id=matter_id,
         )
 
         if load_recipes:

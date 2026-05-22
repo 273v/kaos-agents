@@ -139,6 +139,18 @@ class SessionCreateRequest(BaseModel):
     """Request body for creating a session (optional metadata)."""
 
     session_id: str = Field(description="Unique session identifier.")
+    matter_id: str | None = Field(
+        default=None,
+        description=(
+            "Plan §Issue 2 — optional firm-side ethical-wall identifier "
+            "(e.g. 'ABC-2026-0042'). When set, the underlying SessionMemory "
+            "is scoped to this matter so future MatterClientGuard consumers "
+            "can enforce Model Rule 1.6/1.7/1.9 cross-matter isolation. "
+            "Only applied to NEW sessions; existing sessions keep their "
+            "persisted scope. Omit (or null) for an unscoped session."
+        ),
+        max_length=128,
+    )
 
 
 class ApprovalRequest(BaseModel):
@@ -155,6 +167,12 @@ class SessionResponse(BaseModel):
     session_id: str
     turn_count: int
     sections: list[str]
+    # Plan §Issue 2 — surface the per-matter scope on every session
+    # response so a caller can confirm round-trip behavior after POST
+    # /v1/sessions and inspect the matter on GET. ``None`` for unscoped
+    # sessions; backward-compatible with pre-0.1.8 clients (they
+    # already ignore unknown response fields).
+    matter_id: str | None = None
 
 
 class MemoryItemResponse(BaseModel):
@@ -591,12 +609,17 @@ def _register_routes(app: FastAPI) -> None:
 
         effective_session_id = scope_session_id(body.session_id, tenant_id)
         store = SessionStore(app.state.vfs)
-        memory = await store.load_or_create(effective_session_id)
+        # Plan §Issue 2 — forward the optional matter scope into the
+        # store. ``load_or_create`` ignores the kwarg for existing
+        # sessions and preserves their persisted matter_id (the
+        # source-of-truth-wins semantic from 3c94967).
+        memory = await store.load_or_create(effective_session_id, matter_id=body.matter_id)
         section_names = [mt.value for mt in memory.sections]
         return SessionResponse(
             session_id=body.session_id,
             turn_count=memory.turn_count,
             sections=section_names,
+            matter_id=memory.matter_id,
         )
 
     @app.get("/v1/sessions/{session_id}", response_model=SessionResponse)
@@ -622,6 +645,7 @@ def _register_routes(app: FastAPI) -> None:
             session_id=session_id,
             turn_count=memory.turn_count,
             sections=section_names,
+            matter_id=memory.matter_id,
         )
 
     @app.delete("/v1/sessions/{session_id}")

@@ -47,6 +47,7 @@ class SessionMemory:
         "_chars_per_token",
         "_corpus_ever_attached",
         "_graph",
+        "_matter_id",
         "_sections",
         "_session_id",
         "_turn_count",
@@ -58,10 +59,21 @@ class SessionMemory:
         *,
         sections: tuple[SectionConfig, ...] = DEFAULT_SECTIONS,
         chars_per_token: float = 4.0,
+        matter_id: str | None = None,
     ) -> None:
         self._session_id = session_id
         self._chars_per_token = chars_per_token
         self._turn_count = 0
+        # Plan §Issue 2 (launch-blocker top-10) — per-matter tenancy.
+        # ``matter_id`` is the firm-side ethical-wall identifier (e.g.
+        # "ABC-2026-0042"). When set, ``MatterClientGuard`` consumers
+        # (``InstitutionalMemory.add`` / ``query``) can enforce
+        # cross-matter isolation under Model Rule 1.6/1.7/1.9. ``None``
+        # = unscoped (single-matter or non-firm workflow); the planner
+        # does not gate on missing matter_id. Backward compat: existing
+        # callers that don't pass ``matter_id`` get ``None`` and the
+        # historic unscoped behavior.
+        self._matter_id: str | None = matter_id
         # ``_sections`` is internal — public callers should read it via
         # :attr:`sections` (KC17-P2-4). It stays underscored because the
         # ``__slots__`` layout is implementation detail and the API needs
@@ -89,6 +101,19 @@ class SessionMemory:
     @property
     def session_id(self) -> str:
         return self._session_id
+
+    @property
+    def matter_id(self) -> str | None:
+        """Per-matter ethical-wall identifier (plan §Issue 2).
+
+        Returns the firm-side matter id passed at construction (e.g.
+        ``"ABC-2026-0042"``) or ``None`` for unscoped sessions. Downstream
+        consumers (``InstitutionalMemory`` + the future
+        ``MatterClientGuard`` Runner hook) consult this to enforce
+        cross-matter isolation. The session id and the matter id are
+        independent: many sessions can belong to the same matter.
+        """
+        return self._matter_id
 
     @property
     def turn_count(self) -> int:
@@ -462,6 +487,10 @@ class SessionMemory:
             # session snapshot so a multi-day-old "summarize that"
             # follow-up still recognises the corpus context.
             "corpus_ever_attached": self._corpus_ever_attached,
+            # Plan §Issue 2 — matter id persists with the session snapshot
+            # so the next turn (potentially in a new process) reconstructs
+            # the same ethical-wall scope.
+            "matter_id": self._matter_id,
             "sections": {
                 mt.value: section.to_dict()
                 for mt, section in self._sections.items()
@@ -481,6 +510,9 @@ class SessionMemory:
             session_id=data["session_id"],
             sections=sections,
             chars_per_token=data.get("chars_per_token", 4.0),
+            # Plan §Issue 2 — rehydrate the per-matter id. Pre-0.1.8
+            # snapshots don't have the key; default to None (unscoped).
+            matter_id=data.get("matter_id"),
         )
         memory._turn_count = data.get("turn_count", 0)
         # WU-G.2 / #352 — rehydrate the sticky corpus flag. Older

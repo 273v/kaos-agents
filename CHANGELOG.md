@@ -7,6 +7,197 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Launch-blocker plan §Issue 2 (per-matter tenancy) + §Issue 5 / B1.1
+(Runner-level CircuitBreaker default install). See
+`kaos-modules/docs/plans/2026-05-22-launch-blocker-top-10.md`.
+
+### Added
+
+- **Issue 8 / B1.5 — `build_coref_context_tag` integration helper**
+  (`kaos_agents/context/coreference.py`). One-call wrapper that
+  composes `resolve_ordinal` + `format_coreference_tag` against a
+  SessionMemory section (DOCUMENTS by default) and returns a
+  worker-prompt-ready `<context>` tag string, or `None` when no
+  ordinal phrase fires. Candidates come from the FULL unpruned
+  section (`memory.get(DOCUMENTS)`) rather than the post-BM25
+  assembled-context window — "the third NDA" refers to the third
+  NDA the user uploaded across the whole session, not the third
+  that happened to survive token-budget trimming this turn.
+
+  Defaults: `section=MemoryType.DOCUMENTS`, `label_for=` an
+  internal `_default_doc_label` that mirrors the WU-G.2 corpus-
+  handle anchor (filename → uri → source_uri → name → source →
+  first non-empty content line → `item:<id>`), and
+  `min_confidence=0.5` (which keeps the "the next" heuristic
+  surfacing a clarify-ambiguity tag; bump to 0.99 to keep only
+  confident in-range resolutions).
+
+  11 new unit tests in `tests/unit/test_build_coref_context_tag.py`:
+  no-ordinal → None, empty-section → None, "the third NDA"
+  resolves against five DOCUMENTS items with the expected
+  `position 3` + filename, out-of-range "the eighth NDA" renders
+  the clarify-ambiguity branch, "the next" renders the low-
+  confidence branch at default threshold but is suppressed at
+  `min_confidence=0.99`, default label uses filename metadata,
+  default label falls back to first content line when metadata
+  is absent, custom `label_for` overrides the default, the
+  `section` kwarg lets a research agent resolve "the third
+  finding" against FINDINGS, and an invariant-pin test confirms
+  candidates come from the full unpruned section rather than the
+  assembled-context window.
+
+  The follow-on agent.py wire-in (call `build_coref_context_tag`
+  after Step 4 `assemble_context` and inject the returned tag
+  into the worker prompt) is a separate atomic commit so this PR
+  stays reviewable.
+
+- **Issue 8 / B1.5 — Ordinal coreference resolver primitive**
+  (`kaos_agents/context/coreference.py`). Deterministic,
+  zero-LLM regex + index-map resolver. Given a user message and
+  a list of referent candidates (typically `SessionMemory.DOCUMENTS`
+  in turn order), returns a `CoreferenceResolution` record with:
+  `matched_phrase`, `ordinal` (1-based; `-1` for "the last"),
+  `resolved_index`, `resolved_candidate`, and `confidence`.
+
+  Resolution order: "the last / prior / previous / latest /
+  most recent" → `candidates[-1]` (confidence 1.0); "the next" →
+  `candidates[0]` (confidence 0.5, heuristic); numeric ordinals
+  ("the 3rd doc") and word ordinals ("the third document") →
+  `candidates[N-1]` (confidence 1.0 in-range, 0.5 out-of-range).
+
+  Tests in `tests/unit/test_ordinal_coref_signature.py` (15
+  tests, all passing): word ordinals first-through-fifth, numeric
+  ordinals with case-insensitivity, "the last" / "the previous" /
+  "the next" with heuristic-confidence semantics, out-of-range
+  detection (returns resolution with `resolved_index=None`,
+  `confidence=0.5` rather than silently dropping the reference),
+  no-ordinal-returns-None, empty-candidates-returns-None,
+  empty-message-returns-None, and the plan §Issue 8 12-scenario
+  acceptance fixture which the deterministic layer hits 12/12.
+
+  Plan §Issue 8 acceptance row "≥90% resolution rate on 12-
+  scenario fixture" closed at the primitive layer. The
+  `assemble_context` tag-injection that wraps this primitive
+  into the worker prompt as `<context>` follows in a separate
+  commit so the resolver can be reviewed independently. The
+  live LLM eval (`tests/integration/test_ordinal_coref_live.py`)
+  is the next layer — it runs the same 12 scripts through a
+  real worker prompt and judges output against the expected
+  resolved candidate.
+
+- **Issue 2 — `SessionMemory.matter_id`** (`kaos_agents/memory/session.py`).
+  Optional firm-side ethical-wall identifier (e.g. `"ABC-2026-0042"`)
+  threaded through SessionMemory construction + `to_dict` / `from_dict`
+  persistence round-trip. `None` (default) keeps existing sessions
+  unscoped. Pre-0.1.8 snapshots rehydrate as `None`, never
+  retroactively scope into a matter the user did not opt into. 5 new
+  unit tests in `tests/unit/test_session_matter_id.py`.
+
+- **Issue 2 — `SessionStore.load_or_create(matter_id=...)`**
+  (`kaos_agents/memory/store.py`). Propagates the per-matter scope
+  into newly-created sessions. **Existing sessions keep their
+  persisted `matter_id`** — a stale kwarg cannot silently re-scope a
+  live session into a different matter (Model Rule 1.7
+  cross-current-client conflict protection). 3 new async unit tests.
+
+- **Issue 2 — `POST /v1/sessions` accepts `matter_id`**
+  (`kaos_agents/api/server.py`). `SessionCreateRequest.matter_id`
+  optional, `max_length=128` (Pydantic 422 on overflow).
+  `SessionResponse.matter_id` echoes the scope on both POST and GET
+  so a client can confirm round-trip without a follow-up call.
+  Backward-compatible — pre-0.1.8 clients ignore the new response
+  field. 4 new API tests + 1 amended existing test.
+
+- **Issue 8 / B1.4 — Tool-result staleness gate primitives**
+  (`kaos_agents/memory/staleness.py` + `SessionPolicy.tool_staleness_ttl_seconds`).
+  New `is_stale(fetched_at, *, ttl_seconds, now=None)` pure check and
+  `mark_stale_items(items, *, ttl_seconds, now=None)` scanner over a
+  list of memory items. `SessionPolicy.tool_staleness_ttl_seconds`
+  defaults to `0.0` (gate disabled) so historic sessions are
+  unchanged; operators running multi-day deal-room sessions set
+  this to e.g. `3600.0` (1 hr) for FR/EDGAR re-fetch cadence. The
+  ``>=`` boundary is intentional — fail toward over-verification
+  rather than serving a stale EDGAR filing. Closes the §Issue 8
+  acceptance row "3-turn fixture: turn 1 fetches URL with TTL=10s;
+  turn 3 (after 11s) → staleness flag" at the primitive level; the
+  `assemble_context` wire-up that writes `needs_reverification=True`
+  into the next thinking note follows in a separate commit so the
+  primitive can be reviewed independently. 13 new unit tests in
+  `tests/unit/test_staleness_gate.py` (incl. the 3-turn fixture
+  pinned faithfully).
+
+- **Issue 2 — `MatterIsolationHook` Runner-installable enforcement**
+  (`kaos_agents/memory/isolation.py`, security-sensitive). New
+  `KaosHook` subclass that fires on `Span(TOOL_CALL, START)` events
+  and refuses any tool call whose args reference a matter id
+  different from the bound session matter. `Runner.__init__` now
+  takes a `matter_id: str | None = None` kwarg; when set,
+  idempotently appends `MatterIsolationHook(matter_id=...)` to the
+  hooks tuple. Conservative default — `matter_id=None` (legacy
+  sessions) skips the install so existing callers stay unchanged.
+  `unsafe_bypass=True` cascades through. The scanner detects the
+  three canonical matter-id forms — `matter:<id>` URI,
+  `matters/<id>/...` VFS path, `matter_id=<id>` query fragment —
+  plus literal `{"matter_id": "..."}` kwargs nested one level
+  deep. On trip, raises `MatterIsolationError` with what / fix /
+  alternative agent-friendly text. Closes the engine-side §Issue 2
+  acceptance row ("Runner constructed with matter_id=A, tool calls
+  into matter=B raise MatterIsolationError"). 14 new unit tests in
+  `tests/unit/test_matter_isolation_hook.py` + 7 new tests in
+  `tests/unit/test_runner_default_matter_isolation_hook.py`.
+
+- **Issue 5 / B1.1 — Runner installs `CircuitBreaker` by default**
+  (`kaos_agents/runtime/runner.py`, security-sensitive). New
+  `install_default_circuit_breaker: bool = True` kwarg on
+  `Runner.__init__`. Auto-appends a `CircuitBreaker()` to the hooks
+  tuple unless one is already present (idempotent on caller-supplied
+  instances) or the caller opts out via the kwarg or via the existing
+  `unsafe_bypass=True` escape hatch. Closes the runaway-empty-results
+  exposure surface — pre-fix, only the API server + the SPA backend
+  wired the breaker explicitly; CLI / bench / MCP-tool / direct embeds
+  ran without protection (root cause of session
+  01KS2DEBYT341F1F16B3BRQRV0). 5 new unit tests in
+  `tests/unit/test_runner_default_circuit_breaker.py`.
+
+- **Issue 9 / B1.7 — `SessionPolicy.max_per_tool_cost_usd` field**
+  (`kaos_agents/types/session_policy.py`). Defense-in-depth alongside
+  the loop-level `max_loop_cost_usd` cap. The loop cap catches "many
+  cheap calls accumulating"; this field catches "one runaway call"
+  (e.g. a misconfigured-model invocation billing $5 in one shot).
+  Default `0.0` (disabled, historic behavior); operators tighten to
+  e.g. `0.05`. Exported as `DEFAULT_MAX_PER_TOOL_COST_USD`. 4 new
+  unit tests cover the default, explicit cap round-trip, independence
+  from `max_loop_cost_usd`, and the persona-helper preservation.
+
+  **Enforcement also shipped** in `agentic_loop.py`: new
+  `_per_tool_budget_exceeded` helper + check after every worker step.
+  When the per-call delta exceeds the cap (and the cap is non-zero),
+  the loop emits the standard failure-refusal pair and terminates
+  with `LoopTerminated(reason="cost_exceeded")` — same shape as the
+  cumulative-cap path, so SSE / SPA consumers don't need to
+  distinguish the two. Three additional helper-level tests (disabled
+  at zero, fires above cap with strict `>`, negative cap treated as
+  disabled) bring the field+enforcement surface to 7 tests passing.
+
+### Test surface
+
+- 21 new unit tests across `test_session_matter_id.py` (8),
+  `test_api.py` (4 new + 1 amended),
+  `test_runner_default_circuit_breaker.py` (5), and
+  `test_session_policy_max_per_tool_cost.py` (4). Combined surface:
+  **91 tests passing** on the matter_id + runner + memory + store +
+  api + session_policy stack. `ruff format`, `ruff check`,
+  `ty check` all clean.
+
+### Compatibility
+
+- All four changes are additive at the API + Python surface. Pre-0.1.8
+  callers that don't know about `matter_id` get `None`; the Runner's
+  hooks tuple shape stays the same (now plus a default CircuitBreaker;
+  opt out via `install_default_circuit_breaker=False` if a downstream
+  test needs the historic behavior). No removed APIs, no behavior
+  changes to existing matter_id-less sessions.
+
 ## [0.1.7] — 2026-05-21
 
 Broad-reliability roadmap §B0.8 — the final P0 item. Closes the

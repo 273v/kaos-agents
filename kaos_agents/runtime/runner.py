@@ -87,6 +87,7 @@ class Runner:
         "_context",
         "_corpus",
         "_hooks",
+        "_matter_id",
         "_permission_policy",
         "_runtime",
         "_settings",
@@ -107,11 +108,48 @@ class Runner:
         agent_loop_version: str | None = None,
         auto_select_planner: bool = True,
         unsafe_bypass: bool = False,
+        install_default_circuit_breaker: bool = True,
+        matter_id: str | None = None,
     ) -> None:
         self._agent = agent
         self._runtime = runtime
         self._settings = agent.resolve_settings()
         self._vfs = vfs or _resolve_vfs(runtime)
+        # Plan §Issue 5 / B1.1 — install ``CircuitBreaker`` by default
+        # on every Runner that doesn't already have one in its hooks
+        # tuple. Pre-fix the breaker only fired when the API layer or
+        # the SPA wired it explicitly (server.py:459/590); CLI agents,
+        # direct ``Runner(...)`` callers, and MCP tools all ran without
+        # protection — the root cause of session 01KS2DEBYT341F1F16B3BRQRV0
+        # (12 zero-result web searches with no breaker). Opt out via
+        # ``install_default_circuit_breaker=False`` for tests / benches
+        # that need the raw (un-protected) loop. Idempotent: if the
+        # caller already passed a CircuitBreaker, we don't double-install.
+        if install_default_circuit_breaker and not unsafe_bypass:
+            from kaos_agents.action.circuit import CircuitBreaker
+
+            has_breaker = any(isinstance(h, CircuitBreaker) for h in hooks)
+            if not has_breaker:
+                hooks = (*hooks, CircuitBreaker())
+
+        # Plan §Issue 2 — install ``MatterIsolationHook`` when the
+        # caller binds the Runner to a specific ``matter_id``.
+        # Refuses any tool call whose args reference a different
+        # matter id (file paths / URIs / kwargs). Conservative
+        # default: when ``matter_id is None`` (legacy session
+        # predating the field), the hook isn't installed so existing
+        # callers stay unchanged — the SPA-side BAA gate
+        # (``app/services/baa_gate.py``) still fires at the HTTP
+        # boundary, and operators opt into the isolation
+        # guarantee by setting matter_id on the session.
+        # Idempotent: skip if the caller already supplied one.
+        self._matter_id = matter_id
+        if matter_id is not None and not unsafe_bypass:
+            from kaos_agents.memory.isolation import MatterIsolationHook
+
+            has_isolation = any(isinstance(h, MatterIsolationHook) for h in hooks)
+            if not has_isolation:
+                hooks = (*hooks, MatterIsolationHook(matter_id=matter_id))
         self._hooks = hooks
         # KC17-P0-2: when no policy is supplied, install the default-safe
         # policy (which still escalates destructiveHint / humanConfirmation
