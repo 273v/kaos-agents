@@ -36,6 +36,24 @@ Launch-blocker plan §Issue 2 (per-matter tenancy) + §Issue 5 / B1.1
   Backward-compatible — pre-0.1.8 clients ignore the new response
   field. 4 new API tests + 1 amended existing test.
 
+- **Issue 8 / B1.4 — Tool-result staleness gate primitives**
+  (`kaos_agents/memory/staleness.py` + `SessionPolicy.tool_staleness_ttl_seconds`).
+  New `is_stale(fetched_at, *, ttl_seconds, now=None)` pure check and
+  `mark_stale_items(items, *, ttl_seconds, now=None)` scanner over a
+  list of memory items. `SessionPolicy.tool_staleness_ttl_seconds`
+  defaults to `0.0` (gate disabled) so historic sessions are
+  unchanged; operators running multi-day deal-room sessions set
+  this to e.g. `3600.0` (1 hr) for FR/EDGAR re-fetch cadence. The
+  ``>=`` boundary is intentional — fail toward over-verification
+  rather than serving a stale EDGAR filing. Closes the §Issue 8
+  acceptance row "3-turn fixture: turn 1 fetches URL with TTL=10s;
+  turn 3 (after 11s) → staleness flag" at the primitive level; the
+  `assemble_context` wire-up that writes `needs_reverification=True`
+  into the next thinking note follows in a separate commit so the
+  primitive can be reviewed independently. 13 new unit tests in
+  `tests/unit/test_staleness_gate.py` (incl. the 3-turn fixture
+  pinned faithfully).
+
 - **Issue 2 — `MatterIsolationHook` Runner-installable enforcement**
   (`kaos_agents/memory/isolation.py`, security-sensitive). New
   `KaosHook` subclass that fires on `Span(TOOL_CALL, START)` events

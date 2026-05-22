@@ -150,6 +150,19 @@ DEFAULT_MAX_LOOP_WALL_CLOCK_SECONDS: float = 60.0
 # per-invocation ceiling. ``0.0`` disables (the historic behavior).
 DEFAULT_MAX_PER_TOOL_COST_USD: float = 0.0
 
+# Plan §Issue 8 / B1.4 — tool-result staleness gate.
+# A long deal-room session may surface a cached web fetch / FR rule
+# / EDGAR filing from Day 1 on Day 3, even though the source could
+# have changed in between. ``tool_staleness_ttl_seconds`` is the
+# wall-clock TTL after which a tool result is flagged as
+# potentially stale and the context-assembly layer tags it with
+# ``needs_reverification=True`` in the next thinking note. ``0.0``
+# (default) disables — preserves historic behavior. Operators
+# running multi-day deal rooms tighten this to e.g. 3600.0 (1 hr)
+# for the financial-filing workflow or 86400.0 (1 day) for the
+# slower contract-review path.
+DEFAULT_TOOL_STALENESS_TTL_SECONDS: float = 0.0
+
 
 @dataclass(frozen=True, slots=True)
 class SessionPolicy:
@@ -216,6 +229,11 @@ class SessionPolicy:
     # loop cap remains the primary control. Operators tighten this
     # to e.g. ``0.05`` to catch a misconfigured-model runaway.
     max_per_tool_cost_usd: float = DEFAULT_MAX_PER_TOOL_COST_USD
+    # Plan §Issue 8 / B1.4 — tool-result staleness gate. ``0.0``
+    # (default) disables — preserves historic behavior. Operators
+    # running multi-day deal-room sessions set this to e.g. 3600.0
+    # (1 hr) so the planner re-fetches stale FR / EDGAR results.
+    tool_staleness_ttl_seconds: float = DEFAULT_TOOL_STALENESS_TTL_SECONDS
 
     # ─── Construction helpers ────────────────────────────────────────
 
