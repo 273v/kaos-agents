@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.10] — 2026-05-22
+
+Re-release of 0.1.9 with `uv.lock` upgraded to kaos-llm-client 0.1.5
+(the lockfile still pinned 0.1.0, so CI's `uv run ty check` resolved
+against the old surface and failed on the new `KaosLLMProviderPolicyError`
+and `emit_vendor_egress_log` symbols).
+
+No functional changes versus 0.1.8.
+
 ## [0.1.9] — 2026-05-22
 
 Re-release of 0.1.8 against kaos-llm-client 0.1.5 (which ships
