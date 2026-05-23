@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.13] — 2026-05-23
+
+### Added
+
+- Add `Runner.context_factory: Callable[[str], KaosContext] | None`
+  parameter. When supplied, the Runner builds a per-session
+  `KaosContext` at every `run` / `turn` / `delegate` / `handoff`
+  entry via `Runner._resolve_context(session_id)`. Hosts that scope
+  on-disk VFS layout per tenant (e.g. the single-user-chat SPA's
+  `sessions/{tenant}:{sid}/files/` layout) plug a tenant-aware
+  factory here so the agent's tool calls resolve against the same
+  namespace the host wrote to — no monkey-patching of
+  `_build_internal_agent` required. Default `None` preserves
+  existing behaviour.
+
 ## [0.1.12] — 2026-05-23
 
 ### Changed
