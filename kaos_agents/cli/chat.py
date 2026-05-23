@@ -324,8 +324,13 @@ def _c(code: str, text: str) -> str:
 def _parse_file_to_document(file_path: Path) -> Any:
     """Parse a file to a ContentDocument AST. Preserves full structure.
 
-    Dispatches by extension using kaos-pdf, kaos-office, kaos-content parsers.
-    For plain text formats, wraps in a ContentDocument via parse_plain_text.
+    Sniffs bytes via :func:`kaos_nlp_core.content_type.detect` first,
+    then routes on the detected ``group``. Bytes-based dispatch is
+    spoof-resistant — a DOCX renamed ``report.pdf`` routes to
+    ``parse_docx`` rather than crashing inside pypdfium2 with an
+    opaque parser error. Falls back to extension-based routing when
+    kaos-nlp-core is unavailable at runtime.
+
     Returns the ContentDocument (not serialized text).
     """
     from kaos_content.model.metadata import SourceRef
@@ -335,59 +340,90 @@ def _parse_file_to_document(file_path: Path) -> Any:
 
     source = SourceRef(uri=file_path.as_uri())
 
-    # PDF → kaos-pdf
-    # `merge_column_paragraphs=True` coalesces column-wrap line-rects in
-    # multi-column publications (Federal Register, GPO bulletins, court
-    # reporters) into flowing paragraphs. Without it, the agent's RAG
-    # retrieval sees one rect per visual line and cites garbled
-    # cross-column fragments. NLP-driven downstream is the agent CLI's
-    # use case, so we default to merging.
-    if ext == ".pdf":
+    # 1. Sniff bytes. Graceful fallback if kaos-nlp-core isn't on the path
+    #    (extras-only deployment) — we revert to extension routing then.
+    detected_group: str | None = None
+    try:
+        from kaos_nlp_core.content_type import detect
+
+        # 8KB head is enough for every magic-byte signature the detector
+        # understands; the OPC fallback inside detect() opens the zip
+        # central directory when needed so it can read past the head on
+        # its own.
+        with file_path.open("rb") as fh:
+            head = fh.read(65536)  # 64KB — generous; reading more would
+            # be wasteful for very large PDFs.
+        detected_group = detect(head).group
+    except ImportError:
+        pass  # kaos-nlp-core missing → ext fallback below.
+    except Exception:
+        pass  # detection raised (e.g. permission error) → ext fallback.
+
+    # 2. Bytes-based dispatch when detection produced a supported group.
+    if detected_group == "pdf":
         from kaos_pdf import extract_pdf
 
+        # `merge_column_paragraphs=True` coalesces column-wrap line-rects
+        # in multi-column publications (Federal Register, GPO bulletins,
+        # court reporters) into flowing paragraphs. Without it, the
+        # agent's RAG retrieval sees one rect per visual line and cites
+        # garbled cross-column fragments. NLP-driven downstream is the
+        # agent CLI's use case, so we default to merging.
         return extract_pdf(file_path, merge_column_paragraphs=True)
-
-    # DOCX → kaos-office
-    if ext == ".docx":
+    if detected_group == "office-docx":
         from kaos_office import parse_docx
 
         return parse_docx(file_path)
-
-    # PPTX → kaos-office
-    if ext == ".pptx":
+    if detected_group == "office-pptx":
         from kaos_office.pptx.reader import parse_pptx
 
         return parse_pptx(file_path)
-
-    # HTML/HTM → kaos-content html parser
-    if ext in (".html", ".htm"):
+    if detected_group == "html":
         from kaos_content.parsers.html import parse_html
 
         raw = file_path.read_text(encoding="utf-8", errors="replace")
         return parse_html(raw, url=file_path.as_uri())
 
-    # Markdown → kaos-content markdown parser
-    if ext == ".md":
-        from kaos_content.parsers.markdown import parse_markdown
+    # 3. Extension fallback. Covers detector-unavailable paths and the
+    #    text-family extensions that the detector reports as group=
+    #    "text"/"unknown" (markdown, plaintext, CSV, JSON, EML, XLSX).
+    if detected_group is None or detected_group in ("text", "unknown", "html"):
+        if ext == ".pdf":
+            from kaos_pdf import extract_pdf
 
-        raw = file_path.read_text(encoding="utf-8", errors="replace")
-        return parse_markdown(raw, source=source)
+            return extract_pdf(file_path, merge_column_paragraphs=True)
+        if ext == ".docx":
+            from kaos_office import parse_docx
 
-    # Plain text, CSV, JSON, EML, XLSX — wrap as plain text ContentDocument
-    if ext in (".txt", ".csv", ".json", ".eml", ".xlsx"):
-        raw = file_path.read_text(encoding="utf-8", errors="replace")
-        return parse_plain_text(raw, source=source)
+            return parse_docx(file_path)
+        if ext == ".pptx":
+            from kaos_office.pptx.reader import parse_pptx
 
-    # Fallback: try reading as plain text
-    try:
-        raw = file_path.read_text(encoding="utf-8", errors="replace")
-        if raw.strip():
+            return parse_pptx(file_path)
+        if ext in (".html", ".htm"):
+            from kaos_content.parsers.html import parse_html
+
+            raw = file_path.read_text(encoding="utf-8", errors="replace")
+            return parse_html(raw, url=file_path.as_uri())
+        if ext == ".md":
+            from kaos_content.parsers.markdown import parse_markdown
+
+            raw = file_path.read_text(encoding="utf-8", errors="replace")
+            return parse_markdown(raw, source=source)
+        if ext in (".txt", ".csv", ".json", ".eml", ".xlsx"):
+            raw = file_path.read_text(encoding="utf-8", errors="replace")
             return parse_plain_text(raw, source=source)
-    except Exception:
-        pass
+
+        # Last-resort fallback: try reading as plain text.
+        try:
+            raw = file_path.read_text(encoding="utf-8", errors="replace")
+            if raw.strip():
+                return parse_plain_text(raw, source=source)
+        except Exception:
+            pass
 
     msg = (
-        f"Could not parse {ext} file. "
+        f"Could not parse {ext} file (detected group={detected_group!r}). "
         f"Supported formats: {', '.join(sorted(_SUPPORTED_EXTENSIONS))}. "
         f"Alternative: convert to PDF or plain text first."
     )
