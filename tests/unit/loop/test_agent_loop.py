@@ -268,14 +268,26 @@ def _capturing_extractor(intent: IntentResult) -> tuple[IntentExtractor, list[di
 
 
 class _FakeMemoryItem:
-    """Minimal MemoryItem stand-in for ``_corpus_headlines_from_memory``.
+    """Minimal MemoryItem stand-in for ``_corpus_headlines_from_memory``
+    + ``_corpus_kinds_from_memory``.
 
     The helper reads ``metadata["filename"]`` (or falls back to other
-    metadata anchors / content). The stub mirrors that surface.
+    metadata anchors / content). Audit Fix 2B also reads
+    ``metadata["content_type_group"]`` for ``corpus_kinds``.
+    The stub mirrors that surface.
     """
 
-    def __init__(self, filename: str | None, content: str = "") -> None:
-        self.metadata: dict[str, Any] = {"filename": filename} if filename else {}
+    def __init__(
+        self,
+        filename: str | None,
+        content: str = "",
+        content_type_group: str | None = None,
+    ) -> None:
+        self.metadata: dict[str, Any] = {}
+        if filename:
+            self.metadata["filename"] = filename
+        if content_type_group:
+            self.metadata["content_type_group"] = content_type_group
         self.content = content
 
 
@@ -359,6 +371,56 @@ class TestCorpusSizeFromMemory:
     def test_memory_with_documents_returns_count(self) -> None:
         mem = _FakeMemory(has_documents=True, count=7)
         assert AgentLoop._corpus_size_from_memory(mem) == 7  # ty: ignore[invalid-argument-type]
+
+
+class TestCorpusKindsFromMemory:
+    """Audit Fix 2B — ``_corpus_kinds_from_memory`` aggregates the
+    ``metadata['content_type_group']`` value across DOCUMENTS items
+    into a newline-separated sorted-distinct list."""
+
+    def test_none_memory_returns_empty(self) -> None:
+        assert AgentLoop._corpus_kinds_from_memory(None) == ""
+
+    def test_memory_without_documents_section_returns_empty(self) -> None:
+        mem = _FakeMemory(has_documents=False)
+        assert AgentLoop._corpus_kinds_from_memory(mem) == ""  # ty: ignore[invalid-argument-type]
+
+    def test_memory_with_documents_but_no_group_metadata_returns_empty(self) -> None:
+        """No producer set ``content_type_group`` → return ""; classifier
+        treats this as "no signal" (preserves pre-Fix-2B behavior)."""
+        mem = _FakeMemory(has_documents=True, count=3)  # default _FakeMemoryItem has no group
+        assert AgentLoop._corpus_kinds_from_memory(mem) == ""  # ty: ignore[invalid-argument-type]
+
+    def test_mixed_corpus_returns_sorted_distinct_groups(self) -> None:
+        """A mixed corpus (PDFs + DOCX + PPTX, plus duplicates) must
+        produce a sorted-distinct list — duplicates collapsed,
+        ordering deterministic for prompt stability."""
+        mem = _FakeMemory(has_documents=False)
+        # Bypass __init__'s synthetic fill; assemble items directly.
+        mem._has = True
+        mem._items = (
+            _FakeMemoryItem("a.pdf", content_type_group="pdf"),
+            _FakeMemoryItem("b.docx", content_type_group="office-docx"),
+            _FakeMemoryItem("c.docx", content_type_group="office-docx"),  # duplicate
+            _FakeMemoryItem("d.pptx", content_type_group="office-pptx"),
+        )
+        mem._count = 4
+        result = AgentLoop._corpus_kinds_from_memory(mem)  # ty: ignore[invalid-argument-type]
+        assert result == "office-docx\noffice-pptx\npdf"
+
+    def test_drops_items_missing_or_blank_group(self) -> None:
+        """Items where ``content_type_group`` is missing, None, or empty
+        string contribute nothing — but other items still count."""
+        mem = _FakeMemory(has_documents=False)
+        mem._has = True
+        mem._items = (
+            _FakeMemoryItem("a.pdf", content_type_group="pdf"),
+            _FakeMemoryItem("b.unknown"),  # no group at all
+            _FakeMemoryItem("c.empty", content_type_group=""),  # empty string
+        )
+        mem._count = 3
+        result = AgentLoop._corpus_kinds_from_memory(mem)  # ty: ignore[invalid-argument-type]
+        assert result == "pdf"
 
 
 class TestPrepareTurnThreadsCorpusInputs:

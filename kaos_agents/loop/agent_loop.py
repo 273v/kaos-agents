@@ -293,6 +293,15 @@ class AgentLoop(Program):
         #    matching filenames verbatim against this list.
         corpus_size = self._corpus_size_from_memory(memory)
         corpus_headlines = self._corpus_headlines_from_memory(memory)
+        # Audit Fix 2B — IntentSignature ``corpus_kinds`` input.
+        # Producers (kaos-ui upload handler, kaos-source materializer)
+        # SHOULD set ``metadata['content_type_group']`` on each
+        # DOCUMENTS item per the
+        # ``kaos_nlp_core.content_type.detect()`` taxonomy. The helper
+        # aggregates those values into a newline-separated sorted-
+        # distinct list. Returns ``""`` when no producer has populated
+        # the field — the classifier then ignores the input.
+        corpus_kinds = self._corpus_kinds_from_memory(memory)
         # WU-G.2 / #352 — mark the session as having ever had a corpus
         # attached. This flag is sticky across turns and persisted with
         # the SessionMemory snapshot; ``assemble_context`` consults it
@@ -318,6 +327,7 @@ class AgentLoop(Program):
             corpus_attached=corpus_size > 0,
             corpus_size=corpus_size,
             corpus_headlines=corpus_headlines,
+            corpus_kinds=corpus_kinds,
             available_tool_groups=available_tool_groups,
         )
         intent: IntentResult = intent_invocation.output
@@ -768,6 +778,43 @@ class AgentLoop(Program):
             if anchor:
                 lines.append(str(anchor))
         return "\n".join(lines)
+
+    @staticmethod
+    def _corpus_kinds_from_memory(memory: SessionMemory | None) -> str:
+        """Newline-separated, sorted-distinct list of content-type
+        ``group`` strings present in ``SessionMemory.DOCUMENTS``.
+
+        Audit Fix 2B — feeds the ``IntentSignature.corpus_kinds``
+        input. Reads ``metadata['content_type_group']`` from each
+        document item; values are the coarse buckets from
+        ``kaos_nlp_core.content_type.detect()`` (``pdf`` /
+        ``office-docx`` / ``image`` / …).
+
+        Returns ``""`` when (a) memory is ``None``, (b) the DOCUMENTS
+        section is empty, or (c) no producer has populated
+        ``metadata['content_type_group']`` on any item. The classifier
+        treats empty-string as "no signal" — no behavior change for
+        sessions whose producers haven't been upgraded.
+
+        Cheap: O(n) over DOCUMENTS items, metadata-only reads, no
+        I/O. Safe to run on every turn.
+        """
+        from kaos_agents.types.memory import MemoryType
+
+        if memory is None:
+            return ""
+        if not memory.has_section(MemoryType.DOCUMENTS):
+            return ""
+        items = memory.get(MemoryType.DOCUMENTS)
+        kinds: set[str] = set()
+        for item in items:
+            metadata = getattr(item, "metadata", None) or {}
+            group = metadata.get("content_type_group")
+            if isinstance(group, str) and group:
+                kinds.add(group)
+        if not kinds:
+            return ""
+        return "\n".join(sorted(kinds))
 
     # ------------------------------------------------------------------
     # Phase 4.D wiring helpers
