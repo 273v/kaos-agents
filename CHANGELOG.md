@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — CLI `_parse_file_to_document` routes by detected bytes
+
+`kaos_agents.cli.chat._parse_file_to_document` now sniffs the input
+file's bytes via `kaos_nlp_core.content_type.detect()` (0.1.1+) and
+routes on the detected ``group`` — same spoof-resistance contract
+the kaos-ui upload handler ships. A DOCX renamed `report.pdf` now
+routes to `parse_docx` rather than crashing inside pypdfium2.
+
+Extension routing is preserved as a fallback (1) when the detector
+is unavailable at runtime, and (2) for text-family files where the
+detector returns `text` / `unknown` (markdown, plaintext, CSV,
+JSON, EML, XLSX).
+
+Tracked in `kaos-modules/docs/audits/2026-05-22-content-type-detection-unused.md`
+Fix 2A. Fix 2B (populating `corpus_kinds` on planner Signature
+inputs) is deferred — needs the set-vs-Counter design decision
+from audit §8 Q3.
+
 ## [0.1.11] — 2026-05-22
 
 CVE patches + CI infrastructure fixes. No functional code changes.
