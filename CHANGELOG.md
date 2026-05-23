@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 0.1.14 - 2026-05-23
+
+### Added
+
+- `create_app()` exposes `context_factory: Callable[[str], KaosContext] | None`,
+  stored on `app.state.context_factory` and threaded into the per-request
+  `Runner(...)` construction at the `/messages` and `/resume` route handlers.
+  Hosts that scope VFS layout per session/tenant — e.g. the single-user-chat
+  SPA's `sessions/{tenant}:{sid}/files/` namespace — supply a factory here so
+  the agent's tool calls resolve against the same prefix the host wrote to,
+  without monkey-patching `Runner.__init__`. Default `None` preserves existing
+  behaviour.
+
 ## [0.1.13] — 2026-05-23
 
 ### Added

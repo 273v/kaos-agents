@@ -19,7 +19,11 @@ request from 127.0.0.1 when ``KAOS_AGENTS_API_ALLOW_UNAUTH_LOCALHOST=1``.
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Annotated, Any
+
+if TYPE_CHECKING:
+    from kaos_core.base.context import KaosContext
 
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Path, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -221,6 +225,7 @@ def create_app(
     runtime: KaosRuntime | None = None,
     cors_origins: list[str] | None = None,
     api_settings: KaosAgentsApiSettings | None = None,
+    context_factory: Callable[[str], KaosContext] | None = None,
 ) -> FastAPI:
     """Create the FastAPI application for kaos-agents.
 
@@ -234,6 +239,16 @@ def create_app(
             env (``KAOS_AGENTS_API_*``). At least one of ``api_token`` or
             ``api_allow_unauth_localhost`` must be set or
             :class:`InsecureApiConfigurationError` is raised.
+        context_factory: Optional ``(session_id) -> KaosContext`` callable
+            passed through to every per-request :class:`Runner` constructed
+            by ``/v1/sessions/{id}/messages`` and ``/v1/sessions/{id}/runs/{rid}/resume``.
+            Hosts that scope VFS layout per session/tenant — e.g. the
+            single-user-chat SPA's ``sessions/{tenant}:{sid}/files/``
+            namespace — supply a factory here so the agent's tool calls
+            resolve against the same prefix the host wrote to, without
+            monkey-patching ``Runner.__init__`` or
+            ``_build_internal_agent``. Stored on
+            ``app.state.context_factory`` for diagnostics.
 
     Returns:
         Configured FastAPI application.
@@ -285,6 +300,11 @@ def create_app(
     app.state.vfs = _resolve_vfs(runtime)
     app.state.api_settings = settings
     app.state.tenant_id = settings.tenant_id()
+    # Optional host-supplied per-session context builder; read by the
+    # /messages and /resume route handlers when constructing the
+    # per-request Runner. None falls through to the Runner-level
+    # context default (current behaviour).
+    app.state.context_factory = context_factory
 
     # Register routes
     _register_routes(app)
@@ -464,6 +484,7 @@ def _register_routes(app: FastAPI) -> None:
             vfs=app.state.vfs,
             permission_policy=permission_policy,
             hooks=runner_hooks,
+            context_factory=app.state.context_factory,
         )
 
         # Content negotiation: JSON-only clients take the blocking path.
@@ -588,6 +609,7 @@ def _register_routes(app: FastAPI) -> None:
             runtime=app.state.runtime,
             vfs=app.state.vfs,
             hooks=(CircuitBreaker(),),
+            context_factory=app.state.context_factory,
         )
         event_stream = runner.resume(state, approved=body.approved)
         return StreamingResponse(
