@@ -29,7 +29,7 @@ Usage::
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import TYPE_CHECKING, Any
 
 from kaos_core.logging import get_logger
@@ -85,6 +85,7 @@ class Runner:
         "_agent_loop_version",
         "_auto_select_planner",
         "_context",
+        "_context_factory",
         "_corpus",
         "_hooks",
         "_matter_id",
@@ -101,6 +102,7 @@ class Runner:
         *,
         runtime: KaosRuntime | None = None,
         context: KaosContext | None = None,
+        context_factory: Callable[[str], KaosContext] | None = None,
         vfs: VirtualFileSystem | None = None,
         hooks: tuple[KaosHook, ...] = (),
         permission_policy: PermissionPolicy | None = None,
@@ -111,6 +113,23 @@ class Runner:
         install_default_circuit_breaker: bool = True,
         matter_id: str | None = None,
     ) -> None:
+        """Build a Runner that drives ``agent`` against ``runtime``.
+
+        :param context: Runner-level :class:`KaosContext` used for every
+            tool call when ``context_factory`` is ``None``.
+        :param context_factory: Optional ``(session_id) -> KaosContext``
+            callable. When supplied, the Runner builds a fresh context
+            **per session** at every ``run`` / ``turn`` / ``delegate`` /
+            ``handoff`` entry. Hosts that scope their on-disk VFS layout
+            per tenant or per session (e.g. the single-user-chat SPA's
+            ``sessions/{tenant}:{sid}/files/`` layout) plug a tenant-
+            aware factory here so the agent's tool calls resolve against
+            the same namespace the host wrote to — no monkey-patching
+            of ``_build_internal_agent`` required. The factory is called
+            inside ``_resolve_context(session_id)``; callers that don't
+            need per-session contexts can leave it ``None`` (default)
+            and the Runner-level ``context`` is used unchanged.
+        """
         self._agent = agent
         self._runtime = runtime
         self._settings = agent.resolve_settings()
@@ -193,6 +212,22 @@ class Runner:
         if context is not None and corpus is not None:
             context._config["_corpus"] = corpus
         self._context = context
+        self._context_factory = context_factory
+
+    def _resolve_context(self, session_id: str | None) -> KaosContext | None:
+        """Return the per-session context if a factory was supplied.
+
+        Hosts that scope on-disk VFS layout per session/tenant (e.g.
+        the single-user-chat SPA's tenant-prefixed
+        ``sessions/{tenant}:{sid}/files/`` layout) plug a factory at
+        Runner build time so the agent's tool calls resolve against
+        the same namespace the host wrote to. When no factory is set,
+        the Runner-level ``self._context`` is returned unchanged
+        (current default behavior — fully backward-compatible).
+        """
+        if self._context_factory is not None and session_id is not None:
+            return self._context_factory(session_id)
+        return self._context
 
     @property
     def agent(self) -> Agent:
@@ -691,7 +726,7 @@ class Runner:
                 task,
                 parent_session_id=session_id,
                 runtime=self._runtime,
-                context=self._context,
+                context=self._resolve_context(session_id),
                 vfs=self._vfs,
             )
         except Exception as exc:
@@ -744,7 +779,8 @@ class Runner:
         target_runner = Runner(
             target,
             runtime=self._runtime,
-            context=self._context,
+            context=self._resolve_context(session_id),
+            context_factory=self._context_factory,
             vfs=self._vfs,
             hooks=self._hooks,
             permission_policy=self._permission_policy,
@@ -811,7 +847,7 @@ class Runner:
 
         parent_session = session_id or ""
         runtime = self._runtime
-        context = self._context
+        context = self._resolve_context(session_id)
         vfs = self._vfs
         tools: list[Any] = []
 
@@ -925,7 +961,7 @@ class Runner:
 
         parent_session = session_id or ""
         runtime = self._runtime
-        context = self._context
+        context = self._resolve_context(session_id)
         vfs = self._vfs
 
         async def _subagent_invoke(task: str) -> str:
@@ -949,13 +985,21 @@ class Runner:
 
         Args:
             session_id: Session id — used to derive sub-session ids for
-                delegated agents. None when constructing the internal
-                agent without a specific session context.
+                delegated agents AND (via :meth:`_resolve_context`) to
+                pick the per-session :class:`KaosContext` when a
+                ``context_factory`` was supplied at Runner build time.
+                None when constructing the internal agent without a
+                specific session context.
         """
         pattern = self._agent.pattern
         model = self._agent.effective_model()
         tool_filter = self._agent.tool_filter()
         extra_tools = self._build_delegation_tools(session_id=session_id)
+        # Per-session context resolution: when the host installed a
+        # ``context_factory`` (e.g. to scope the VFS namespace per
+        # session/tenant), this returns a fresh ``KaosContext``;
+        # otherwise it falls through to the Runner-level ``self._context``.
+        context = self._resolve_context(session_id)
 
         # WS-0.1: thread the Runner's permission policy into the internal
         # agent so it applies at the tool-executor level — before any
@@ -988,7 +1032,7 @@ class Runner:
             return ResearchAgent(
                 self._vfs,
                 runtime=self._runtime,
-                context=self._context,
+                context=context,
                 model=model,
                 tool_filter=tool_filter,
                 max_tools=self._agent.max_tools,
@@ -1009,7 +1053,7 @@ class Runner:
             return PlanExecuteAgent(
                 self._vfs,
                 runtime=self._runtime,
-                context=self._context,
+                context=context,
                 model=model,
                 tool_filter=tool_filter,
                 max_tools=self._agent.max_tools,
@@ -1028,7 +1072,7 @@ class Runner:
         return ChatAgent(
             self._vfs,
             runtime=self._runtime,
-            context=self._context,
+            context=context,
             model=model,
             tool_filter=tool_filter,
             max_tools=self._agent.max_tools,
