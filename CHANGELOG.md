@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `IntentSignature.corpus_kinds` input (audit Fix 2B)
+
+`IntentSignature` gains a new ``corpus_kinds: str`` InputField — a
+newline-separated, sorted-distinct list of the content-type
+``group`` values present in ``SessionMemory.DOCUMENTS``. Values come
+from ``kaos_nlp_core.content_type.detect()`` (vocabulary:
+``pdf``/``office-docx``/``office-xlsx``/``office-pptx``/``office-doc``/
+``office-xls``/``office-ppt``/``image``/``audio``/``video``/``archive``/
+``email``/``html``/``text``/``font``/``binary``/``unknown``).
+
+``AgentLoop._corpus_kinds_from_memory(memory)`` reads
+``metadata['content_type_group']`` from each DOCUMENTS item and
+aggregates them. Producers (kaos-ui upload handler, kaos-source
+materializer, any consumer that adds to ``SessionMemory.DOCUMENTS``)
+SHOULD set this metadata when adding a document — the helper returns
+``""`` when no producer has populated the field, so the classifier
+treats absence as "no signal" and pre-Fix-2B sessions behave
+identically.
+
+`set[str]` was chosen over `Counter[str]` per audit §8 Q3 — the
+planner few-shot examples speak set vocabulary, and cost-forecasting
+use cases that need counts can layer on top without rewriting the
+Signature.
+
+Tracked in `kaos-modules/docs/audits/2026-05-22-content-type-detection-unused.md`
+Fix 2B.
+
 ### Changed — CLI `_parse_file_to_document` routes by detected bytes
 
 `kaos_agents.cli.chat._parse_file_to_document` now sniffs the input

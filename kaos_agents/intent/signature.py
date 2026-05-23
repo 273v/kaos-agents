@@ -196,6 +196,28 @@ class IntentSignature(Signature):
             "attached corpus."
         ),
     )
+    corpus_kinds: str = InputField(
+        default="",
+        description=(
+            "Newline-separated sorted-distinct list of content-type "
+            "*groups* present in the attached corpus, as classified by "
+            "``kaos_nlp_core.content_type.detect()``. Vocabulary: "
+            "``pdf`` / ``office-docx`` / ``office-xlsx`` / ``office-pptx`` / "
+            "``office-doc`` / ``office-xls`` / ``office-ppt`` / ``image`` / "
+            "``audio`` / ``video`` / ``archive`` / ``email`` / ``html`` / "
+            "``text`` / ``font`` / ``binary`` / ``unknown``. "
+            "Producers (kaos-ui upload handler, kaos-source materializer, "
+            "any consumer that adds to ``SessionMemory.DOCUMENTS``) "
+            "SHOULD set ``metadata['content_type_group']`` on each "
+            "document item so this signal is populated; "
+            "``_corpus_kinds_from_memory`` aggregates those values "
+            "here. Empty string when no producer set the metadata. "
+            "The classifier MAY use this to bias toward PDF / office / "
+            "image extraction tools when those formats dominate the "
+            "corpus — but should not refuse on the basis of corpus "
+            "kinds alone."
+        ),
+    )
     available_tool_groups: str = InputField(
         default="",
         description=(
