@@ -162,9 +162,13 @@ class TestAtomicSave:
         mem.add(MemoryType.MESSAGES, "alpha")
         await store.save(mem)
 
-        # The .tmp file must NOT survive a successful save.
+        # The .tmp file must NOT survive a successful save. Since 0.1.17
+        # ``SessionStore.save`` writes under ``context_id=session_id`` so
+        # the disk path lands in the per-session VFS namespace
+        # (``{session_id}/...``) rather than the shared ``default/`` scope
+        # — see tests/unit/test_session_isolation.py for the rationale.
         memory_path = (
-            tmp_path / "default" / "kaos-agents" / "sessions" / "atomic-clean" / "memory.json"
+            tmp_path / "atomic-clean" / "kaos-agents" / "sessions" / "atomic-clean" / "memory.json"
         )
         tmp_file = memory_path.with_suffix(".json.tmp")
         assert memory_path.exists()
@@ -205,9 +209,14 @@ class TestAtomicSave:
         await store.save(original)
 
         # Snapshot the OLD bytes on disk so we can prove they survived
-        # the simulated crash.
+        # the simulated crash. Per-session scope since 0.1.17.
         memory_path = (
-            tmp_path / "default" / "kaos-agents" / "sessions" / "atomic-sigterm" / "memory.json"
+            tmp_path
+            / "atomic-sigterm"
+            / "kaos-agents"
+            / "sessions"
+            / "atomic-sigterm"
+            / "memory.json"
         )
         graph_path = memory_path.parent / "graph.ttl"
         old_memory_bytes = memory_path.read_bytes()
@@ -225,11 +234,13 @@ class TestAtomicSave:
         call_count = {"n": 0}
         original_atomic = store_module._atomic_write
 
-        async def crash_on_second(vfs_arg, path, data):  # type: ignore[no-untyped-def]
+        async def crash_on_second(vfs_arg, path, data, **kwargs):  # type: ignore[no-untyped-def]
+            # ``**kwargs`` absorbs ``context_id`` (added in 0.1.17 for
+            # per-session VFS scoping — see _atomic_write).
             call_count["n"] += 1
             if call_count["n"] == 1:
                 # First write: memory.json — let it succeed.
-                await original_atomic(vfs_arg, path, data)
+                await original_atomic(vfs_arg, path, data, **kwargs)
                 return
             # Second write: graph.ttl — simulate SIGTERM.
             raise InterruptedError("simulated SIGTERM mid-save")

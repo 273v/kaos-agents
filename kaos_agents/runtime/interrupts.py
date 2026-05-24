@@ -315,44 +315,80 @@ class RunState:
 async def save_run_state(state: RunState, vfs: VirtualFileSystem) -> str:
     """Persist a RunState JSON to VFS at the standard run_id path.
 
+    The write uses ``context_id=state.session_id`` so under
+    NAMESPACE / per-context VFS isolation the run state lands in the
+    same per-session scope as the session's memory snapshot. Under
+    GLOBAL isolation (the kaos-ui SPA default) this is a no-op —
+    the tenant boundary is still enforced by the HTTP approval
+    endpoint that checks ``state.session_id`` post-load. Either way
+    the storage call now communicates the boundary instead of
+    relying on a downstream check (Finding #4 in the 2026-05-24
+    architecture pass).
+
     Returns the VFS path so callers can include it in event payloads.
     """
     path = run_state_path(state.run_id)
-    await vfs.write(path, state.to_json().encode())
+    await vfs.write(path, state.to_json().encode(), context_id=state.session_id)
     logger.debug("interrupts.save_run_state: run_id=%s path=%s", state.run_id, path)
     return path
 
 
-async def load_run_state(run_id: str, vfs: VirtualFileSystem) -> RunState:
+async def load_run_state(
+    run_id: str,
+    vfs: VirtualFileSystem,
+    *,
+    session_id: str | None = None,
+) -> RunState:
     """Load a previously persisted RunState by run_id.
+
+    ``session_id`` is forwarded as ``context_id`` to the VFS so the
+    read resolves against the same per-session scope used by
+    :func:`save_run_state`. Pass ``None`` only from trusted
+    in-process callers (e.g. cross-tenant audit tooling running with
+    operator credentials).
+
+    The HTTP approval endpoint (``server.py``) checks
+    ``state.session_id`` against the caller's tenant after load to
+    guarantee a forged ``run_id`` from another tenant can't be
+    resumed even when the storage layer is GLOBAL-isolated.
 
     Raises:
         EventDeserializationError: If the RunState file doesn't exist or
             is malformed.
     """
     path = run_state_path(run_id)
-    if not await vfs.exists(path):
+    if not await vfs.exists(path, context_id=session_id):
         raise EventDeserializationError(
             f"No persisted RunState found for run_id={run_id!r} at path {path}. "
             "Check that the run was actually paused (a RunState is only written "
             "when the Runner pauses for approval). "
             "Verify the VFS configuration matches the one used at pause time."
         )
-    raw = await vfs.read(path)
+    raw = await vfs.read(path, context_id=session_id)
     return RunState.from_json(raw.decode())
 
 
-async def save_event_log(events: Sequence[KaosEvent], run_id: str, vfs: VirtualFileSystem) -> str:
+async def save_event_log(
+    events: Sequence[KaosEvent],
+    run_id: str,
+    vfs: VirtualFileSystem,
+    *,
+    session_id: str | None = None,
+) -> str:
     """Persist an event log as JSONL to VFS.
 
     Used at pause time to capture all events emitted before the pause.
     On resume, the events are replayed before the run continues.
+
+    ``session_id`` is forwarded as ``context_id`` to scope the write
+    to the per-session VFS namespace where the run state lives. The
+    caller (Runner.pause) passes ``state.session_id``.
     """
     from kaos_agents.events import serialize_event_json
 
     path = event_log_path(run_id)
     payload = "\n".join(serialize_event_json(e) for e in events) + ("\n" if events else "")
-    await vfs.write(path, payload.encode())
+    await vfs.write(path, payload.encode(), context_id=session_id)
     logger.debug(
         "interrupts.save_event_log: run_id=%s events=%d path=%s",
         run_id,
@@ -362,8 +398,17 @@ async def save_event_log(events: Sequence[KaosEvent], run_id: str, vfs: VirtualF
     return path
 
 
-async def load_event_log(run_id: str, vfs: VirtualFileSystem) -> list[KaosEvent]:
+async def load_event_log(
+    run_id: str,
+    vfs: VirtualFileSystem,
+    *,
+    session_id: str | None = None,
+) -> list[KaosEvent]:
     """Load a previously persisted event log as JSONL.
+
+    ``session_id`` mirrors :func:`load_run_state` — forwarded as
+    ``context_id`` to scope the read to the per-session VFS
+    namespace.
 
     Returns an empty list if the log doesn't exist (resume without
     replay).
@@ -371,9 +416,9 @@ async def load_event_log(run_id: str, vfs: VirtualFileSystem) -> list[KaosEvent]
     from kaos_agents.events import deserialize_event_json
 
     path = event_log_path(run_id)
-    if not await vfs.exists(path):
+    if not await vfs.exists(path, context_id=session_id):
         return []
-    raw = (await vfs.read(path)).decode()
+    raw = (await vfs.read(path, context_id=session_id)).decode()
     events: list[KaosEvent] = []
     for line in raw.splitlines():
         if not line.strip():

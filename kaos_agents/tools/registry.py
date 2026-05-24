@@ -59,6 +59,67 @@ def _get_vfs(runtime: KaosRuntime | None) -> VirtualFileSystem:
     return VirtualFileSystem(config=config)
 
 
+def _resolve_caller_session_id(
+    inputs: dict[str, Any],
+    context: KaosContext | None,
+    *,
+    field: str = "session_id",
+) -> tuple[str, ToolResult | None]:
+    """Resolve the session id a memory tool should operate on.
+
+    Memory tools (`kaos-agent-memory-query`, `kaos-agent-memory-clear`,
+    `kaos-agent-memory-search`) historically accepted
+    ``inputs["session_id"]`` and ignored ``context.session_id``. A
+    caller scoped to session A could therefore read or destroy session
+    B's memory by passing B's id as a string parameter — a horizontal
+    privilege break that flatly contradicts kaos-core's session-scoped
+    VFS / artifact / tool model (see ``kaos_core.tools`` VFS tools,
+    which derive the scope from ``context.session_id``).
+
+    Resolution rule:
+
+    - When the calling :class:`KaosContext` has a non-empty
+      ``session_id``, that is the authoritative scope. ``inputs[field]``,
+      if present, MUST equal it or the call is refused. A confused or
+      hostile caller passing a sibling id gets an actionable refusal
+      naming the mismatch, never a silent retarget onto the requested
+      session.
+    - When the calling context is ``None`` (CLI / standalone tests /
+      stub callers), ``inputs[field]`` is the only signal — refuse if
+      empty.
+
+    Returns ``(session_id, None)`` on success or
+    ``("", ToolResult.create_error(...))`` on failure. Callers MUST
+    return the error ToolResult unchanged and short-circuit before any
+    SessionStore / VFS access.
+    """
+    requested = (inputs.get(field) or "").strip()
+    ctx_sid = ""
+    if context is not None:
+        sid_attr = getattr(context, "session_id", None)
+        if sid_attr:
+            ctx_sid = str(sid_attr).strip()
+
+    if ctx_sid:
+        if requested and requested != ctx_sid:
+            return "", ToolResult.create_error(
+                f"Refused: '{field}={requested!r}' does not match the "
+                f"calling session ({ctx_sid!r}). Memory tools always "
+                f"operate on the caller's own session — pass no "
+                f"'{field}' argument to use the calling session, or "
+                f"pass the same id."
+            )
+        return ctx_sid, None
+
+    if not requested:
+        return "", ToolResult.create_error(
+            f"Missing '{field}' parameter and no calling-session "
+            f"context. Provide a session id (the caller must scope to "
+            f"a session)."
+        )
+    return requested, None
+
+
 def _surfacing_error_from_status(status: dict[str, Any]) -> str | None:
     """Return a ToolResult.create_error message when the run hit an
     actionable infrastructure failure, else ``None``.
@@ -360,7 +421,9 @@ class AgentChatTool(KaosTool):
         self, inputs: dict[str, Any], context: KaosContext | None = None
     ) -> ToolResult:
         message = inputs.get("message", "")
-        session_id = inputs.get("session_id", "")
+        session_id, err = _resolve_caller_session_id(inputs, context)
+        if err is not None:
+            return err
         model = inputs.get("model")
         tool_filter_str = inputs.get("tool_filter")
         max_cost_usd_raw = inputs.get("max_cost_usd")
@@ -479,6 +542,7 @@ class AgentChatTool(KaosTool):
                     message,
                     memory=memory_for_hydration,
                     runtime=runtime,
+                    caller_session_id=session_id,
                 )
                 if hydrated_artifacts:
                     await store.save(memory_for_hydration)
@@ -717,7 +781,9 @@ class AgentPlanTool(KaosTool):
         self, inputs: dict[str, Any], context: KaosContext | None = None
     ) -> ToolResult:
         message = inputs.get("message", "")
-        session_id = inputs.get("session_id", "")
+        session_id, err = _resolve_caller_session_id(inputs, context)
+        if err is not None:
+            return err
         instructions = inputs.get("instructions") or None
         model = inputs.get("model")
         tool_filter_str = inputs.get("tool_filter")
@@ -926,16 +992,11 @@ class AgentMemoryQueryTool(KaosTool):
     async def execute(
         self, inputs: dict[str, Any], context: KaosContext | None = None
     ) -> ToolResult:
-        session_id = inputs.get("session_id", "")
+        session_id, err = _resolve_caller_session_id(inputs, context)
+        if err is not None:
+            return err
         section_name = inputs.get("section", "messages")
         limit = int(inputs.get("limit", 20))
-
-        if not session_id:
-            return ToolResult.create_error(
-                "Missing 'session_id' parameter. "
-                "Provide the session ID to query. "
-                'Example: {"session_id": "research-epa-rules"}'
-            )
 
         try:
             from kaos_agents.memory.store import SessionStore
@@ -1029,14 +1090,9 @@ class AgentMemoryClearTool(KaosTool):
     async def execute(
         self, inputs: dict[str, Any], context: KaosContext | None = None
     ) -> ToolResult:
-        session_id = inputs.get("session_id", "")
-
-        if not session_id:
-            return ToolResult.create_error(
-                "Missing 'session_id' parameter. "
-                "Provide the session ID to clear. "
-                "Use kaos-agent-memory-query to inspect memory before clearing."
-            )
+        session_id, err = _resolve_caller_session_id(inputs, context)
+        if err is not None:
+            return err
 
         try:
             from kaos_agents.memory.store import SessionStore
@@ -1112,16 +1168,12 @@ class AgentMemorySearchTool(KaosTool):
     async def execute(
         self, inputs: dict[str, Any], context: KaosContext | None = None
     ) -> ToolResult:
-        session_id = inputs.get("session_id", "")
+        session_id, err = _resolve_caller_session_id(inputs, context)
+        if err is not None:
+            return err
         query = inputs.get("query", "")
         top_k = int(inputs.get("top_k", 10))
 
-        if not session_id:
-            return ToolResult.create_error(
-                "Missing 'session_id' parameter. "
-                "Provide the session ID to search. "
-                'Example: {"session_id": "research-epa", "query": "filing fee"}'
-            )
         if not query:
             return ToolResult.create_error(
                 "Missing 'query' parameter. "

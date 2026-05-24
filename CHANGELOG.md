@@ -7,6 +7,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.17] — 2026-05-24
+
+### Changed — per-session context now threaded through every kaos-core boundary
+
+Closes four design errors where kaos-agents wrapped kaos-core APIs
+without preserving the per-call ``KaosContext.session_id`` boundary
+kaos-core was designed around. Every fix is paired with unit tests in
+``tests/unit/test_session_isolation.py`` (12 new tests using real
+``KaosRuntime`` + in-memory VFS — no mocks) that pin the corrected
+behaviour against regression.
+
+**F1 — Artifact hydration honors caller-session ownership.**
+``runtime.artifact_hydration.hydrate_artifacts_from_message`` now
+takes a ``caller_session_id`` keyword and forwards it to both
+``ArtifactStore._resolve_async`` and ``ArtifactStore.read_body``.
+``AgentChatTool.execute`` passes ``session_id`` from the requesting
+context. The kaos-core ownership guard fires when a session asks for
+another session's artifact: the manifest resolve raises
+``ResourceError("Unknown artifact")``, the hydration helper treats
+that as "skip" (single artifact dropped, turn continues), and the
+returned tuple is empty. Previous behaviour silently bypassed the
+guard by passing ``caller_session_id=manifest.session_id`` (the
+artifact owner — vacuously equal to itself).
+
+**F2 — Memory tools scope to ``context.session_id``.** New shared
+helper ``_resolve_caller_session_id(inputs, context)`` in
+``tools/registry.py``: when the calling context has a session_id, it
+is the authoritative scope; ``inputs["session_id"]``, if present,
+MUST equal it. ``AgentMemoryQueryTool`` / ``AgentMemoryClearTool``
+(destructive) / ``AgentMemorySearchTool`` / ``AgentChatTool`` /
+``AgentPlanTool`` all route through it. A caller passing a sibling
+session id gets an actionable refusal naming the mismatch instead of
+silently retargeting. Storage layer hardened in parallel:
+``SessionStore.save`` / ``.load`` / ``.exists`` / ``.delete`` pass
+``context_id=session_id`` to ``VirtualFileSystem`` so under
+NAMESPACE / per-context isolation each session's persistence lands
+in its own VFS namespace. No-op under GLOBAL isolation (where the
+tool-layer check is load-bearing).
+
+**F3 — v2 agent loop uses per-session context.**
+``Runner._build_agent_loop`` accepts a ``session_id`` kwarg and
+calls ``_resolve_context(session_id)`` (the existing v1 pattern —
+``context_factory(session_id)`` when configured) before bridging
+runtime tools. ``_run_via_agent_loop`` and ``invoke_trigger``
+extract ``trigger.source_id`` and forward it. Previously the v2 loop
+bridged tools with ``self._context`` (cached Runner-level), so hosts
+that scope the VFS / tenant namespace per session via
+``context_factory`` got the wrong scope for tool dispatch in v2. v1
+was unaffected; default remains v1.
+
+**F4 — Pause/resume RunState scoped per session.**
+``interrupts.save_run_state`` writes with
+``context_id=state.session_id``. ``load_run_state`` /
+``save_event_log`` / ``load_event_log`` accept a ``session_id``
+kwarg and forward it to the VFS. ``Runner._pause_for_approval``
+threads the active ``session_id`` into the memory snapshot write
+and event-log save; ``Runner.resume`` reads them back with
+``run_state.session_id``. The HTTP approve endpoint
+(``api/server.py``) loads without a session_id (it discovers the
+session at load time) and continues to enforce the post-load
+tenant-prefix check — that defense-in-depth layer catches forged
+``run_id`` probes across tenants.
+
+### Tests
+
+- 12 new tests in ``tests/unit/test_session_isolation.py`` covering
+  cross-session denial + same-session round-trip for each of F1-F4.
+- 4 pre-existing tests updated to reflect the new scoping
+  (``test_interrupts.py`` round-trip needs the right session_id,
+  ``test_store.py`` atomic-write disk paths land in per-session
+  scope, ``test_session_graph.py`` graph existence check needs
+  ``context_id``, ``test_tools.py`` memory-clear test needs
+  matching context + input session_id).
+
+Total: 3134 unit tests passing; ``ruff check`` clean; ``ruff format``
+clean.
+
+
 ## [0.1.16] — 2026-05-24
 
 ### Added

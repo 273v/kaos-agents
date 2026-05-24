@@ -76,7 +76,13 @@ def _session_graph_path(session_id: str) -> str:
     return f"{_SESSION_PREFIX}/{_safe_component(session_id)}/graph.ttl"
 
 
-async def _atomic_write(vfs: VirtualFileSystem, path: str, data: bytes) -> None:
+async def _atomic_write(
+    vfs: VirtualFileSystem,
+    path: str,
+    data: bytes,
+    *,
+    context_id: str | None = None,
+) -> None:
     """Write ``data`` to ``path`` atomically (KC17-P1-3).
 
     Pre-KC17 ``save()`` called ``vfs.write(memory.json)`` followed by
@@ -103,12 +109,12 @@ async def _atomic_write(vfs: VirtualFileSystem, path: str, data: bytes) -> None:
       bytes) so we fall back to ``vfs.write`` and rely on the backend
       being internally coherent.
     """
-    disk_path = vfs.resolve_disk_path(path)
+    disk_path = vfs.resolve_disk_path(path, context_id=context_id)
     if disk_path is None:
         # Non-disk backend — no kernel-level rename available. The
         # memory backend's write is internally atomic (single dict
         # assignment), so torn states aren't a concern here.
-        await vfs.write(path, data)
+        await vfs.write(path, data, context_id=context_id)
         return
 
     # Disk-backed path: temp+fsync+replace. We can't reuse vfs.write
@@ -187,7 +193,13 @@ class SessionStore:
         path = _session_path(memory.session_id)
         data = memory.to_dict()
         payload = json.dumps(data, separators=(",", ":"), default=str).encode()
-        await _atomic_write(self._vfs, path, payload)
+        # context_id=session_id forces per-session VFS isolation under
+        # NAMESPACE / per-context isolation modes (no-op for GLOBAL
+        # hosts — see ``kaos_core.vfs.core.VirtualFileSystem._scope``).
+        # Without this, all sessions would share the VFS "default"
+        # scope and another process with VFS-level access could read /
+        # overwrite any session's snapshot by guessing its path.
+        await _atomic_write(self._vfs, path, payload, context_id=memory.session_id)
 
         # Persist the knowledge graph as Turtle, if it exists and has
         # any triples. We touch the lazy ``.graph`` property only if it
@@ -199,7 +211,12 @@ class SessionStore:
                 from kaos_graph.rdf import to_turtle
 
                 turtle_path = _session_graph_path(memory.session_id)
-                await _atomic_write(self._vfs, turtle_path, to_turtle(graph).encode())
+                await _atomic_write(
+                    self._vfs,
+                    turtle_path,
+                    to_turtle(graph).encode(),
+                    context_id=memory.session_id,
+                )
                 logger.debug(
                     "store.save: session=%s graph_path=%s edges=%d",
                     memory.session_id,
@@ -222,14 +239,18 @@ class SessionStore:
         Raises SessionCorruptedError if the saved state cannot be deserialized.
         """
         path = _session_path(session_id)
-        if not await self._vfs.exists(path):
+        # context_id=session_id mirrors the per-session scope used by
+        # save(): under NAMESPACE / per-context isolation the VFS
+        # resolves the read against the same per-session namespace the
+        # save wrote into. Under GLOBAL isolation this is a no-op.
+        if not await self._vfs.exists(path, context_id=session_id):
             raise SessionNotFoundError(
                 f"No saved session found for session_id={session_id!r}. "
                 f"Create a new session with SessionMemory(session_id=...).",
             )
 
         try:
-            payload = await self._vfs.read(path)
+            payload = await self._vfs.read(path, context_id=session_id)
             data = json.loads(payload)
             memory = SessionMemory.from_dict(data, sections=self._sections)
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
@@ -248,11 +269,11 @@ class SessionStore:
         # snapshot exists. Sessions that never built a graph have no
         # graph.ttl — leave memory.graph as the lazy-empty default.
         graph_path = _session_graph_path(session_id)
-        if await self._vfs.exists(graph_path):
+        if await self._vfs.exists(graph_path, context_id=session_id):
             try:
                 from kaos_graph.rdf import load_rdf
 
-                turtle_payload = await self._vfs.read(graph_path)
+                turtle_payload = await self._vfs.read(graph_path, context_id=session_id)
                 graph, _stats = load_rdf(
                     turtle_payload.decode("utf-8"),
                     format="turtle",
@@ -283,7 +304,7 @@ class SessionStore:
 
     async def exists(self, session_id: str) -> bool:
         """Check if a saved session exists."""
-        return await self._vfs.exists(_session_path(session_id))
+        return await self._vfs.exists(_session_path(session_id), context_id=session_id)
 
     async def delete(self, session_id: str) -> bool:
         """Delete a saved session and all sibling files. Returns True if it existed.
@@ -302,9 +323,9 @@ class SessionStore:
 
         removed = 0
         for path in (memory_path, graph_path):
-            if await self._vfs.exists(path):
+            if await self._vfs.exists(path, context_id=session_id):
                 try:
-                    await self._vfs.delete(path)
+                    await self._vfs.delete(path, context_id=session_id)
                     removed += 1
                 except Exception as exc:
                     # Best-effort: keep going so a partial failure
