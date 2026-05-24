@@ -71,7 +71,7 @@ async def _seed_memory(
     runtime: KaosRuntime,
     *,
     session_id: str,
-    messages: "Sequence[str]" = (),
+    messages: Sequence[str] = (),
 ) -> SessionMemory:
     """Create + persist a SessionMemory for ``session_id`` with optional messages."""
     store = SessionStore(runtime.vfs)
