@@ -385,3 +385,148 @@ def test_module_imports_without_kaos_citations_runtime_call() -> None:
     importlib.reload(mod)
     # No assertion needed; if reload raises, the test fails.
     assert hasattr(mod, "verify_case_citation")
+
+
+# ── 2026-05-24: Playwright-default routing (task #634) ───────────────
+
+
+def _playwright_importable_for_verifier() -> bool:
+    """Probe whether the verifier's browser path is exercisable in this env."""
+    try:
+        import importlib
+
+        importlib.import_module("playwright.async_api")
+        importlib.import_module("kaos_web.clients.browser")
+        return True
+    except ImportError:
+        return False
+
+
+def test_use_browser_env_var_false_forces_httpx(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``KAOS_AGENT_CITATION_VERIFIER_USE_BROWSER=0`` forces httpx."""
+    from kaos_agents.citations.verifier import _use_browser_for_verifier
+
+    monkeypatch.setenv("KAOS_AGENT_CITATION_VERIFIER_USE_BROWSER", "0")
+    assert _use_browser_for_verifier() is False
+
+
+def test_use_browser_env_var_true_honored_when_extras_installed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``KAOS_AGENT_CITATION_VERIFIER_USE_BROWSER=1`` enables browser path
+    when the [browser] extra is importable; falls back to False otherwise.
+    """
+    from kaos_agents.citations.verifier import _use_browser_for_verifier
+
+    monkeypatch.setenv("KAOS_AGENT_CITATION_VERIFIER_USE_BROWSER", "1")
+    expected = _playwright_importable_for_verifier()
+    assert _use_browser_for_verifier() is expected
+
+
+def test_use_browser_default_is_true_when_playwright_importable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unset env + default settings ⇒ True iff Playwright + kaos-web are
+    both importable. Pins the Playwright-default contract."""
+    from kaos_agents.citations.verifier import _use_browser_for_verifier
+
+    monkeypatch.delenv("KAOS_AGENT_CITATION_VERIFIER_USE_BROWSER", raising=False)
+    expected = _playwright_importable_for_verifier()
+    assert _use_browser_for_verifier() is expected
+
+
+def test_settings_field_default_is_true() -> None:
+    """``KaosAgentSettings().citation_verifier_use_browser`` defaults to True."""
+    from kaos_agents.settings import KaosAgentSettings
+
+    assert KaosAgentSettings().citation_verifier_use_browser is True
+
+
+@pytest.mark.skipif(
+    not _playwright_importable_for_verifier(),
+    reason="Playwright + kaos-web[browser] not installed in this dev env",
+)
+@pytest.mark.asyncio
+async def test_browser_path_routes_through_kaos_web_browser_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the routing decision is True, the verifier calls
+    ``_post_via_browser`` instead of ``httpx.AsyncClient``. Pinned via
+    monkeypatching both to prove the dispatcher picked the right path.
+    """
+    monkeypatch.setenv("KAOS_AGENT_CITATION_VERIFY_ENABLED", "1")
+    monkeypatch.setenv("KAOS_AGENT_CITATION_VERIFIER_USE_BROWSER", "1")
+
+    from kaos_agents.citations import verifier as verifier_mod
+
+    browser_calls: list[str] = []
+
+    async def _fake_post_via_browser(
+        url: str, *, payload: dict[str, Any], headers: dict[str, str]
+    ) -> dict | None:
+        browser_calls.append(url)
+        return None  # ``not_found`` path — no clusters
+
+    def _httpx_explode(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError(
+            "httpx.AsyncClient reached on Playwright-default verifier path; "
+            "regression — task #634 expects browser-first routing"
+        )
+
+    monkeypatch.setattr(verifier_mod, "_post_via_browser", _fake_post_via_browser)
+    monkeypatch.setattr(httpx, "AsyncClient", _httpx_explode)
+
+    result = await verify_case_citation(_make_case())
+    assert result.status == "not_found"
+    assert len(browser_calls) == 1
+    assert "courtlistener" in browser_calls[0]
+
+
+@pytest.mark.asyncio
+async def test_env_var_off_routes_through_httpx(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When the env var forces httpx, the verifier MUST NOT call the
+    browser path even if the extra is installed."""
+    monkeypatch.setenv("KAOS_AGENT_CITATION_VERIFY_ENABLED", "1")
+    monkeypatch.setenv("KAOS_AGENT_CITATION_VERIFIER_USE_BROWSER", "0")
+
+    from kaos_agents.citations import verifier as verifier_mod
+
+    async def _browser_explode(
+        url: str, *, payload: dict[str, Any], headers: dict[str, str]
+    ) -> dict | None:
+        raise AssertionError(
+            "browser path reached when env var explicitly disabled "
+            "(KAOS_AGENT_CITATION_VERIFIER_USE_BROWSER=0)"
+        )
+
+    monkeypatch.setattr(verifier_mod, "_post_via_browser", _browser_explode)
+
+    # Sentinel AsyncClient that records the post then returns empty
+    # CL envelope so the verifier returns ``not_found`` cleanly.
+    httpx_calls: list[str] = []
+
+    class _FakeAsyncClientCtx:
+        async def __aenter__(self) -> _FakeAsyncClientCtx:
+            return self
+
+        async def __aexit__(self, *exc: Any) -> None:
+            return None
+
+        async def post(self, url: str, *, json: Any, headers: dict[str, str]) -> httpx.Response:
+            httpx_calls.append(url)
+            return httpx.Response(
+                200,
+                json=[{"clusters": []}],
+                request=httpx.Request("POST", url),
+            )
+
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda *args, **kwargs: _FakeAsyncClientCtx(),
+    )
+
+    result = await verify_case_citation(_make_case())
+    assert result.status == "not_found"
+    assert len(httpx_calls) == 1
+    assert "courtlistener" in httpx_calls[0]
