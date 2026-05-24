@@ -43,7 +43,7 @@ permissions:
 jobs:
   pr-tier-1-and-2:
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: kaos-x64-16core
     timeout-minutes: 30
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -59,76 +59,57 @@ jobs:
         with:
           persist-credentials: false
 
-      # Live integration tests need real provider keys + real network.
-      # When the repo doesn't have them configured yet (first PR after
-      # this workflow lands), every downstream step would red on
-      # `API key missing` — that's not a real test signal. Detect the
-      # condition explicitly so the job exits clean and surfaces the
-      # one-time setup the maintainer owes.
-      - name: Check for required API key secrets
-        id: secrets
-        run: |
-          missing=""
-          for key in OPENAI_API_KEY ANTHROPIC_API_KEY SERPAPI_API_KEY EXA_API_KEY; do
-            if [ -z "${!key}" ]; then
-              missing="$missing $key"
-            fi
-          done
-          if [ -n "$missing" ]; then
-            echo "::warning::integration-judge skipping: missing repo secrets:$missing"
-            echo "Add them under Settings → Secrets and variables → Actions before"
-            echo "this workflow can produce real test signal. See the PR body."
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-          fi
+      # Self-hosted runner (kaos-x64-16core) loads API keys from the
+      # operator's shell init (~/.bashrc); the env block above also
+      # injects them via ${{ secrets.* }} for parity with the
+      # kaos-modules/.github/workflows/kaos-agents-ci.yml pattern.
+      # Either path produces a non-empty env; the keys ARE configured
+      # at a scope `gh secret list` doesn't expose without
+      # actions:secrets:read.
 
       - name: Set up uv
-        if: steps.secrets.outputs.configured == 'true'
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
 
       - name: Install Python 3.13
-        if: steps.secrets.outputs.configured == 'true'
         run: uv python install 3.13
 
       - name: Install tesseract (for S03 OCR scenario)
-        if: steps.secrets.outputs.configured == 'true'
-        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
+        # Self-hosted runner may already have it; apt-get is idempotent.
+        run: |
+          if ! command -v tesseract >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y tesseract-ocr
+          fi
 
       - name: Install dependencies
-        if: steps.secrets.outputs.configured == 'true'
         run: uv sync --group dev --extra live-tests --python 3.13
 
       - name: Install Playwright browser
-        if: steps.secrets.outputs.configured == 'true'
         run: uv run --with playwright playwright install chromium --with-deps
 
       - name: Corpus stress (Tier 1 + 2)
-        if: steps.secrets.outputs.configured == 'true'
         run: |
           uv run pytest tests/integration/test_corpus_stress_suite.py \
             -v -m "live and not slow" --no-cov --timeout=900 \
             --junit-xml=tests/integration/runs/corpus-stress.junit.xml
 
       - name: Web tools suite (full 20)
-        if: steps.secrets.outputs.configured == 'true'
         run: |
           uv run pytest tests/integration/test_web_tools_legal_finance_suite.py \
             -v -m live --no-cov --timeout=900 \
             --junit-xml=tests/integration/runs/web-tools.junit.xml
 
       - name: Aggregate cost guard
-        if: always() && steps.secrets.outputs.configured == 'true'
+        if: always()
         run: |
           python tests/integration/_ci_cost_guard.py \
             --summary-glob 'tests/integration/runs/*/SUMMARY.jsonl' \
             --budget "${KAOS_TEST_BUDGET_USD}"
 
       - name: Upload run artifacts
-        if: always() && steps.secrets.outputs.configured == 'true'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: integration-judge-runs
@@ -136,7 +117,7 @@ jobs:
           retention-days: 30
 
       - name: Post PR comment with judge summary
-        if: always() && github.event_name == 'pull_request' && steps.secrets.outputs.configured == 'true'
+        if: always() && github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -147,7 +128,7 @@ jobs:
 
   nightly-tier-3:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: kaos-x64-16core
     timeout-minutes: 90
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -163,47 +144,28 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Check for required API key secrets
-        id: secrets
-        run: |
-          missing=""
-          for key in OPENAI_API_KEY ANTHROPIC_API_KEY SERPAPI_API_KEY EXA_API_KEY; do
-            if [ -z "${!key}" ]; then
-              missing="$missing $key"
-            fi
-          done
-          if [ -n "$missing" ]; then
-            echo "::warning::integration-judge nightly skipping: missing repo secrets:$missing"
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Set up uv
-        if: steps.secrets.outputs.configured == 'true'
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
 
       - name: Install Python 3.13
-        if: steps.secrets.outputs.configured == 'true'
         run: uv python install 3.13
 
       - name: Install tesseract (for S03 OCR scenario)
-        if: steps.secrets.outputs.configured == 'true'
-        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
+        run: |
+          if ! command -v tesseract >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y tesseract-ocr
+          fi
 
       - name: Install dependencies
-        if: steps.secrets.outputs.configured == 'true'
         run: uv sync --group dev --extra live-tests --python 3.13
 
       - name: Install Playwright browser
-        if: steps.secrets.outputs.configured == 'true'
         run: uv run --with playwright playwright install chromium --with-deps
 
       - name: Full corpus stress (Tier 1 + 2 + 3)
-        if: steps.secrets.outputs.configured == 'true'
         run: |
           uv run pytest tests/integration/test_corpus_stress_suite.py \
             -v -m live --no-cov --timeout=1800 \
