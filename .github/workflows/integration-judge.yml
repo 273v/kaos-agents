@@ -8,9 +8,20 @@ name: integration-judge
 # (Tier 1+2+3) + full web tools. Hard aggregate cost guard at the
 # tail of each job.
 #
-# IMPORTANT — secrets the workflow requires (NOT yet installed at the
-# repo level; first run will fail until a maintainer adds them):
+# Secrets the workflow requires (installed at the 273v/kaos-agents
+# repo level on 2026-05-24 via `gh secret set ... --repo
+# 273v/kaos-agents`; see hosted-runners.md for the
+# org-level-vs-repo-level trade-off):
+#
 #   OPENAI_API_KEY, ANTHROPIC_API_KEY, SERPAPI_API_KEY, EXA_API_KEY
+#
+# Each is injected twice in the env block below: once under the
+# vendor-native name (which kaos-llm-client's _legacy_env_fallback
+# would normally pick up) and once under the canonical KAOS_LLM_ /
+# KAOS_WEB_ prefix that the settings classes' env_prefix reads
+# directly. The double-write is belt-and-suspenders: if anyone
+# later removes the legacy fallback, the workflow keeps working
+# without touching CI plumbing.
 #
 # Models are pinned to the same ones used by the `integration-judge`
 # Make target — see kaos-agents/Makefile. Never downgrade either pin
@@ -46,10 +57,16 @@ jobs:
     runs-on: kaos-x64-16core
     timeout-minutes: 30
     env:
+      # Vendor-native names (legacy fallback path in kaos-llm-client / kaos-web).
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
       EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+      # Canonical KAOS_* names (primary path via ModuleSettings env_prefix).
+      KAOS_LLM_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      KAOS_LLM_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      KAOS_WEB_SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+      KAOS_WEB_EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
       KAOS_TEST_MODEL: anthropic:claude-sonnet-4-6
       KAOS_TEST_JUDGE_MODEL: anthropic:claude-opus-4-7
       KAOS_TEST_BUDGET_USD: '5.00'
@@ -58,14 +75,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
-
-      # Self-hosted runner (kaos-x64-16core) loads API keys from the
-      # operator's shell init (~/.bashrc); the env block above also
-      # injects them via ${{ secrets.* }} for parity with the
-      # kaos-modules/.github/workflows/kaos-agents-ci.yml pattern.
-      # Either path produces a non-empty env; the keys ARE configured
-      # at a scope `gh secret list` doesn't expose without
-      # actions:secrets:read.
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
@@ -135,6 +144,10 @@ jobs:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
       EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+      KAOS_LLM_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      KAOS_LLM_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      KAOS_WEB_SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+      KAOS_WEB_EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
       KAOS_TEST_MODEL: anthropic:claude-sonnet-4-6
       KAOS_TEST_JUDGE_MODEL: anthropic:claude-opus-4-7
       KAOS_TEST_BUDGET_USD: '15.00'
