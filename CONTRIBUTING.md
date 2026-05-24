@@ -14,6 +14,28 @@ uvx pre-commit install
 The pre-commit hook runs the same ruff / ty checks as CI. Installing
 it shortens the local feedback loop; CI remains the final gate.
 
+### Optional: tesseract OCR
+
+The corpus stress suite's S03 (scanned PDF OCR) needs the tesseract
+binary on PATH **and** the `pytesseract` Python wrapper (shipped in
+the `live-tests` extra). Install both:
+
+```bash
+# Ubuntu / Debian
+sudo apt-get install -y tesseract-ocr
+
+# macOS
+brew install tesseract
+
+# Python wrapper (only required for the live OCR test)
+uv sync --group dev --extra live-tests
+```
+
+Without tesseract, S03 cleanly skips with a clear message — it does
+not fail the local gate. The integration-judge CI lane
+(`.github/workflows/integration-judge.yml`) installs tesseract on
+every run so the OCR scenario is exercised end-to-end.
+
 `kaos-agents` requires Python 3.13 or newer. The import package is
 `kaos_agents`; CLI entry points are `kaos-agent` (chat REPL) and
 `kaos-agents-serve` (MCP / HTTP server).

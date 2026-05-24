@@ -1,0 +1,178 @@
+name: integration-judge
+
+# Judge-gated integration lane (corpus-stress-suite follow-up P1.2).
+#
+# Runs the real-LLM corpus-stress + web-tools integration suites with
+# the Opus-as-judge layer enabled (P1.1). On PR: Tier 1+2 only (the
+# fast gate, ~$2-$5). Nightly + workflow_dispatch: full corpus stress
+# (Tier 1+2+3) + full web tools. Hard aggregate cost guard at the
+# tail of each job.
+#
+# IMPORTANT — secrets the workflow requires (NOT yet installed at the
+# repo level; first run will fail until a maintainer adds them):
+#   OPENAI_API_KEY, ANTHROPIC_API_KEY, SERPAPI_API_KEY, EXA_API_KEY
+#
+# Models are pinned to the same ones used by the `integration-judge`
+# Make target — see kaos-agents/Makefile. Never downgrade either pin
+# to Haiku per feedback_test_model_floor.md.
+
+on:
+  pull_request:
+    paths:
+      - 'kaos_agents/**'
+      - 'tests/integration/**'
+      - 'Makefile'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/integration-judge.yml'
+  schedule:
+    - cron: '0 7 * * *'  # 02:00 ET nightly — Tier 3 + cost report
+  workflow_dispatch:
+
+# Concurrency: only one integration-judge run at a time per ref —
+# this is an expensive job ($2-$5 per PR run, $10+ nightly), so we
+# cancel superseded runs on the same PR/branch.
+concurrency:
+  group: integration-judge-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write   # for the PR comment step
+
+jobs:
+  pr-tier-1-and-2:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+      EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+      KAOS_TEST_MODEL: anthropic:claude-sonnet-4-6
+      KAOS_TEST_JUDGE_MODEL: anthropic:claude-opus-4-7
+      KAOS_TEST_BUDGET_USD: '5.00'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install Python 3.13
+        run: uv python install 3.13
+
+      - name: Install tesseract (for S03 OCR scenario)
+        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
+
+      - name: Install dependencies
+        run: uv sync --group dev --extra live-tests --python 3.13
+
+      - name: Install Playwright browser
+        run: uv run playwright install chromium --with-deps
+
+      - name: Corpus stress (Tier 1 + 2)
+        run: |
+          uv run pytest tests/integration/test_corpus_stress_suite.py \
+            -v -m "live and not slow" --no-cov --timeout=900 \
+            --junit-xml=tests/integration/runs/corpus-stress.junit.xml
+
+      - name: Web tools suite (full 20)
+        run: |
+          uv run pytest tests/integration/test_web_tools_legal_finance_suite.py \
+            -v -m live --no-cov --timeout=900 \
+            --junit-xml=tests/integration/runs/web-tools.junit.xml
+
+      - name: Aggregate cost guard
+        if: always()
+        run: |
+          python tests/integration/_ci_cost_guard.py \
+            --summary-glob 'tests/integration/runs/*/SUMMARY.jsonl' \
+            --budget "${KAOS_TEST_BUDGET_USD}"
+
+      - name: Upload run artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-judge-runs
+          path: tests/integration/runs/
+          retention-days: 30
+
+      - name: Post PR comment with judge summary
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python tests/integration/_ci_pr_comment.py \
+            --summary-glob 'tests/integration/runs/*/SUMMARY.jsonl' \
+            --pr ${{ github.event.pull_request.number }} \
+            --budget "${KAOS_TEST_BUDGET_USD}"
+
+  nightly-tier-3:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+      EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+      KAOS_TEST_MODEL: anthropic:claude-sonnet-4-6
+      KAOS_TEST_JUDGE_MODEL: anthropic:claude-opus-4-7
+      KAOS_TEST_BUDGET_USD: '15.00'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install Python 3.13
+        run: uv python install 3.13
+
+      - name: Install tesseract (for S03 OCR scenario)
+        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
+
+      - name: Install dependencies
+        run: uv sync --group dev --extra live-tests --python 3.13
+
+      - name: Install Playwright browser
+        run: uv run playwright install chromium --with-deps
+
+      - name: Full corpus stress (Tier 1 + 2 + 3)
+        run: |
+          uv run pytest tests/integration/test_corpus_stress_suite.py \
+            -v -m live --no-cov --timeout=1800 \
+            --junit-xml=tests/integration/runs/corpus-stress-full.junit.xml
+
+      - name: Full web tools
+        run: |
+          uv run pytest tests/integration/test_web_tools_legal_finance_suite.py \
+            -v -m live --no-cov --timeout=900 \
+            --junit-xml=tests/integration/runs/web-tools-full.junit.xml
+
+      - name: Aggregate cost guard
+        if: always()
+        run: |
+          python tests/integration/_ci_cost_guard.py \
+            --summary-glob 'tests/integration/runs/*/SUMMARY.jsonl' \
+            --budget "${KAOS_TEST_BUDGET_USD}"
+
+      - name: Upload run artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-judge-nightly-runs
+          path: tests/integration/runs/
+          retention-days: 30
