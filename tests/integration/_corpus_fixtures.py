@@ -611,25 +611,73 @@ def hydrate_corpus_into_memory(
     via ``kaos-core-vfs-list`` first — which is a different test (we
     cover that separately).
 
-    For text-extractable formats (text, html, json) we plant the actual
-    body so BM25 has signal. For binary formats (pdf, docx, xlsx) we
-    plant a metadata headline + the needle fact when present; the agent
-    must call a parser tool to get the full body, matching the
-    production retrieval contract.
+    Two-tier rule, in one place:
+
+    1. ``is_needle=True`` docs (regardless of mime): hydrate the body
+       with the ``needle_fact`` substring REDACTED. BM25 keeps topical
+       signal from the surrounding prose so triage still narrows to
+       the right doc, but the verbatim ground-truth value is NOT in
+       context. The agent must call a read/parse tool to pull the
+       body from VFS and recover the value.
+
+    2. Distractor docs (``is_needle=False``): hydrate the full body
+       for text-extractable formats so the haystack has realistic
+       lexical density. Binary distractors hydrate as headline-only
+       (the SPA shape) — the agent will see they exist but skip them.
+
+    Planting the needle value into the in-context DOCUMENTS section
+    would short-circuit the test: the agent quotes the answer with
+    zero tool calls, which the judge correctly labels ``fabricated``
+    (citation without grounding). The fixture's job is to make the
+    happy path require a tool call, so the judge gate has a real
+    signal to act on.
     """
+    _REDACTION = "[REDACTED-NEEDLE]"
+
+    def _redact(body: str, needle_fact: str) -> str:
+        """Strip both the labelled phrase and the bare value token.
+
+        ``needle_fact`` is the human-readable planted phrase (e.g.
+        ``"config_token: KAOS-S05-JSON-OK"``). The on-disk body may
+        store the value in a different syntactic shape (JSON quoting,
+        HTML tagging, etc.) that won't match the labelled phrase
+        verbatim. Redacting the bare value token (the part after the
+        last ``": "``) closes that gap so the unique identifier never
+        reaches DOCUMENTS context.
+        """
+        out = body.replace(needle_fact, _REDACTION)
+        if ": " in needle_fact:
+            value = needle_fact.rsplit(": ", 1)[-1].strip()
+            if value:
+                out = out.replace(value, _REDACTION)
+        return out
+
     for doc in docs:
-        if doc.mime.startswith("text/") or doc.mime == "application/json":
-            content = doc.bytes.decode("utf-8", errors="replace")
-        else:
-            # Mirror the SPA's DOCUMENTS-section "headline" shape.
+        is_text = doc.mime.startswith("text/") or doc.mime == "application/json"
+        if doc.is_needle and is_text and doc.needle_fact:
+            # Text-format needle: hydrate body with needle stripped.
+            body = doc.bytes.decode("utf-8", errors="replace")
+            content = _redact(body, doc.needle_fact)
+        elif doc.is_needle:
+            # Binary needle: headline only.
             headline_parts = [
                 f"filename: {doc.filename}",
                 f"vfs_path: sessions/{session_id or 'NA'}/files/{doc.filename}",
                 f"size_bytes: {len(doc.bytes)}",
                 f"content_type: {doc.mime}",
             ]
-            if doc.needle_fact:
-                headline_parts.append(f"summary: {doc.needle_fact}")
+            content = " | ".join(headline_parts)
+        elif is_text:
+            # Text distractor: full body, no redaction.
+            content = doc.bytes.decode("utf-8", errors="replace")
+        else:
+            # Binary distractor: SPA-shape headline.
+            headline_parts = [
+                f"filename: {doc.filename}",
+                f"vfs_path: sessions/{session_id or 'NA'}/files/{doc.filename}",
+                f"size_bytes: {len(doc.bytes)}",
+                f"content_type: {doc.mime}",
+            ]
             content = " | ".join(headline_parts)
         memory.add(
             MemoryType.DOCUMENTS,
