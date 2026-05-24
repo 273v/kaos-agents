@@ -632,24 +632,30 @@ def hydrate_corpus_into_memory(
     happy path require a tool call, so the judge gate has a real
     signal to act on.
     """
-    _REDACTION = "[REDACTED-NEEDLE]"
-
     def _redact(body: str, needle_fact: str) -> str:
-        """Strip both the labelled phrase and the bare value token.
+        """Silently strip the labelled phrase and the bare value token.
 
         ``needle_fact`` is the human-readable planted phrase (e.g.
         ``"config_token: KAOS-S05-JSON-OK"``). The on-disk body may
         store the value in a different syntactic shape (JSON quoting,
         HTML tagging, etc.) that won't match the labelled phrase
-        verbatim. Redacting the bare value token (the part after the
+        verbatim. Removing the bare value token (the part after the
         last ``": "``) closes that gap so the unique identifier never
         reaches DOCUMENTS context.
+
+        Substitute with empty string, NOT a visible marker. An earlier
+        version used ``"[REDACTED-NEEDLE]"``; S05 verified that gpt-5.4
+        / sonnet-4-6 will happily parrot the marker back as "the
+        answer" — exactly the failure mode the redaction was meant to
+        prevent. Silent removal leaves topical prose intact (BM25 can
+        still rank the doc) but presents the agent with a gap where
+        the value used to be, which the right tool call can fill.
         """
-        out = body.replace(needle_fact, _REDACTION)
+        out = body.replace(needle_fact, "")
         if ": " in needle_fact:
             value = needle_fact.rsplit(": ", 1)[-1].strip()
             if value:
-                out = out.replace(value, _REDACTION)
+                out = out.replace(value, "")
         return out
 
     for doc in docs:
