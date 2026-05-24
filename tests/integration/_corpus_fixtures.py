@@ -665,10 +665,16 @@ def hydrate_corpus_into_memory(
             body = doc.bytes.decode("utf-8", errors="replace")
             content = _redact(body, doc.needle_fact)
         elif doc.is_needle:
-            # Binary needle: headline only.
+            # Binary needle: headline only. ``path`` is the BARE filename,
+            # not the absolute ``sessions/{sid}/files/...`` form: that
+            # absolute form gets re-prefixed by the kaos-core resolver's
+            # ``default_vfs_namespace`` (see kaos-modules task #582), so
+            # planting it here would cause the agent to copy it
+            # verbatim into parse-pdf and double-prefix into a missing
+            # path. Bare filename matches the production SPA flow.
             headline_parts = [
                 f"filename: {doc.filename}",
-                f"vfs_path: sessions/{session_id or 'NA'}/files/{doc.filename}",
+                f"path: {doc.filename}",
                 f"size_bytes: {len(doc.bytes)}",
                 f"content_type: {doc.mime}",
             ]
@@ -677,10 +683,11 @@ def hydrate_corpus_into_memory(
             # Text distractor: full body, no redaction.
             content = doc.bytes.decode("utf-8", errors="replace")
         else:
-            # Binary distractor: SPA-shape headline.
+            # Binary distractor: SPA-shape headline. Same bare-filename
+            # rule as binary needles — see comment above.
             headline_parts = [
                 f"filename: {doc.filename}",
-                f"vfs_path: sessions/{session_id or 'NA'}/files/{doc.filename}",
+                f"path: {doc.filename}",
                 f"size_bytes: {len(doc.bytes)}",
                 f"content_type: {doc.mime}",
             ]
