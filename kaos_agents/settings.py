@@ -481,6 +481,24 @@ class KaosAgentSettings(ModuleSettings):
         ),
     )
 
+    # 2026-05-24: Playwright-default routing for the citation verifier
+    # (task #634). When True (default), the CourtListener citation
+    # lookup routes through kaos-web's BrowserClient with full browser
+    # fingerprint when [browser] is installed, falling back to bare
+    # httpx otherwise. Set False to force the bare httpx path (faster,
+    # lower memory, but courtlistener.com occasionally serves a
+    # Cloudflare interstitial to plain httpx that Playwright bypasses).
+    citation_verifier_use_browser: bool = Field(
+        default=True,
+        description=(
+            "Route CourtListener citation verification through Playwright "
+            "when the kaos-web [browser] extra is installed. Default True; "
+            "set False to force the bare httpx path. Env override: "
+            "KAOS_AGENT_CITATION_VERIFIER_USE_BROWSER (matches the "
+            "env_prefix shared with the rest of KaosAgentSettings)."
+        ),
+    )
+
     model_config = SettingsConfigDict(
         env_prefix="KAOS_AGENT_",
         env_file=".env",

@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.15] — 2026-05-24
+
+### Changed
+
+- **`kaos_agents.citations.verifier` defaults to Playwright** (task #634).
+  CourtListener citation-lookup requests now route through kaos-web's
+  `BrowserClient` when the `[browser]` extra is installed, falling back
+  to bare `httpx.AsyncClient` when it isn't. Closes the third Playwright-
+  default surface flagged by the stop hook (kaos-web shipped the first
+  two in 0.1.8 + 0.1.9; kaos-source shipped the second in 0.1.2).
+
+### Added
+
+- `KaosAgentSettings.citation_verifier_use_browser: bool = True` —
+  typed opt-out. Env override: `KAOS_AGENT_CITATION_VERIFIER_USE_BROWSER`
+  (1/true/yes/on → True; 0/false/no/off → False). Settings + env are
+  resolved by the new `_use_browser_for_verifier()` helper, which falls
+  through to a Playwright + kaos-web importability probe when neither
+  layer asserts a value.
+
+### Tests
+
+- New `test_use_browser_default_is_true_when_playwright_importable`,
+  `test_use_browser_env_var_false_forces_httpx`,
+  `test_use_browser_env_var_true_honored_when_extras_installed`,
+  and `test_settings_field_default_is_true` pin the resolver contract.
+- New `test_env_var_off_routes_through_httpx` proves the opt-out path
+  never enters the browser dispatcher (sentinel
+  `_post_via_browser` that raises AssertionError).
+- New `test_browser_path_routes_through_kaos_web_browser_client`
+  (`@pytest.mark.skipif(not _playwright_importable)`) proves the
+  Playwright-default path calls into kaos-web instead of httpx.
+- All other 23 existing verifier tests continue to pass — the
+  caller-supplied `client=` injection seam is untouched.
+
 ## 0.1.14 - 2026-05-23
 
 ### Added

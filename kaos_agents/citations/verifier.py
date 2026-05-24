@@ -181,6 +181,103 @@ def _names_match(observed: str | None, expected: str | None) -> bool:
     return a in b or b in a
 
 
+def _use_browser_for_verifier() -> bool:
+    """Resolve the Playwright-default routing decision for the verifier.
+
+    2026-05-24 (task #634): the kaos-web fetch surface is
+    Playwright-default; kaos-source-fetch-url is Playwright-default; the
+    citation verifier in kaos-agents is the third surface that performs
+    outbound HTTP, so it gets the same treatment by default.
+
+    Resolution order:
+    1. ``KAOS_AGENT_CITATION_VERIFIER_USE_BROWSER`` env var (1/true/yes/on
+       → True; 0/false/no/off → False). Lets operators opt out in
+       constrained environments without instantiating settings.
+    2. ``KaosAgentSettings().citation_verifier_use_browser`` (default
+       True). Honored via the .env file + pydantic settings chain.
+    3. Probe for the ``[browser]`` extra. If neither kaos-web nor
+       Playwright is importable, fall back to httpx silently — the
+       verifier stays usable on a minimal install.
+    """
+    raw = os.environ.get("KAOS_AGENT_CITATION_VERIFIER_USE_BROWSER")
+    if raw is not None:
+        if raw.lower() in {"0", "false", "no", "off"}:
+            return False
+        if raw.lower() in {"1", "true", "yes", "on"}:
+            return _playwright_importable()
+        # Anything else: fall through to settings.
+    try:
+        from kaos_agents.settings import KaosAgentSettings
+
+        if not KaosAgentSettings().citation_verifier_use_browser:
+            return False
+    except Exception:
+        pass
+    return _playwright_importable()
+
+
+def _playwright_importable() -> bool:
+    """True when Playwright + kaos-web are both importable."""
+    try:
+        import importlib
+
+        importlib.import_module("playwright.async_api")
+        importlib.import_module("kaos_web.clients.browser")
+        return True
+    except ImportError:
+        return False
+
+
+async def _post_via_browser(
+    url: str, *, payload: dict[str, Any], headers: dict[str, str]
+) -> dict | None:
+    """POST to CourtListener via kaos-web's BrowserClient.
+
+    Uses ``Page.request.post`` so the call runs inside the real browser
+    network stack (Playwright fingerprint + sec-ch-ua headers) without
+    bouncing through ``page.goto`` — citation-lookup is a JSON
+    endpoint, not a page navigation. Returns the decoded JSON envelope
+    or raises a ``httpx.HTTPError`` subclass so the caller's
+    ``unreachable`` mapping works unchanged.
+    """
+    from kaos_web.clients.browser import BrowserClient
+
+    async with BrowserClient() as browser:
+        # _ensure_browser() is private but stable — kaos-web 0.1.x.
+        playwright_browser = await browser._ensure_browser()
+        context = await playwright_browser.new_context()
+        try:
+            response = await context.request.post(
+                url,
+                data=payload,
+                headers=headers,
+                timeout=int(_VERIFY_TIMEOUT_S * 1000),
+            )
+            status = response.status
+            if status >= 400:
+                # Map to an httpx.HTTPStatusError-shape so the calling
+                # except (httpx.HTTPError, ValueError) clause catches it.
+                fake_resp = httpx.Response(
+                    status_code=status,
+                    request=httpx.Request("POST", url),
+                )
+                raise httpx.HTTPStatusError(
+                    f"CourtListener returned {status} via browser",
+                    request=fake_resp.request,
+                    response=fake_resp,
+                )
+            data = await response.json()
+        finally:
+            await context.close()
+    if not isinstance(data, list) or not data:
+        return None
+    envelope = data[0]
+    clusters = envelope.get("clusters") or []
+    if not clusters:
+        return None
+    return clusters[0]
+
+
 async def _query_courtlistener(
     cite_text: str,
     *,
@@ -191,6 +288,14 @@ async def _query_courtlistener(
     Returns the first match dict on success, ``None`` on no-match,
     raises ``httpx.HTTPError`` on transport / 5xx — the caller
     decides whether to map that to ``unreachable``.
+
+    Routing (2026-05-24, task #634):
+    * Caller-supplied ``client`` is always used as-is. This is the
+      test-injection seam.
+    * Otherwise: Playwright via kaos-web ``BrowserClient`` when
+      :func:`_use_browser_for_verifier` returns True. Falls back to
+      bare ``httpx.AsyncClient`` on any ImportError (browser path not
+      available) or when the operator opted out via settings / env.
     """
     headers = {"User-Agent": "kaos-agents citation-verifier"}
     key = _api_key()
@@ -200,11 +305,37 @@ async def _query_courtlistener(
     payload = {"text": cite_text}
     url = f"{_COURTLISTENER_BASE}/citation-lookup/"
 
-    if client is None:
-        async with httpx.AsyncClient(timeout=_VERIFY_TIMEOUT_S) as fresh_client:
-            response = await fresh_client.post(url, json=payload, headers=headers)
-    else:
+    if client is not None:
         response = await client.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, list) or not data:
+            return None
+        envelope = data[0]
+        clusters = envelope.get("clusters") or []
+        if not clusters:
+            return None
+        return clusters[0]
+
+    if _use_browser_for_verifier():
+        try:
+            return await _post_via_browser(url, payload=payload, headers=headers)
+        except ImportError:
+            logger.warning(
+                "citation_verifier: kaos-web[browser] missing — falling back to bare httpx",
+            )
+        except httpx.HTTPError:
+            # Re-raise so the caller's except clause sees it and maps
+            # to ``unreachable``. Identical contract to the httpx path.
+            raise
+        except Exception as exc:
+            logger.warning(
+                "citation_verifier: browser path failed (%s); falling back to bare httpx",
+                exc.__class__.__name__,
+            )
+
+    async with httpx.AsyncClient(timeout=_VERIFY_TIMEOUT_S) as fresh_client:
+        response = await fresh_client.post(url, json=payload, headers=headers)
     response.raise_for_status()
     data = response.json()
     # CL returns a list-of-dicts per requested cite; we send one cite,
