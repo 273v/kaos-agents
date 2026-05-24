@@ -136,7 +136,12 @@ class TestRunStateVFSPersistence:
         path = await save_run_state(state, vfs)
         assert "run_xyz" in path
 
-        loaded = await load_run_state("run_xyz", vfs)
+        # Since 0.1.17 ``save_run_state`` writes under
+        # ``context_id=state.session_id`` for per-session VFS scoping;
+        # ``load_run_state`` must be told the same session_id to read it
+        # back. See ``tests/unit/test_session_isolation.py`` for the
+        # cross-session isolation guarantee this scoping underwrites.
+        loaded = await load_run_state("run_xyz", vfs, session_id="sess_1")
         assert loaded.run_id == "run_xyz"
         assert loaded.session_id == "sess_1"
         assert loaded.event_count == 5
@@ -288,8 +293,10 @@ class TestRunnerResume:
         approval = [e for e in events if isinstance(e, ToolCallApprovalRequired)]
         assert len(approval) == 1
 
-        # RunState should be persisted
-        loaded = await load_run_state("run_pause_test", vfs)
+        # RunState should be persisted. Load with the same session_id
+        # the Runner used at save time (per-session VFS scope; see
+        # ``save_run_state`` docstring + tests/unit/test_session_isolation.py).
+        loaded = await load_run_state("run_pause_test", vfs, session_id="sess_pause")
         assert loaded.session_id == "sess_pause"
         assert loaded.original_message == "kill it"
         assert loaded.pending_tool_call is not None
@@ -299,4 +306,4 @@ class TestRunnerResume:
         assert approval[0].run_state_ref == run_state_path("run_pause_test")
 
         # The event log file should exist with the pre-pause TurnStart
-        assert await vfs.exists(event_log_iter_path("run_pause_test"))
+        assert await vfs.exists(event_log_iter_path("run_pause_test"), context_id="sess_pause")

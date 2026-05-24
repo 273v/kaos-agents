@@ -465,7 +465,12 @@ class TestChatToolAutoHydrate:
             _fake_run_turn,
         )
 
-        context = KaosContext.create(runtime=runtime)
+        # Context session MUST match the inputs.session_id since 0.1.17 —
+        # the memory/chat tools now refuse cross-session retargeting
+        # (see ``tests/unit/test_session_isolation.py``). For this hydration
+        # smoke test we use the same id for both so we exercise the
+        # hydration side effect, not the cross-session refusal path.
+        context = KaosContext(session_id="chat-tool-session", runtime=runtime)
         tool = AgentChatTool()
         result = await tool.execute(
             {

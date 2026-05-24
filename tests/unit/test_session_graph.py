@@ -129,9 +129,13 @@ class TestSessionStorePersistence:
         # Save
         await store.save(mem)
 
-        # Confirm Turtle was written
+        # Confirm Turtle was written. Since 0.1.17 the store scopes
+        # writes to ``context_id=session_id`` (per-session VFS scope —
+        # see tests/unit/test_session_isolation.py); the existence
+        # check needs the same context_id to find it under non-GLOBAL
+        # isolation modes.
         graph_path = _session_graph_path("with-triples")
-        assert await vfs.exists(graph_path)
+        assert await vfs.exists(graph_path, context_id="with-triples")
 
         # Hydrate via load
         loaded = await store.load("with-triples")

@@ -216,8 +216,18 @@ async def _read_text_or_handle(
     manifest: Any,
     *,
     max_bytes: int,
+    caller_session_id: str | None = None,
 ) -> tuple[str, str, int]:
     """Read up to ``max_bytes`` of an artifact's body as text.
+
+    ``caller_session_id`` is forwarded to ``ArtifactStore.read_body`` so
+    the kaos-core ownership guard
+    (``kaos_core.artifacts.store.ArtifactStore._resolve``) fires when an
+    artifact belongs to a different session. Passing ``None`` opts out
+    of the check (trusted in-process callers); the auto-hydration call
+    site at ``hydrate_artifacts_from_message`` forwards the requesting
+    session id and MUST NOT default to ``manifest.session_id`` (that
+    would compare the artifact's owner to itself and always pass).
 
     Returns ``(tier, content, bytes_loaded)`` where tier is one of
     ``"inline"`` / ``"summary"`` / ``"handle"``.
@@ -235,7 +245,7 @@ async def _read_text_or_handle(
             manifest.artifact_id,
             start=0,
             length=read_length if read_length > 0 else None,
-            caller_session_id=manifest.session_id,
+            caller_session_id=caller_session_id,
         )
     except Exception as exc:
         logger.warning(
@@ -258,9 +268,23 @@ async def hydrate_artifacts_from_message(
     memory: SessionMemory,
     runtime: KaosRuntime | None,
     per_turn_budget_bytes: int = _PER_TURN_HYDRATION_BUDGET,
+    caller_session_id: str | None = None,
 ) -> tuple[HydratedArtifact, ...]:
     """Scan ``message`` for artifact references and inject bodies into
     ``memory.DOCUMENTS``.
+
+    ``caller_session_id`` identifies the session on whose behalf the
+    hydration is running. It is forwarded to
+    ``ArtifactStore._resolve_async`` and ``ArtifactStore.read_body`` so
+    kaos-core's ownership guard
+    (``kaos_core.artifacts.store.ArtifactStore._resolve``) refuses to
+    surface an artifact minted by a different session.
+
+    Callers MUST pass the requesting session's id; the default
+    ``None`` exists for trusted in-process callers (cleanup, migration,
+    tests that intentionally cross sessions). When ``None`` is passed,
+    the kaos-core guard is bypassed — that is a deliberate escape
+    hatch, not the production path.
 
     No-op when:
     - ``runtime`` is None (no ArtifactStore available)
@@ -276,7 +300,11 @@ async def hydrate_artifacts_from_message(
     fired). Order matches first-encounter order in ``message``.
 
     Errors during a single artifact's resolve/read are logged at WARNING
-    and skipped — one bad URI does not break the whole turn.
+    and skipped — one bad URI does not break the whole turn. A
+    cross-session denial from the kaos-core guard surfaces as a single
+    skipped artifact (not a turn-level failure), so a malicious or
+    confused caller asking for a sibling-session artifact gets nothing
+    back rather than an error trail that confirms the artifact exists.
     """
     if not message or runtime is None:
         return ()
@@ -309,14 +337,19 @@ async def hydrate_artifacts_from_message(
             )
             break
 
-        # Resolve manifest. We deliberately do NOT pass
-        # ``caller_session_id`` to the resolve step — the chat tool is
-        # operating on behalf of the calling session, and the artifact
-        # may have been minted by a sibling session (e.g. a worker
-        # session that ran the PDF parse). Cross-session ACL is the
-        # caller's responsibility, not auto-hydration's.
+        # Resolve manifest under the caller's session. ``caller_session_id``
+        # is forwarded to kaos-core's ownership guard (see
+        # ``kaos_core.artifacts.store.ArtifactStore._resolve``): when the
+        # artifact's owning session != the caller's session the guard
+        # raises ``ResourceError("Unknown artifact")``. We treat that
+        # identically to "not found" so a probe for a sibling-session
+        # artifact ID yields exactly the same observable behavior as a
+        # probe for a non-existent artifact ID — no oracle.
         try:
-            manifest = await store._resolve_async(artifact_id)
+            manifest = await store._resolve_async(
+                artifact_id,
+                caller_session_id=caller_session_id,
+            )
         except Exception as exc:
             logger.warning(
                 "artifact_hydration: unable to resolve artifact %s: %s",
@@ -330,6 +363,7 @@ async def hydrate_artifacts_from_message(
             store,
             manifest,
             max_bytes=max_bytes_for_this,
+            caller_session_id=caller_session_id,
         )
 
         try:

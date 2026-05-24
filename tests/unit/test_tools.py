@@ -194,7 +194,12 @@ class TestToolInputValidation:
 
         vfs = VirtualFileSystem(config=VFSConfig(default_backend=StorageBackend.MEMORY))
         runtime = KaosRuntime(vfs=vfs)
-        context = KaosContext.create(runtime=runtime)
+        # Context session MUST match the inputs.session_id since 0.1.17 —
+        # memory tools refuse cross-session retargeting (see
+        # tests/unit/test_session_isolation.py). The KC17-P1-1 semantic
+        # we're verifying here is "clearing my own session deletes the
+        # on-disk file," so context + input both name the same session.
+        context = KaosContext(session_id="clear-target", runtime=runtime)
 
         # Seed a persisted session.
         store = SessionStore(vfs)

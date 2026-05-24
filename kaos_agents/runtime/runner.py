@@ -296,7 +296,8 @@ class Runner:
                 "v1 BaseAgent path has no TurnInvocation surface — use "
                 "Runner.turn(message, session_id) instead."
             )
-        loop = self._build_agent_loop()
+        session_id = getattr(trigger, "source_id", None)
+        loop = self._build_agent_loop(session_id=session_id)
         return await loop.invoke(trigger=trigger)
 
     async def _run_via_agent_loop(self, trigger: Any) -> AsyncIterator[KaosEvent]:
@@ -308,13 +309,31 @@ class Runner:
         ``TurnSummary`` / ``Span(TURN, COMPLETE)`` quartet and an
         empty-output :class:`TurnInvocation` (extras["phase"]="skeleton").
         Phases 3-5 wire the missing subsystems.
+
+        The session id is extracted from ``trigger.source_id`` (set by
+        :meth:`stream_trigger`) and threaded into
+        :meth:`_build_agent_loop` so the bridged runtime tools receive
+        a per-session :class:`KaosContext` (via ``context_factory``)
+        instead of the Runner-level cache. Without this thread, hosts
+        that configure a ``context_factory`` to scope the VFS / tenant
+        namespace per session got Runner-level context for tool
+        dispatch in the v2 loop only — a multi-tenant correctness gap
+        (Finding #3 in the 2026-05-24 architecture pass).
         """
-        loop = self._build_agent_loop()
+        session_id = getattr(trigger, "source_id", None)
+        loop = self._build_agent_loop(session_id=session_id)
         async for event in loop.stream(trigger):
             yield event
 
-    def _build_agent_loop(self) -> Any:
+    def _build_agent_loop(self, *, session_id: str | None = None) -> Any:
         """Construct an :class:`AgentLoop` from this Runner's config.
+
+        ``session_id`` is resolved through :meth:`_resolve_context` so
+        the bridged tools see the per-session ``KaosContext`` produced
+        by the host's ``context_factory`` (when configured). Pass
+        ``None`` (the default) only when no session is in scope —
+        e.g. construction-time validation, tests, or trusted
+        ``invoke_trigger`` calls that genuinely lack a session.
 
         Phase 2: only IntentExtractor + hooks + permission_policy +
         envelope_hash. Phases 3-5 add planners, memory tier, judges,
@@ -333,6 +352,13 @@ class Runner:
         with contextlib.suppress(Exception):  # Phase 4 hardens this best-effort path
             envelope_hash = self._agent.to_envelope().agent_hash()
 
+        # Per-session context for tool dispatch. ``_resolve_context``
+        # returns the ``context_factory(session_id)`` result when a
+        # factory is configured AND ``session_id`` is non-None; falls
+        # back to the Runner-level ``self._context`` otherwise. The v1
+        # path resolves the same way (see ``BaseAgent`` construction).
+        per_call_context = self._resolve_context(session_id)
+
         # Bridge runtime tools into kaos-llm-core Tool instances so the
         # auto-selected ReActPlanner / HierarchicalPlanner sub-agents
         # can actually call them. Without this, v2 selects a planner
@@ -347,7 +373,7 @@ class Runner:
             bridged_tools = tuple(
                 bridge_runtime_tools(
                     self._runtime,
-                    self._context,
+                    per_call_context,
                     filter_names=filter_names,
                     max_tools=self._agent.max_tools or self._settings.max_tools,
                     permission_policy=self._permission_policy,
@@ -504,7 +530,11 @@ class Runner:
         else:
             args_tuple = tuple((str(k), str(v)) for k, v in raw_args)
 
-        # Persist memory snapshot to VFS at the run-state path
+        # Persist memory snapshot to VFS at the run-state path. Scope
+        # the write to ``session_id`` so under NAMESPACE / per-context
+        # VFS isolation the snapshot lands in the same per-session
+        # namespace as the session's main memory.json — closes
+        # Finding #4 in the 2026-05-24 architecture pass.
         store = SessionStore(self._vfs)
         try:
             memory = await store.load_or_create(session_id)
@@ -512,16 +542,16 @@ class Runner:
             import json as _json
 
             mem_payload = _json.dumps(memory.to_dict(), separators=(",", ":"), default=str).encode()
-            await self._vfs.write(mem_path, mem_payload)
+            await self._vfs.write(mem_path, mem_payload, context_id=session_id)
         except Exception as exc:
             logger.warning(
                 "Runner._pause_for_approval: memory snapshot failed (continuing): %s", exc
             )
             mem_path = ""
 
-        # Persist event log
+        # Persist event log under the same per-session scope.
         try:
-            log_path = await save_event_log(emitted, run_id, self._vfs)
+            log_path = await save_event_log(emitted, run_id, self._vfs, session_id=session_id)
         except Exception as exc:
             logger.warning("Runner._pause_for_approval: event log save failed: %s", exc)
             log_path = ""
@@ -609,11 +639,16 @@ class Runner:
             )
             return
 
-        # Replay pre-pause events first so the consumer sees the full timeline
+        # Replay pre-pause events first so the consumer sees the full timeline.
+        # ``session_id`` mirrors the per-session scope save_event_log wrote into.
         from kaos_agents.runtime.interrupts import load_event_log
 
         try:
-            replay = await load_event_log(run_state.run_id, self._vfs)
+            replay = await load_event_log(
+                run_state.run_id,
+                self._vfs,
+                session_id=run_state.session_id,
+            )
             for event in replay:
                 yield event
         except Exception as exc:
@@ -624,17 +659,24 @@ class Runner:
         # we re-execute the turn with the same message and the restored memory.
         if run_state.memory_snapshot_ref:
             try:
-                raw = await self._vfs.read(run_state.memory_snapshot_ref)
+                raw = await self._vfs.read(
+                    run_state.memory_snapshot_ref,
+                    context_id=run_state.session_id,
+                )
                 import json as _json
 
                 snapshot_data = _json.loads(raw.decode())
                 # Re-save to the standard session path so the internal
-                # SessionStore.load_or_create picks it up
+                # SessionStore.load_or_create picks it up. Scope the
+                # write to ``run_state.session_id`` so it lands in the
+                # per-session VFS namespace the SessionStore now reads
+                # from (see ``kaos_agents/memory/store.py``).
                 from kaos_agents.memory.store import _session_path
 
                 await self._vfs.write(
                     _session_path(run_state.session_id),
                     _json.dumps(snapshot_data, separators=(",", ":"), default=str).encode(),
+                    context_id=run_state.session_id,
                 )
             except Exception as exc:
                 logger.warning(
