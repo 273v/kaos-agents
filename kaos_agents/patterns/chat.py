@@ -19,6 +19,7 @@ from kaos_llm_core import InputField, OutputField, Signature
 from kaos_agents._constants import FALLBACK_RECENT_MESSAGES
 from kaos_agents.actions.tool_bridge import bridge_runtime_tools
 from kaos_agents.events import (
+    BudgetExceeded,
     EventEmitter,
     GroundingRefusalTriggered,
     KaosEvent,
@@ -296,6 +297,7 @@ class ChatAgent(BaseAgent):
         *,
         tools: list[Any],
         query: str,
+        memory: SessionMemory | None = None,
     ) -> list[Any]:
         """M1 — narrow the bridged ReAct catalog via the fitness ranker.
 
@@ -349,6 +351,17 @@ class ChatAgent(BaseAgent):
         extra_names = {getattr(et, "name", None) for et in self._extra_llm_tools}
         extra_names.discard(None)
 
+        # P0.2 (#549.F) — corpus scale signal for the ranker. When
+        # ``memory`` is provided and the DOCUMENTS section is populated,
+        # pass the document count to ToolFitnessSignature so Rule 10
+        # can prefer corpus-aggregating tools (findings / corpus-filter
+        # / search-document) over per-doc parsers at scale. The signal
+        # is typed (an int the LLM reasons about), not a regex bias —
+        # the docstring rule is load-bearing.
+        corpus_size = 0
+        if memory is not None and memory.has_section(MemoryType.DOCUMENTS):
+            corpus_size = memory.section_item_count(MemoryType.DOCUMENTS)
+
         try:
             from kaos_agents.planning.tool_fitness import rank_tools_for_query
 
@@ -359,6 +372,7 @@ class ChatAgent(BaseAgent):
                 catalog=catalog,
                 model=ranker_model,
                 top_k=top_k,
+                corpus_size=corpus_size,
             )
         except Exception as exc:
             logger.warning(
@@ -494,6 +508,7 @@ class ChatAgent(BaseAgent):
         tools = await self._maybe_narrow_tools_via_fitness_ranker(
             tools=tools,
             query=message,
+            memory=memory,
         )
 
         if not tools:
@@ -588,6 +603,62 @@ class ChatAgent(BaseAgent):
             if invocation is None or result is None:
                 raise RuntimeError("ReAct retry loop exhausted without success or raise")
             t_total = (time.monotonic() - t_start) * 1000
+
+            # P0.3 (#549.G) — chat-level cost cap. After ReAct returns
+            # we know the full cumulative cost of this dispatch (LLM
+            # invocations + tool calls). When the operator has set
+            # ``chat_max_cost_usd``, an exceeding spend short-circuits
+            # the turn with a typed BudgetExceeded event + an honest
+            # refusal that names the cap, the observed spend, and the
+            # number of tool calls already burned. Mirrors the
+            # AgenticLoop's cost-exceeded path (events/budget.py).
+            # Disabled by default (``None``) for backward compatibility.
+            chat_cost_cap = getattr(self._settings, "chat_max_cost_usd", None)
+            if chat_cost_cap is not None:
+                react_usage = InvocationUsage.from_invocation(invocation)
+                observed_cost = float(react_usage.cost_usd)
+                if observed_cost > float(chat_cost_cap):
+                    # Count tool calls already burned to surface in the
+                    # refusal — the user deserves to know how much work
+                    # the agent attempted before stopping.
+                    n_tool_calls = sum(len(it.tool_results) for it in result.trajectory)
+                    logger.warning(
+                        "chat_agent.chat_max_cost_usd: exceeded cap=$%.4f "
+                        "observed=$%.4f tool_calls=%d model=%s",
+                        chat_cost_cap,
+                        observed_cost,
+                        n_tool_calls,
+                        self._model_for_role("respond"),
+                    )
+                    yield emitter.emit(
+                        BudgetExceeded,
+                        kind="chat_cost",
+                        limit=float(chat_cost_cap),
+                        actual=observed_cost,
+                        reason=(
+                            f"chat_max_cost_usd cap of ${chat_cost_cap:.4f} "
+                            f"exceeded after {n_tool_calls} tool call(s); "
+                            f"observed spend ${observed_cost:.4f}"
+                        ),
+                    )
+                    # Emit the rolled-up usage so transparency surfaces
+                    # (TurnSummary cost_usd, OTel, CostTrackingHook) see
+                    # the spend that triggered the cap — not zero.
+                    yield emit_usage_observed(emitter, react_usage, source="react-cost-cap")
+                    # Honest refusal — names the cap, the spend, and what
+                    # we managed to do. NOT silent termination.
+                    refusal_text = (
+                        f"I stopped after {n_tool_calls} tool call(s) "
+                        f"because the configured cost cap of "
+                        f"${chat_cost_cap:.4f} was exceeded "
+                        f"(observed spend: ${observed_cost:.4f}). "
+                        "Partial results from the work I completed are "
+                        "available above, but no synthesis was performed. "
+                        "Re-run with a higher chat_max_cost_usd if you "
+                        "need the full answer."
+                    )
+                    yield emitter.emit(TextDelta, content=refusal_text)
+                    return
 
             # Surface model reasoning blocks (Anthropic extended thinking,
             # OpenAI o1 reasoning, Google thinkingConfig) when the

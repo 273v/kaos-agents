@@ -7,6 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.16] — 2026-05-24
+
+### Added
+
+- **P0.2 — Scale-aware `ToolFitnessSignature.corpus_size` input** (#549.F).
+  `ToolFitnessSignature` gains a new `corpus_size: int = InputField(...)`
+  + Rule 10 in the docstring telling the LLM ranker to prefer
+  corpus-aggregating tools (`kaos-agent-findings` /
+  `kaos-agent-corpus-filter` / `kaos-content-search-document`) over
+  per-document parsers (`kaos-office-parse-docx`,
+  `kaos-pdf-extract-parse`) when `corpus_size >= 20`. The 2026-05-23
+  corpus stress S12 reproduced the failure mode: agent walked a
+  500-doc corpus document-by-document with 154 per-doc parser calls.
+  `rank_tools_for_query` threads `corpus_size` through;
+  `ChatAgent._maybe_narrow_tools_via_fitness_ranker` computes
+  `corpus_size = memory.section_item_count(MemoryType.DOCUMENTS)` and
+  passes it. No regex; the typed int + docstring rubric is the
+  load-bearing change. Default `0` preserves existing behavior when
+  no corpus is attached.
+- **P0.3 — `KaosAgentSettings.chat_max_cost_usd` cost cap** (#549.G).
+  New `chat_max_cost_usd: float | None = None` setting with env override
+  `KAOS_AGENT_CHAT_MAX_COST_USD`. `ChatAgent` emits a typed
+  `BudgetExceeded(kind="chat_cost", limit=..., actual=...)` event and a
+  refusal `TextDelta` naming the cap + observed spend + tool-call count
+  when cumulative ReAct cost exceeds the cap. Mirrors
+  `plan_max_cost_usd` for the ChatAgent path (`plan_max_cost_usd` only
+  applies to plan-execute). The 2026-05-23 corpus stress S12
+  reproduced a $4.97 / 187-tool-call runaway because this surface was
+  uncapped. Default `None` preserves existing unbounded behavior;
+  recommended production value `$1.00`–`$2.00`.
+- **P0.4 — M4 completeness judge** (`kaos_agents.planning.m4_completeness`).
+  New module composes the generic `JudgeSignature` (from
+  `kaos_agents.planning.judge`) with a `M4_COMPLETENESS_RUBRIC` to
+  detect silent-incompleteness — user asks for "all 5 needles", agent
+  returns 4 with no exhaustion acknowledgment. Wired into
+  `AgenticLoop` after the M3 grounding block with the same 0.85
+  confidence floor + `ConsistencyChecked` event + structured log
+  pattern as M2/M3. Order matters: M3 catches grounded fabrication
+  first; M4 catches the cases where the answer IS grounded but
+  quantitatively incomplete. New `KaosAgentSettings.m4_completeness_model:
+  str | None = None` setting (default `None` = disabled — existing
+  users see no behavior change unless they opt in via
+  `KAOS_AGENT_M4_COMPLETENESS_MODEL=<model>`). The M2 + M3 critic
+  settings (`m2_consistency_model`, `m3_grounding_model`) also land
+  as first-class typed settings on `KaosAgentSettings` (env overrides
+  `KAOS_AGENT_M2_CONSISTENCY_MODEL` / `KAOS_AGENT_M3_GROUNDING_MODEL`)
+  — same off-by-default safety.
+
+### Tests
+
+- New `tests/unit/test_tool_fitness_scale.py` — pins that
+  `corpus_size == 0` preserves prior ranking and `corpus_size >= 20`
+  promotes corpus aggregators ahead of per-doc parsers. Live tests
+  against `anthropic:claude-sonnet-4-6`.
+- New `tests/unit/test_chat_cost_cap.py` — pins that
+  `chat_max_cost_usd` short-circuits ReAct with a typed
+  `BudgetExceeded(kind="chat_cost")` event + refusal TextDelta, and
+  that `None` (default) preserves unbounded behavior.
+- New `tests/unit/test_m4_completeness.py` — pins the M4 rubric on
+  three canonical cases (`partial`, `exhausted`, `not_quantified`)
+  live against `anthropic:claude-sonnet-4-6`.
+
 ## [0.1.15] — 2026-05-24
 
 ### Changed
