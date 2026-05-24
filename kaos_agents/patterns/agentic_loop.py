@@ -103,6 +103,9 @@ from kaos_agents.planning.m2_consistency import (
 from kaos_agents.planning.m3_grounding import (
     judge_grounding_fabrication,
 )
+from kaos_agents.planning.m4_completeness import (
+    judge_completeness,
+)
 from kaos_agents.planning.policy import (
     TurnToolPolicy,
     plan_turn_tool_policy,
@@ -231,6 +234,7 @@ async def run_agentic_turn(
     goal_check_model: str | None = None,
     m2_consistency_model: str | None = None,
     m3_grounding_model: str | None = None,
+    m4_completeness_model: str | None = None,
     circuit_breaker_threshold: int = 5,
     max_tool_calls_per_iteration: int = 10,
     citation_verification_enabled: bool = False,
@@ -285,6 +289,17 @@ async def run_agentic_turn(
             an M3-derived directive. Composes cleanly with
             ``m2_consistency_model`` — both critics run; either's
             override fires the replan. Off by default (None).
+        m4_completeness_model: When set, after a ``satisfied`` GoalCheck
+            verdict the loop ALSO runs the M4 silent-incompleteness
+            critic (P0.4 / S12 confident-partial-answer). A ``partial``
+            verdict overrides the satisfied terminator and forces one
+            more iteration with an M4-derived directive ("you returned
+            fewer items than requested without acknowledging
+            exhaustion"). M4 runs AFTER M3 — order matters: a partial
+            answer that's ALSO ungrounded should be flagged on
+            grounding first; M4 catches the cases where the answer IS
+            grounded but quantitatively incomplete. Off by default
+            (None) to preserve cost profile.
 
     The loop terminates when one of:
       - GoalChecker returns ``satisfied`` or ``insufficient_evidence``
@@ -704,9 +719,78 @@ async def run_agentic_turn(
                         m3_verdict.latency_ms,
                     )
 
-            # Compose M2 + M3 override notes. When both fire, the user
-            # sees both directives in the next iteration's thinking_note.
-            override_note = "\n\n".join(n for n in (m2_override_note, m3_override_note) if n)
+            # ── 4d. M4 silent-incompleteness override ────────────────
+            # Composes with M2 + M3 — all three critics run when
+            # satisfied. M4 runs LAST: a partial answer that's also
+            # ungrounded should be flagged on grounding first (M3); M4
+            # catches the cases where the answer IS grounded in what
+            # the tools returned but quantitatively incomplete vs what
+            # the user asked for. P0.4 / S12 confident-partial-answer.
+            m4_override_note: str = ""
+            m4_verdict = None
+            if m4_completeness_model is not None and outcome.satisfied:
+                m4_verdict = await judge_completeness(
+                    user_prompt=user_message,
+                    response_text=worker_result.text,
+                    model=m4_completeness_model,
+                )
+                state.cumulative_cost_usd += m4_verdict.cost_usd
+                # Confidence floor mirrors M2/M3 (>=0.85) — only an
+                # explicit incompleteness verdict overrides a satisfied
+                # GoalCheck. Lower-confidence flags are real
+                # observability signals (event + log below) but must
+                # not flip a passing turn into a replan.
+                M4_OVERRIDE_CONFIDENCE_FLOOR: float = 0.85
+                if (
+                    not m4_verdict.fell_back
+                    and m4_verdict.confidence >= M4_OVERRIDE_CONFIDENCE_FLOOR
+                    and m4_verdict.label == "partial"
+                ):
+                    m4_override_note = (
+                        "M4 completeness critic flagged partial: your prior response "
+                        "returned fewer items than the user requested without "
+                        "acknowledging exhaustion. EITHER continue searching the "
+                        "corpus for the missing items, OR re-write to explicitly "
+                        "state which items were found and which were not (cite "
+                        "what you searched — 'I reviewed N documents and found M')."
+                    )
+                yield _build_consistency_checked_event(
+                    verdict=m4_verdict,
+                    iteration=state.iteration,
+                    overrode_satisfied=bool(m4_override_note),
+                    state=state,
+                    session_id=session_id,
+                    run_id=run_id,
+                )
+                if m4_verdict.fell_back:
+                    logger.warning(
+                        "M4 completeness critic fell back (treated as complete) "
+                        "session=%s iteration=%d cost=$%.4f reason=%r",
+                        session_id,
+                        state.iteration,
+                        m4_verdict.cost_usd,
+                        m4_verdict.reasoning,
+                    )
+                else:
+                    logger.info(
+                        "M4 completeness critic verdict=%s confidence=%.2f "
+                        "overrode_satisfied=%s session=%s iteration=%d "
+                        "cost=$%.4f latency_ms=%.0f",
+                        m4_verdict.label,
+                        m4_verdict.confidence,
+                        bool(m4_override_note),
+                        session_id,
+                        state.iteration,
+                        m4_verdict.cost_usd,
+                        m4_verdict.latency_ms,
+                    )
+
+            # Compose M2 + M3 + M4 override notes. When multiple fire,
+            # the user sees all directives in the next iteration's
+            # thinking_note.
+            override_note = "\n\n".join(
+                n for n in (m2_override_note, m3_override_note, m4_override_note) if n
+            )
 
             # ── 5. Terminal verdicts ─────────────────────────────────
             if outcome.satisfied and not override_note:
@@ -773,6 +857,13 @@ async def run_agentic_turn(
                         if m3_verdict.reasoning
                         else f"M3 flagged {m3_verdict.label} at "
                         f"confidence {m3_verdict.confidence:.2f}"
+                    )
+                elif m4_override_note and m4_verdict is not None and not m4_verdict.fell_back:
+                    state.last_critic_rationale = (
+                        f"M4 ({m4_verdict.label}): {m4_verdict.reasoning}"
+                        if m4_verdict.reasoning
+                        else f"M4 flagged {m4_verdict.label} at "
+                        f"confidence {m4_verdict.confidence:.2f}"
                     )
                 state.last_critic_next_action = override_note
                 state.last_terminal_verdict = "override"  # R0.1

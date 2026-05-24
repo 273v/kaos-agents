@@ -131,6 +131,22 @@ class KaosAgentSettings(ModuleSettings):
             "10 was a 2023-era cap that truncated long-horizon tasks."
         ),
     )
+    chat_max_cost_usd: float | None = Field(
+        default=None,
+        description=(
+            "Hard upper bound on cumulative USD spend per "
+            "ChatAgent.turn(). When set, the chat ReAct loop sums "
+            "``response.cost_usd`` after each tool call + LLM invocation. "
+            "If cumulative cost exceeds this cap, the loop emits a typed "
+            "``BudgetExceeded`` event and short-circuits with a graceful "
+            "refusal — preventing the 187-tool-call / $5 runaway pattern "
+            "observed on corpus-scale queries (corpus stress S12). "
+            "Defaults to ``None`` (unbounded) for backward compatibility. "
+            "Set to 0 to refuse all chat turns (useful for testing). "
+            "Recommended production value: $1.00 - $2.00 depending on "
+            "tier. Env override: ``KAOS_AGENT_CHAT_MAX_COST_USD``."
+        ),
+    )
     tool_timeout_seconds: float = Field(
         default=120.0,
         gt=0,
@@ -176,6 +192,45 @@ class KaosAgentSettings(ModuleSettings):
             "common multi-tool compositions (search → fetch → "
             "search-document → cite) plus headroom, small enough "
             "to keep weaker reasoners on the tool-call branch."
+        ),
+    )
+
+    # Critic models — M2/M3/M4 force-elevate critics in the AgenticLoop.
+    # Each is None by default (critic disabled); set to a model string
+    # (e.g. ``anthropic:claude-sonnet-4-6``) to enable. The AgenticLoop
+    # composes whichever critics are enabled — they run in M2 → M3 → M4
+    # order; M3 catches grounding failures before M4 sees the response,
+    # so a confident-but-ungrounded partial answer is flagged on
+    # grounding first.
+    m2_consistency_model: str | None = Field(
+        default=None,
+        description=(
+            "Model used by the M2 reasoning-action consistency critic. "
+            "When ``None`` (default), M2 is disabled. Set to a model name "
+            "(e.g. ``anthropic:claude-sonnet-4-6``) to enable the "
+            "headline-vs-body contradiction check after every satisfied "
+            "GoalCheck. Env override: ``KAOS_AGENT_M2_CONSISTENCY_MODEL``."
+        ),
+    )
+    m3_grounding_model: str | None = Field(
+        default=None,
+        description=(
+            "Model used by the M3 document-grounding critic. When "
+            "``None`` (default), M3 is disabled. Set to a model name to "
+            "enable the admit-then-fabricate check after every satisfied "
+            "GoalCheck. Env override: ``KAOS_AGENT_M3_GROUNDING_MODEL``."
+        ),
+    )
+    m4_completeness_model: str | None = Field(
+        default=None,
+        description=(
+            "Model used by the M4 completeness critic. When ``None`` "
+            "(default), M4 is disabled. Set to a model name (e.g. "
+            "``anthropic:claude-sonnet-4-6``) to enable the silent-"
+            "incompleteness check after every satisfied GoalCheck. Fires "
+            "when the user asked for N items / 'all of X' and the "
+            "response returned fewer without acknowledging exhaustion. "
+            "Env override: ``KAOS_AGENT_M4_COMPLETENESS_MODEL``."
         ),
     )
 

@@ -98,6 +98,7 @@ async def rank_tools_for_query(
     model: str,
     recent_messages: str = "",
     top_k: int = 5,
+    corpus_size: int = 0,
     timeout_s: float = 8.0,
 ) -> ToolFitnessResult:
     """Run :class:`ToolFitnessSignature` and return a typed result.
@@ -107,6 +108,13 @@ async def rank_tools_for_query(
     pattern. Any exception (provider error, schema parse failure,
     invalid pick names) collapses to ``fell_back=True`` with the
     full unranked catalog implied for the caller.
+
+    ``corpus_size`` (0.1.16) is the number of documents currently
+    attached to the session (``len(memory.DOCUMENTS)``). The ranker
+    uses it via Rule 10 in the docstring to prefer corpus-aggregating
+    tools (findings / corpus-filter / search-document) over per-doc
+    parsers (parse-docx / pdf-extract-parse) when the corpus is
+    large. 0 = no corpus attached → existing behavior preserved.
     """
     t_start = time.monotonic()
     try:
@@ -136,6 +144,7 @@ async def rank_tools_for_query(
                 tool_catalog=catalog_text,
                 recent_messages=recent_messages,
                 top_k=top_k,
+                corpus_size=corpus_size,
             ),
             timeout=timeout_s,
         )
@@ -275,6 +284,18 @@ class ToolFitnessSignature(Signature):
        contains nothing that obviously fits — the worker will
        then proceed cautiously or refuse.
 
+    10. **Scale-aware tool family preference.** When ``corpus_size >= 20``,
+        prefer corpus-aggregating tools — search/triage/findings/filter
+        over the whole document set in one call — over per-document
+        parse tools. Per-document parsers (``*-parse-docx``,
+        ``*-extract-parse``, etc.) cost O(N) tool calls for N documents;
+        aggregators run BM25 / LLM-judge over the full DOCUMENTS section
+        in 1-3 calls. The agent's M1 fitness ranking is the only place
+        this preference can be expressed — the worker then picks among
+        your ranked picks. When ``corpus_size < 20`` (small-corpus
+        regime), per-doc parsers and aggregators are roughly equivalent;
+        rank by domain fit.
+
     Anti-patterns (do NOT do these — they are the documented
     failure modes from the 2026-05-19 incident review):
 
@@ -292,6 +313,12 @@ class ToolFitnessSignature(Signature):
     * Returning an empty ``picks`` just because the catalog is
       large; "I don't know which to use" is a worker-side
       decision, not a ranker-side decision.
+    * Ranking ``kaos-office-parse-docx`` or ``kaos-pdf-extract-parse``
+      ahead of ``kaos-agent-findings`` / ``kaos-agent-corpus-filter`` /
+      ``kaos-content-search-document`` when ``corpus_size >= 20``. The
+      per-doc parsers scale poorly — the agent walks the corpus
+      document-by-document, blowing the tool-call budget. The
+      aggregators triage internally and return the relevant subset.
 
     **0.1.1 (#549.A) — atomic-over-composite preference for tool
     families with a "profile" / "summary" / "domain-intel" rollup.**
@@ -366,6 +393,16 @@ class ToolFitnessSignature(Signature):
             "tunes per pattern: 3 for cheap models on simple "
             "questions, up to 10 when the worker is expected to "
             "compose multiple tools."
+        ),
+    )
+    corpus_size: int = InputField(
+        default=0,
+        ge=0,
+        description=(
+            "Number of corpus documents currently attached to the session "
+            "(``len(memory.DOCUMENTS)``). 0 = no corpus attached. Use this "
+            "to prefer corpus-aggregating tools over per-doc parsers when "
+            "the corpus is large — see Rule 10 in the docstring."
         ),
     )
 
