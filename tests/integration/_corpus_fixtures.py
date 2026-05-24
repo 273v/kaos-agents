@@ -632,6 +632,7 @@ def hydrate_corpus_into_memory(
     happy path require a tool call, so the judge gate has a real
     signal to act on.
     """
+
     def _redact(body: str, needle_fact: str) -> str:
         """Silently strip the labelled phrase and the bare value token.
 
