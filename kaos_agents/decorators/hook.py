@@ -302,4 +302,4 @@ def metadata_instance_factory(metadata: HookMetadata) -> Callable[[], HookMetada
     return _metadata
 
 
-__all__ = ["FunctionHook", "hook", "metadata_instance_factory"]
+__all__ = ["FunctionHook", "hook"]

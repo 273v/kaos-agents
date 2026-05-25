@@ -366,6 +366,14 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "Goal": ("kaos_agents.intent", "Goal"),
     "IntentExtractor": ("kaos_agents.intent", "IntentExtractor"),
     "IntentSignature": ("kaos_agents.intent", "IntentSignature"),
+    # ``IntentResultV2`` is a compat alias for the new typed intent result
+    # in ``kaos_agents.intent``. Distinct from the legacy
+    # ``kaos_agents.types.intents.IntentResult`` (an older, simpler
+    # version that is still exported for back-compat). New code should
+    # prefer ``from kaos_agents.intent import IntentResult`` directly;
+    # this alias exists only to keep callers that imported
+    # ``IntentResultV2`` during the migration window working until the
+    # next major bump.
     "IntentResultV2": ("kaos_agents.intent", "IntentResult"),
     # --- loop (8-step turn loop drives a Program).
     "AgentLoop": ("kaos_agents.loop", "AgentLoop"),
