@@ -32,6 +32,7 @@ from kaos_agents.events import (
     SpanSubject,
     TextDelta,
     UsageObserved,
+    emit_memory_added,
     emit_usage_observed,
 )
 from kaos_agents.patterns.chat import ChatAgent
@@ -459,6 +460,7 @@ class ResearchAgent(ChatAgent):
             f"URI: {uri}\n{text}",
             metadata={"uri": uri, "type": "document"},
         )
+        emit_memory_added(MemoryType.DOCUMENTS.value, item_count=1)
 
     # Threshold for using ReAct (agent-driven) vs one-shot RAG
     _REACT_CORPUS_THRESHOLD = 20
@@ -863,6 +865,11 @@ class ResearchAgent(ChatAgent):
                             "sources": [s["source_uri"] for s in claim_payload["supporting_spans"]],
                         },
                     )
+                    emit_memory_added(
+                        MemoryType.FINDINGS.value,
+                        item_count=1,
+                        attributes={"verified": result.is_verified},
+                    )
 
                 if result.is_verified:
                     response_text += (
@@ -905,6 +912,7 @@ class ResearchAgent(ChatAgent):
                     f"Used plain BM25 on {n_docs_label} docs."
                 )
                 memory.add(MemoryType.REFLECTION, reflection_text)
+                emit_memory_added(MemoryType.REFLECTION.value, item_count=1)
                 logger.debug(
                     "research_agent._handle_research: wrote REFLECTION: %s",
                     reflection_text[:120],
@@ -1057,6 +1065,7 @@ class ResearchAgent(ChatAgent):
                                 f"'{retry_query[:60]}'. Found {len(new_items)} additional docs."
                             )
                             memory.add(MemoryType.REFLECTION, retry_reflection)
+                            emit_memory_added(MemoryType.REFLECTION.value, item_count=1)
                             logger.debug(
                                 "research_agent.retry: wrote REFLECTION: %s",
                                 retry_reflection[:120],
@@ -1105,6 +1114,7 @@ class ResearchAgent(ChatAgent):
                         f"Would resolve: {(refusal.what_would_resolve or 'unknown')[:80]}"
                     )
                     memory.add(MemoryType.REFLECTION, failure_reflection)
+                    emit_memory_added(MemoryType.REFLECTION.value, item_count=1)
                     logger.debug(
                         "research_agent._handle_research: wrote REFLECTION: %s",
                         failure_reflection[:120],

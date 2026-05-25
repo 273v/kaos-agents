@@ -50,6 +50,7 @@ from kaos_agents.events import (
     TurnSummary,
     UsageObserved,
     collect_events,
+    emit_memory_added,
     use_emitter,
 )
 from kaos_agents.memory.session import SessionMemory
@@ -331,6 +332,7 @@ class BaseAgent(KaosAgent):
         # fix in docs/plans/2026-05-19-agentic-loop-honesty.md §3.1.a.
         if not is_internal_iteration:
             memory.add(MemoryType.MESSAGES, f"user: {message}")
+            emit_memory_added(MemoryType.MESSAGES.value, item_count=1)
         logger.debug(
             "agent.step3_add_message: session=%s message_len=%d internal=%s",
             session_id,
@@ -596,6 +598,7 @@ class BaseAgent(KaosAgent):
         # the next iteration's classifier + planner see what was tried.
         if response_text and not is_internal_iteration:
             memory.add(MemoryType.MESSAGES, f"assistant: {response_text}")
+            emit_memory_added(MemoryType.MESSAGES.value, item_count=1)
         if tool_executions:
             for te in tool_executions:
                 summary = f"Tool: {te.tool_name}({te.arguments}) → {te.result_summary}"

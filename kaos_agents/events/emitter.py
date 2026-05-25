@@ -382,9 +382,60 @@ def active_emitter() -> EventEmitter | None:
     return _active_emitter_var.get()
 
 
+def emit_memory_added(
+    section: str,
+    *,
+    item_count: int = 1,
+    attributes: dict[str, Any] | None = None,
+) -> KaosEvent | None:
+    """Emit a ``MemoryEvent(kind=ADDED, section=section, item_count=N)``
+    via the active emitter, or no-op when none is in scope.
+
+    Helpers deep in the call stack (research-agent FINDINGS / REFLECTION
+    writes, BaseAgent.run user/assistant MESSAGES writes, etc.) write to
+    SessionMemory inside an active turn but typically don't hold the
+    EventEmitter directly. This helper closes the observability gap —
+    audit hooks, OTel exporters, SSE consumers, and the persistent
+    event log all see the same MemoryEvent shape regardless of which
+    helper performed the ``memory.add()``.
+
+    Centralizes the field mapping so call sites stay symmetric and
+    future MemoryEvent schema changes touch one place. Mirrors the
+    :func:`emit_usage_observed` pattern.
+
+    Args:
+        section: The ``MemoryType`` value (e.g. ``MemoryType.MESSAGES.value``).
+            Stored verbatim on the event so downstream consumers can
+            discriminate by section name.
+        item_count: How many items were appended in the underlying
+            ``memory.add()`` call. Defaults to 1 (the most common case).
+        attributes: Optional kind-specific extras. Mirrors the
+            :class:`MemoryEvent.attributes` field shape.
+
+    Returns:
+        The emitted ``MemoryEvent`` (or ``None`` when no emitter is in
+        scope — see :func:`active_emitter` semantics).
+    """
+    # Lazy import to avoid pulling kaos_agents.events.memory at module
+    # load (keeps the optional-extras invariant clean).
+    from kaos_agents.events.memory import MemoryEvent, MemoryEventKind
+
+    emitter = active_emitter()
+    if emitter is None:
+        return None
+    return emitter.emit(
+        MemoryEvent,
+        kind=MemoryEventKind.ADDED,
+        section=section,
+        item_count=item_count,
+        attributes=attributes or {},
+    )
+
+
 __all__ = [
     "EventEmitter",
     "active_emitter",
+    "emit_memory_added",
     "emit_thinking_from_invocation",
     "emit_usage_observed",
     "use_emitter",
