@@ -7,6 +7,95 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.18] — 2026-05-25
+
+A+ multi-axis cleanup + MultiChainComparison adoption + cross-org
+lockfile resync. Closes the audit/MCC workstream (#83) and the
+inherited CS-B1 wrong-extension family via kaos-office 0.1.2 +
+kaos-pdf 0.1.2 pickups.
+
+### Added — `multi_chain_n` kwarg on `expand()` (planning)
+
+`kaos_agents.planning.expand` now accepts an optional
+``multi_chain_n: int | None = None`` kwarg. When set to N ≥ 2, plan
+expansion routes through `kaos_llm_core.programs.MultiChainComparison`
+with N producer chains + an aggregator, reusing the same TOML few-shot
+pool as the single-`Call` path via `examples=load_examples("plan_expand")`
+(required upstream `examples=` forwarding shipped in kaos-llm-core
+0.1.2).
+
+### Added — symmetric ContextVar primitive for the EventEmitter
+
+`kaos_agents.events.use_emitter()` + `active_emitter()` mirror the
+existing `collect_events()` / `_active_collector_var` pattern. Sites
+that previously had to thread the emitter through arguments can now
+acquire it from the active span scope.
+
+### Added — `emit_memory_added` helper + ResearchAgent wiring (Theme B)
+
+Five new `MemoryEvent(MemoryEventKind.ADDED)` emit sites in
+`patterns/research/agent.py` for DOCUMENTS hydration, FINDINGS-via-
+RAG ingestion, and three REFLECTION write paths. Closes the
+observability gap where memory mutations from the research path were
+invisible to OTel and the SPA Activity panel.
+
+### Added — Tool-call lifecycle observability (Theme A)
+
+Three sites now emit on tool-execution failure paths:
+`capabilities/retrieve.py` raises `RunError(error_type="tool_execution_failure")`,
+`actions/tool_bridge.py` + `planning/act.py` emit
+`Span(TOOL_CALL, ERROR, error_type="tool_timeout")` on timeout. Previously
+these failures were silent to downstream hooks.
+
+### Changed — `evaluate_agent` flips `return_exceptions=True` (Theme C)
+
+`kaos_agents/optimization/evaluate.py` no longer crashes the whole
+`asyncio.gather` when a defensive layer outside the inner try/except
+raises. Each raised example is converted to
+`ExampleResult(error=..., error_class=...)` and the eval continues.
+Closes the "one bad example destroys the whole eval batch" mode.
+
+### Changed — `kaos-llm-core` pin bumped `>=0.1.0,<0.2` → `>=0.1.2,<0.2`
+
+Required for `MultiChainComparison.__init__(examples=...)`,
+`LLMQueryExpander(core_settings=...)`, and explicit `core_settings=`
+forwarding through `ProgramOfThought` + `RAG`. Upstream PRs #50/#51/#52
+on kaos-llm-core landed 2026-05-24.
+
+### Changed — `uv.lock` resynced against current PyPI
+
+`uv lock --upgrade` pulled all stale kaos-* and transitive deps to
+their published 2026-05-23+ versions. Notable bumps:
+
+- kaos-pdf 0.1.0 → 0.1.2 (commit 406ba2a closes CS-B1 wrong-extension at the resolver layer)
+- kaos-office 0.1.0 → 0.1.2 (this release's companion fix)
+- kaos-core 0.1.0 → 0.1.2
+- kaos-nlp-core 0.1.0 → 0.1.2
+- kaos-source 0.1.0 → 0.1.2
+- kaos-web 0.1.0 → 0.1.9 (Playwright-default fetch + bot-challenge detection)
+- kaos-llm-client 0.1.5 → 0.1.6
+- plus ~50 transitive bumps (pydantic 2.12.5 → 2.13.4, ty 0.0.37 → 0.0.38, ruff 0.15.10 → 0.15.14, etc).
+
+### Fixed — 12 pre-existing ty diagnostics
+
+Narrow `# ty: ignore[<rule>]` annotations in five files surface ty
+diagnostics that surfaced after ty version drift. None of the
+underlying issues are runtime bugs:
+
+- `kaos_agents/context/retrieval.py` — 3x `not-iterable` on
+  `pool.submit().result()` tuple unpack (ty can't infer the
+  `concurrent.futures` generic).
+- `kaos_agents/patterns/reflexion.py` + `kaos_agents/planning/goal_check.py` +
+  `kaos_agents/planning/policy.py` — `Call(signature, …)` where
+  `signature` is `type` (not `type[Signature]`) due to the lazy
+  kaos-llm-core import dodging the `[llm]`-optional invariant.
+- `tests/unit/test_router_agent.py` — `_StubAgent` is a deliberate
+  duck-typed test stand-in that doesn't inherit from `KaosAgent`.
+
+### Dependabot
+
+- chore(deps): bump actions-all group with 3 updates (#82)
+
 ## [0.1.17] — 2026-05-24
 
 ### Changed — per-session context now threaded through every kaos-core boundary

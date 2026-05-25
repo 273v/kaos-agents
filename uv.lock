@@ -11,7 +11,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-05-22T14:57:29.486198384Z"
+exclude-newer = "2026-05-22T16:05:59.646932938Z"
 exclude-newer-span = "PT72H"
 
 [options.exclude-newer-package]
@@ -1338,7 +1338,7 @@ wheels = [
 
 [[package]]
 name = "kaos-office"
-version = "0.1.1"
+version = "0.1.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "kaos-content", extra = ["markdown"] },
@@ -1346,9 +1346,9 @@ dependencies = [
     { name = "lxml" },
     { name = "python-pptx" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ee/58/15af9de0f4ea0c680089a67046077ea43dc69eb859aa0e71cd87802b04a5/kaos_office-0.1.1.tar.gz", hash = "sha256:7b9d36ec4e97d48f8c6534233758bcd2d536fdb39f64046df5bc1af0111f6da0", size = 124025, upload-time = "2026-05-23T20:38:09.575Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/13/2a/85a2f2409245af706540e85db0f03a0f57a43c418d8d26eb6a6f86defdc5/kaos_office-0.1.2.tar.gz", hash = "sha256:c4e065ffe937e35afb9262b6093ddac81710b35b1ab99262e808591cc6010ec6", size = 124653, upload-time = "2026-05-25T16:05:38.999Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/43/7c/96555e55f119cfd909ea5a288f90386e965ec375060488904ad080bcac62/kaos_office-0.1.1-py3-none-any.whl", hash = "sha256:0532ceb9dd505ec8f77c5e7fb94f47877ec59afa1c883ae1f9a3c8761f4fd2b8", size = 134225, upload-time = "2026-05-23T20:38:07.826Z" },
+    { url = "https://files.pythonhosted.org/packages/4e/56/02a8e4cc909009ce635261110e3ebddc9ae0bf3127169e8294263f1219f2/kaos_office-0.1.2-py3-none-any.whl", hash = "sha256:5b8ef2bab20670c4dc486069d38c5f51981f423a304378036efaade27840d208", size = 134432, upload-time = "2026-05-25T16:05:36.85Z" },
 ]
 
 [package.optional-dependencies]
