@@ -37,13 +37,19 @@ requires_openai = pytest.mark.skipif(
 # ---------------------------------------------------------------------------
 # Model strings — pinned. Source: kaos-llm-client/tests/integration/test_live.py
 # Current landscape (May 2026):
-#   Anthropic: claude-haiku-4-5, claude-sonnet-4-6, claude-opus-4-6
+#   Anthropic: claude-haiku-4-5, claude-sonnet-4-6, claude-opus-4-7
 #   OpenAI:    gpt-5.4-nano, gpt-5.4-mini, gpt-5.4
 # Mandate: Claude >= 4.6 AND GPT >= 5.4.
+#
+# Unlike most live test files, this one deliberately hard-codes both
+# provider tiers: the suite is the cross-provider matrix for Phase 3
+# planners. The DEFAULT rows are floor models (see
+# ``tests/integration/_models.py``); the FLAGSHIP rows are explicit
+# upper-tier comparators.
 # ---------------------------------------------------------------------------
 
 ANTHROPIC_DEFAULT = "anthropic:claude-sonnet-4-6"
-ANTHROPIC_FLAGSHIP = "anthropic:claude-opus-4-6"
+ANTHROPIC_FLAGSHIP = "anthropic:claude-opus-4-7"
 OPENAI_DEFAULT = "openai:gpt-5.4-mini"
 OPENAI_FLAGSHIP = "openai:gpt-5.4"
 
@@ -299,7 +305,7 @@ class TestReActPlannerAnthropicLive:
         )
 
     async def test_opus_flagship_matches_quality(self) -> None:
-        """Cross-tier: opus-4-6 answers the same question correctly."""
+        """Cross-tier: opus-4-7 answers the same question correctly."""
         from kaos_agents.intent.types import Goal, IntentResult
         from kaos_agents.planning.react_planner import ReActPlanner
         from kaos_agents.types.intents import IntentType
@@ -601,7 +607,7 @@ class TestPlanExecutePlannerAnthropicLive:
         print(f"\n[PlanExecute/actor] result.text={result.text!r}")
 
     async def test_opus_plan_produces_meaningful_steps(self) -> None:
-        """Cross-tier: opus-4-6 classifies intent; PlanExecutePlanner decomposes it."""
+        """Cross-tier: opus-4-7 classifies intent; PlanExecutePlanner decomposes it."""
         from kaos_agents.intent import IntentExtractor
         from kaos_agents.planning.plan_execute_planner import PlanExecutePlanner
 
@@ -905,7 +911,7 @@ class TestHierarchicalPlannerAnthropicLive:
         )
 
     async def test_opus_hierarchical_plan_then_execute(self) -> None:
-        """Cross-tier: opus-4-6 produces a plan; stub factory executes it.
+        """Cross-tier: opus-4-7 produces a plan; stub factory executes it.
 
         DEFECT-4 (documented, NOT patched):
             HierarchicalPlanner._heuristic_subagent_envelope creates a CHAT-pattern

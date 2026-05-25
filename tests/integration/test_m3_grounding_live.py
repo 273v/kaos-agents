@@ -27,11 +27,7 @@ from kaos_agents.planning.m3_grounding import (
     M3_ALLOWED_LABELS,
     judge_grounding_fabrication,
 )
-
-MODELS: tuple[str, ...] = (
-    "openai:gpt-5.4-mini",
-    "anthropic:claude-sonnet-4-6",
-)
+from tests.integration._models import critic_model
 
 
 def _have_key_for(model: str) -> bool:
@@ -122,10 +118,12 @@ _CASES: tuple[M3Case, ...] = (
 )
 
 
+# M3 grounding is a critic role. Defaults to Sonnet; rerun against
+# the OpenAI provider via ``KAOS_TEST_CRITIC_MODEL=openai:gpt-5.4-mini``.
 @pytest.mark.live
-@pytest.mark.parametrize("model", MODELS, ids=lambda m: m.replace(":", "_"))
 @pytest.mark.parametrize("case", _CASES, ids=lambda c: c.case_id)
-async def test_m3_label_emission(case: M3Case, model: str) -> None:
+async def test_m3_label_emission(case: M3Case) -> None:
+    model = critic_model()
     if not _have_key_for(model):
         pytest.skip(f"missing API key for {model}")
 

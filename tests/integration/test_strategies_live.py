@@ -12,8 +12,9 @@ from kaos_agents.planning.strategies.adaptive import execute_adaptive
 from kaos_agents.planning.strategies.decompose import execute_decompose
 from kaos_agents.planning.strategies.direct import execute_direct
 from kaos_agents.types.plan import PlanBudget, StopReason
+from tests.integration._models import respond_model
 
-MODEL = "anthropic:claude-haiku-4-5"
+MODEL = respond_model()
 
 
 def _mock_tool(name: str, response: str) -> Tool:

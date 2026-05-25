@@ -37,6 +37,8 @@ from typing import Any
 
 import pytest
 
+from tests.integration._models import critic_model
+
 pptx = pytest.importorskip(
     "pptx",
     reason=(
@@ -305,8 +307,8 @@ class TestPPTXFindingsLive:
                 ),
                 "select_by": "token",
                 "selector_arg": "cyber",
-                "filter_model": "anthropic:claude-haiku-4-5",
-                "synthesis_model": "anthropic:claude-haiku-4-5",
+                "filter_model": critic_model(),
+                "synthesis_model": critic_model(),
                 "chunk_size": 20,
                 "num_parallel": 3,
                 "relevance_threshold": 0.4,

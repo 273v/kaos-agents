@@ -4,7 +4,8 @@ Iteration 5 of kaos-modules/docs/audits/2026-05-24-kaos-agents-prompt-smells.md:
 classify_intent now reads its calibration examples from
 ``kaos_agents/_assets/examples/classify_intent.toml`` rather than the
 prior empty ``examples=`` argument. This file pins the 5 routing labels
-on the live model floor (gpt-5.4-mini + claude-sonnet-4-6).
+on the live model floor — the floor list itself is centralized in
+``tests/integration/_models.py``.
 
 Anti-regression: session 01KS0R64Q744DTVZ53KCS9VC7M routed
 "current US senator" → ``respond`` and answered from training memory
@@ -25,11 +26,7 @@ import pytest
 
 from kaos_agents.context.classify import _classify_with_llm
 from kaos_agents.memory.session import SessionMemory
-
-MODELS: tuple[str, ...] = (
-    "openai:gpt-5.4-mini",
-    "anthropic:claude-sonnet-4-6",
-)
+from tests.integration._models import critic_model
 
 
 def _have_key_for(model: str) -> bool:
@@ -100,14 +97,19 @@ _CASES: tuple[ClassifyCase, ...] = (
 )
 
 
+# Intent classification is a CRITIC role — the model decides which
+# intent the user expressed, and ``check_goal`` / ``IntentExtractor``
+# downstream consumes the verdict the same way as the Reflexion
+# critic. The default resolves to Sonnet; override with
+# ``KAOS_TEST_CRITIC_MODEL=openai:gpt-5.4-mini`` to exercise the
+# OpenAI provider variant of the same contract.
 @pytest.mark.live
-@pytest.mark.parametrize("model", MODELS, ids=lambda m: m.replace(":", "_"))
 @pytest.mark.parametrize("case", _CASES, ids=lambda c: c.case_id)
 @pytest.mark.asyncio
 async def test_classify_intent_label_emission(
     case: ClassifyCase,
-    model: str,
 ) -> None:
+    model = critic_model()
     if not _have_key_for(model):
         pytest.skip(f"missing API key for {model}")
 

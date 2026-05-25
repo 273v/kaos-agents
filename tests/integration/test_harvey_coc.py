@@ -4,7 +4,7 @@ Runs the vendored Harvey LAB ``extract-change-of-control-provisions`` task
 against the agent and asserts a small, cost-bounded subset of behaviors.
 The full benchmark (all 55 criteria, ~$0.27 per run) lives at
 ``tests/benchmarks/harvey_coc_benchmark.py``; this test runs the *same*
-machinery but with ``max_criteria=5`` so CI cost stays under ~$0.10.
+machinery but with ``max_criteria=5`` so CI cost stays under ~$0.50.
 
 Asserted behaviors (intentionally weak so the test pins infrastructure,
 not model quality):
@@ -38,6 +38,7 @@ import os
 import pytest
 
 from tests.benchmarks.harvey_coc_benchmark import run_benchmark
+from tests.integration._models import judge_model, respond_model
 
 _HAS_ANTHROPIC_KEY = bool(
     os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("KAOS_LLM_ANTHROPIC_API_KEY")
@@ -54,8 +55,8 @@ _HAS_ANTHROPIC_KEY = bool(
 async def test_harvey_coc_smoke() -> None:
     """End-to-end smoke: agent reads 8 contracts, scores 5 criteria."""
     result = await run_benchmark(
-        agent_model="anthropic:claude-haiku-4-5",
-        judge_model="anthropic:claude-haiku-4-5",
+        agent_model=respond_model(),
+        judge_model=judge_model(),
         max_criteria=5,
         verbose=False,
         concurrency=3,
@@ -93,12 +94,12 @@ async def test_harvey_coc_smoke() -> None:
 
     # Cost ceiling — keep the integration test cheap. The full
     # 55-criterion benchmark lands at ~$0.27 (haiku x haiku); a
-    # 5-criterion subset should be well under $0.10. If this fires,
+    # 5-criterion subset should be well under $0.50. If this fires,
     # either the agent is doing too many tool calls (loop bug?) or
     # the judge is expensive (model swap?).
     total_cost = result.agent_cost_usd + result.judge_cost_usd
-    assert total_cost < 0.10, (
-        f"Smoke test cost ${total_cost:.4f} — over the $0.10 ceiling. "
+    assert total_cost < 0.50, (
+        f"Smoke test cost ${total_cost:.4f} — over the $0.50 ceiling. "
         f"Agent: ${result.agent_cost_usd:.4f}, "
         f"Judge: ${result.judge_cost_usd:.4f}. "
         "Investigate before bumping the ceiling."
@@ -128,8 +129,8 @@ async def test_harvey_coc_canary_apex_buyout() -> None:
     the corpus.
     """
     result = await run_benchmark(
-        agent_model="anthropic:claude-haiku-4-5",
-        judge_model="anthropic:claude-haiku-4-5",
+        agent_model=respond_model(),
+        judge_model=judge_model(),
         max_criteria=1,  # judge call is unused here — we only need the agent run
         verbose=False,
         concurrency=1,

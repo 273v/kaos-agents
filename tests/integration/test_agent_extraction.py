@@ -24,6 +24,7 @@ from kaos_agents.events import (
     TextDelta,
 )
 from kaos_agents.runtime.runner import Runner
+from tests.integration._models import respond_model
 
 
 def _is_tool_call_start(event: KaosEvent) -> TypeGuard[Span]:
@@ -91,7 +92,7 @@ def _make_runner_with_extraction() -> Runner:
             "kaos-extract-schema tool with the appropriate recipe_name. "
             "Always report the extracted values in your response."
         ),
-        model="anthropic:claude-haiku-4-5",
+        model=respond_model(),
         pattern="chat",
         tools=("kaos-extract-*",),
     )

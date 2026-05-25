@@ -55,7 +55,6 @@ reason to raise the cap.
 from __future__ import annotations
 
 import contextlib
-import os
 import re
 
 import pytest
@@ -72,43 +71,29 @@ from kaos_agents.patterns.chat import ChatAgent
 from kaos_agents.settings import KaosAgentSettings
 from kaos_agents.types.response import AgentResponse
 from tests.integration._judge import assert_judge_passes, judge_response
+from tests.integration._models import requires_provider_for, respond_model
 from tests.integration.conftest import record_tool_telemetry
 
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 
-MODEL = os.environ.get("KAOS_TEST_MODEL", "openai:gpt-5.4-mini")
-"""Default model. Cheap, fast, current-gen, strong tool-calling.
+MODEL = respond_model()
+"""Default model — resolved through ``tests.integration._models``.
 
-Don't pick a stronger model "to give the agent a chance" — the
-suite is verifying the whole production stack, and the production
-stack uses cheap models for the chat lane. Upgrading here would
-hide regressions that only fire on weaker reasoners (see the
-KFM-B05 M1-fitness-ranker history in kaos-agents/CLAUDE.md).
-
-Override with ``KAOS_TEST_MODEL=anthropic:claude-haiku-4-5`` when
-OpenAI is rate-limited or unavailable so the suite still exercises
-the tool surface (the failure mode we care about is web/source +
-agent loop + dispatch, not which provider is up).
+The suite verifies the production stack; the resolver enforces the
+documented floor so a Haiku override can't silently downgrade the
+matrix to a weaker reasoner. Override with
+``KAOS_TEST_RESPOND_MODEL=anthropic:claude-sonnet-4-6`` when OpenAI
+is rate-limited (the floor accepts both providers); see
+``feedback_test_model_floor.md``.
 """
-
-
-def _requires_provider(model: str) -> pytest.MarkDecorator:
-    """Return the right skipif for the provider implied by ``model``."""
-    prov = model.split(":", 1)[0] if ":" in model else "openai"
-    env_var = {
-        "openai": "OPENAI_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
-        "google": "GOOGLE_API_KEY",
-    }.get(prov, "OPENAI_API_KEY")
-    return pytest.mark.skipif(env_var not in os.environ, reason=f"{env_var} missing")
 
 
 PER_TEST_COST_CAP_USD = 0.50
 """Catches runaway ReAct loops. Raise only after investigation."""
 
-requires_openai = _requires_provider(MODEL)
+requires_openai = requires_provider_for(MODEL)
 
 
 # ---------------------------------------------------------------------------

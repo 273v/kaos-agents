@@ -13,6 +13,7 @@ from kaos_agents.context.classify import classify_intent
 from kaos_agents.memory.session import SessionMemory
 from kaos_agents.runtime.agent import BaseAgent
 from kaos_agents.types import IntentType
+from tests.integration._models import respond_model
 
 
 def _memory_vfs() -> VirtualFileSystem:
@@ -20,7 +21,7 @@ def _memory_vfs() -> VirtualFileSystem:
     return VirtualFileSystem(config=config)
 
 
-MODEL = "anthropic:claude-haiku-4-5"
+MODEL = respond_model()
 
 
 @pytest.mark.live

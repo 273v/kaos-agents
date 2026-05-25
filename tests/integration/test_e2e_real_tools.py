@@ -22,8 +22,9 @@ from kaos_source import register_ecfr_tools, register_federal_register_tools
 from kaos_agents.patterns.chat import ChatAgent
 from kaos_agents.patterns.plan_execute import PlanExecuteAgent
 from kaos_agents.settings import KaosAgentSettings
+from tests.integration._models import respond_model
 
-MODEL = "anthropic:claude-haiku-4-5"
+MODEL = respond_model()
 
 # Tool names available after registration — used for filter_names
 FR_TOOLS = [

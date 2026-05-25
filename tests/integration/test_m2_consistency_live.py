@@ -33,11 +33,7 @@ from kaos_agents.planning.m2_consistency import (
     M2_ALLOWED_LABELS,
     judge_reasoning_action_consistency,
 )
-
-MODELS: tuple[str, ...] = (
-    "openai:gpt-5.4-mini",
-    "anthropic:claude-sonnet-4-6",
-)
+from tests.integration._models import critic_model
 
 
 def _have_key_for(model: str) -> bool:
@@ -207,10 +203,12 @@ _CASES: tuple[M2Case, ...] = (
 )
 
 
+# M2 consistency is a critic role. Defaults to Sonnet; rerun against
+# the OpenAI provider via ``KAOS_TEST_CRITIC_MODEL=openai:gpt-5.4-mini``.
 @pytest.mark.live
-@pytest.mark.parametrize("model", MODELS, ids=lambda m: m.replace(":", "_"))
 @pytest.mark.parametrize("case", _CASES, ids=lambda c: c.case_id)
-async def test_m2_label_emission(case: M2Case, model: str) -> None:
+async def test_m2_label_emission(case: M2Case) -> None:
+    model = critic_model()
     if not _have_key_for(model):
         pytest.skip(f"missing API key for {model}")
 

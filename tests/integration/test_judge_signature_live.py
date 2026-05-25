@@ -19,11 +19,7 @@ from dataclasses import dataclass
 import pytest
 
 from kaos_agents.planning.judge import JudgeVerdict, judge_with_rubric
-
-MODELS: tuple[str, ...] = (
-    "openai:gpt-5.4-mini",
-    "anthropic:claude-sonnet-4-6",
-)
+from tests.integration._models import critic_model
 
 
 def _have_key_for(model: str) -> bool:
@@ -128,10 +124,13 @@ _CASES: tuple[JudgeCase, ...] = (
 )
 
 
+# ``judge_with_rubric`` here is exercised as the same rubric-based
+# critic that powers GoalCheck / M2 / M3 — i.e. a critic role, not
+# the test-suite grounding judge. Defaults to Sonnet; rerun against
+# the OpenAI provider via ``KAOS_TEST_CRITIC_MODEL=openai:gpt-5.4-mini``.
 @pytest.mark.live
-@pytest.mark.parametrize("model", MODELS, ids=lambda m: m.replace(":", "_"))
 @pytest.mark.parametrize("case", _CASES, ids=lambda c: c.case_id)
-async def test_judge_with_rubric_live(case: JudgeCase, model: str) -> None:
+async def test_judge_with_rubric_live(case: JudgeCase) -> None:
     """JudgeSignature emits the expected categorical label on each case.
 
     Asserts on:
@@ -140,6 +139,7 @@ async def test_judge_with_rubric_live(case: JudgeCase, model: str) -> None:
     - ``confidence`` is in [0, 1]
     - ``reasoning`` is non-empty
     """
+    model = critic_model()
     if not _have_key_for(model):
         pytest.skip(f"no API key for {model}")
 

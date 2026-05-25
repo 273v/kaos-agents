@@ -18,8 +18,9 @@ from kaos_agents.memory.store import SessionStore
 from kaos_agents.patterns.research import ResearchAgent
 from kaos_agents.settings import KaosAgentSettings
 from kaos_agents.types.memory import MemoryType
+from tests.integration._models import respond_model
 
-MODEL = "anthropic:claude-haiku-4-5"
+MODEL = respond_model()
 
 # Real public-domain text for testing
 DELAWARE_GCL = (

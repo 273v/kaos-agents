@@ -61,6 +61,7 @@ import httpx
 import pytest
 
 from kaos_agents.tools.registry import AgentChatTool
+from tests.integration._models import respond_model
 
 # ---------------------------------------------------------------------------
 # Pin: FR document and expected ground truth
@@ -353,7 +354,7 @@ class TestFederalRegisterK3ChatLive:
             {
                 "message": question,
                 "session_id": "fr-k3-chat-live",
-                "model": "anthropic:claude-haiku-4-5",
+                "model": respond_model(),
                 # Disable tool calls — the agent should synthesize from
                 # the prompt-injected entity sentences alone, not go
                 # fetch the FR doc again.

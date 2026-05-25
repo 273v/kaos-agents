@@ -43,6 +43,7 @@ import pytest
 from kaos_agents.context.coreference import build_coref_context_tag
 from kaos_agents.memory.session import SessionMemory
 from kaos_agents.types.memory import MemoryType
+from tests.integration._models import respond_model
 
 # Plan-acceptance bar.
 _PLAN_BAR_HITS: int = 11  # ≥ 11 of 12 ≥ 90%
@@ -50,7 +51,7 @@ _PLAN_BAR_HITS: int = 11  # ≥ 11 of 12 ≥ 90%
 # Default to OpenAI's cheapest current-gen model. The integration
 # tier policy (kaos-modules/CLAUDE.md) explicitly calls these out
 # as the integration-test workhorses.
-_DEFAULT_MODEL = "openai:gpt-5.4-mini"
+_DEFAULT_MODEL = respond_model()
 
 # Canonical 5-document corpus. We use filenames the model can
 # disambiguate cleanly (nda-1 through nda-5) — the coref tag binds

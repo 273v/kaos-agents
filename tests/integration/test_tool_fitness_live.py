@@ -43,11 +43,7 @@ from kaos_agents.planning.tool_fitness import (
     ToolFitnessResult,
     rank_tools_for_query,
 )
-
-MODELS: tuple[str, ...] = (
-    "openai:gpt-5.4-mini",
-    "anthropic:claude-sonnet-4-6",
-)
+from tests.integration._models import critic_model
 
 
 def _have_key_for(model: str) -> bool:
@@ -239,9 +235,12 @@ def _build_real_catalog() -> tuple[tuple[str, str], ...]:
     return tuple(catalog)
 
 
+# Tool fitness ranker is a critic-style sub-role (it chooses tools
+# from a catalog). Defaults to Sonnet; rerun against OpenAI via
+# ``KAOS_TEST_CRITIC_MODEL=openai:gpt-5.4-mini``.
 @pytest.mark.live
-@pytest.mark.parametrize("model", MODELS, ids=lambda m: m.replace(":", "_"))
-async def test_tool_fitness_ranks_office_first_on_full_catalog_docx(model: str) -> None:
+async def test_tool_fitness_ranks_office_first_on_full_catalog_docx() -> None:
+    model = critic_model()
     """Production regression for #581.
 
     The DOCX vs PDF mis-dispatch only manifests against the full ~50-tool
@@ -291,14 +290,14 @@ async def test_tool_fitness_ranks_office_first_on_full_catalog_docx(model: str) 
 
 
 @pytest.mark.live
-@pytest.mark.parametrize("model", MODELS, ids=lambda m: m.replace(":", "_"))
 @pytest.mark.parametrize("case", _CASES, ids=lambda c: c.case_id)
-async def test_tool_fitness_ranker_live(case: FitnessCase, model: str) -> None:
+async def test_tool_fitness_ranker_live(case: FitnessCase) -> None:
     """ToolFitnessSignature picks domain-correct top-K on each model.
 
     Asserts on ``valid_picks`` (catalog-validated) rather than the
     raw ``picks`` so hallucinated tool names don't accidentally pass.
     """
+    model = critic_model()
     if not _have_key_for(model):
         pytest.skip(f"no API key for {model}")
 

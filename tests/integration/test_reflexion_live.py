@@ -27,6 +27,7 @@ from kaos_core.vfs.core import IsolationMode, StorageBackend, VFSConfig, Virtual
 from kaos_agents.patterns.chat import ChatAgent
 from kaos_agents.patterns.reflexion import ReflexionCritic, ReflexionLoop
 from kaos_agents.types.response import AgentResponse
+from tests.integration._models import critic_model, respond_model
 
 # ---------------------------------------------------------------------------
 # Skip markers + pinned models
@@ -37,8 +38,8 @@ requires_anthropic = pytest.mark.skipif(
     reason="ANTHROPIC_API_KEY missing",
 )
 
-INNER_MODEL = "anthropic:claude-haiku-4-5"
-CRITIC_MODEL = "anthropic:claude-sonnet-4-6"
+INNER_MODEL = respond_model()
+CRITIC_MODEL = critic_model()
 
 # ---------------------------------------------------------------------------
 # A realistic NDA clause used in retrieval-style critic tests. Real text

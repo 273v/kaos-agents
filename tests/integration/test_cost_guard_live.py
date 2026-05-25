@@ -37,6 +37,7 @@ from kaos_agents.events.policy import LoopTerminated
 from kaos_agents.events.stream import TextDelta
 from kaos_agents.patterns.agentic_loop import WorkerResult, run_agentic_turn
 from kaos_agents.types.session_policy import SessionPolicy
+from tests.integration._models import respond_model
 
 requires_anthropic = pytest.mark.skipif(
     "ANTHROPIC_API_KEY" not in os.environ,
@@ -44,7 +45,7 @@ requires_anthropic = pytest.mark.skipif(
 )
 
 
-MODEL = "anthropic:claude-haiku-4-5"
+MODEL = respond_model()
 
 
 # ---------------------------------------------------------------------------

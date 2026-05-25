@@ -46,7 +46,6 @@ Run::
 from __future__ import annotations
 
 import contextlib
-import os
 import uuid
 from typing import TYPE_CHECKING
 
@@ -81,55 +80,13 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
-# Model resolution (floor: gpt-5.4-mini or claude-sonnet-4-6)
+# Model resolution — see tests/integration/_models.py for the policy.
 # ---------------------------------------------------------------------------
 
-_LEGAL_TEST_MODELS = frozenset(
-    {
-        "openai:gpt-5.4-mini",
-        "openai:gpt-5.4",
-        "openai:gpt-5.5",
-        "anthropic:claude-sonnet-4-6",
-        "anthropic:claude-opus-4-7",
-    }
-)
-_DEFAULT_MODEL = "anthropic:claude-sonnet-4-6"
+from tests.integration._models import requires_provider_for, respond_model
 
-
-def _resolve_test_model() -> str:
-    """Read ``KAOS_TEST_MODEL`` with a hard floor.
-
-    Per ``feedback_test_model_floor.md``: Haiku is rejected here so
-    nothing further down the stack can silently downgrade to a weaker
-    reasoner and let the suite false-green on legal-research bar
-    contracts.
-    """
-    requested = os.environ.get("KAOS_TEST_MODEL", _DEFAULT_MODEL)
-    if requested not in _LEGAL_TEST_MODELS:
-        # Refuse to run. The test should be loud, not silently wrong.
-        raise RuntimeError(
-            f"KAOS_TEST_MODEL={requested!r} is not on the legal-floor list. "
-            f"Allowed: {sorted(_LEGAL_TEST_MODELS)}. Per "
-            "feedback_test_model_floor.md, Haiku is forbidden as a fallback "
-            "for the kaos-agents live test bar."
-        )
-    return requested
-
-
-MODEL = _resolve_test_model()
-
-
-def _requires_provider(model: str) -> pytest.MarkDecorator:
-    prov = model.split(":", 1)[0] if ":" in model else "anthropic"
-    env_var = {
-        "openai": "OPENAI_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
-        "google": "GOOGLE_API_KEY",
-    }.get(prov, "ANTHROPIC_API_KEY")
-    return pytest.mark.skipif(env_var not in os.environ, reason=f"{env_var} missing")
-
-
-requires_provider = _requires_provider(MODEL)
+MODEL = respond_model()
+requires_provider = requires_provider_for(MODEL)
 
 
 # ---------------------------------------------------------------------------

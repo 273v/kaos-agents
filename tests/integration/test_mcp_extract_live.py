@@ -23,6 +23,7 @@ from kaos_agents.tools.extract import (
     ExtractSchemaTool,
     ExtractVerifyTool,
 )
+from tests.integration._models import respond_model
 
 pytestmark = pytest.mark.live
 
@@ -74,7 +75,7 @@ class TestExtractSchemaToolLive:
                 "text": CONTRACT_TEXT,
                 "schema_json": json.dumps(schema),
                 "doc_id": "doc-1",
-                "model": "anthropic:claude-haiku-4-5",
+                "model": respond_model(),
                 "provenance": "none",
             },
             None,
@@ -98,7 +99,7 @@ class TestExtractSchemaToolLive:
                 "text": SHORT_OPINION_TEXT,
                 "recipe_name": "court-opinion",
                 "doc_id": "miranda-case",
-                "model": "anthropic:claude-haiku-4-5",
+                "model": respond_model(),
                 "provenance": "none",
             },
             None,
@@ -150,7 +151,7 @@ class TestExtractCorpusToolLive:
                 "corpus_json": json.dumps(corpus),
                 "output_dir": str(tmp_path / "mcp-corpus"),
                 "schema_json": json.dumps(schema),
-                "model": "anthropic:claude-haiku-4-5",
+                "model": respond_model(),
                 "provenance": "none",
                 "max_concurrency": 2,
             },

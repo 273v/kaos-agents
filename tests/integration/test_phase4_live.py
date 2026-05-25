@@ -48,10 +48,16 @@ requires_openai = pytest.mark.skipif(
 # ---------------------------------------------------------------------------
 # Model strings — pinned.
 # Source: kaos-llm-client/tests/integration/test_live.py header.
+#
+# Unlike most live test files, this one deliberately hard-codes both
+# provider tiers: the suite is the Phase 4 cross-provider integration
+# matrix. The DEFAULT rows are floor models (see
+# ``tests/integration/_models.py``); the FLAGSHIP rows are explicit
+# upper-tier comparators.
 # ---------------------------------------------------------------------------
 
 ANTHROPIC_DEFAULT = "anthropic:claude-sonnet-4-6"
-ANTHROPIC_FLAGSHIP = "anthropic:claude-opus-4-6"
+ANTHROPIC_FLAGSHIP = "anthropic:claude-opus-4-7"
 OPENAI_DEFAULT = "openai:gpt-5.4-mini"
 OPENAI_FLAGSHIP = "openai:gpt-5.4"
 

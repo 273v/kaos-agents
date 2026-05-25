@@ -32,6 +32,7 @@ from kaos_core.registry.container import KaosRuntime
 
 from kaos_agents.errors import ERROR_KIND_AUTH
 from kaos_agents.tools import AgentChatTool
+from tests.integration._models import respond_model
 
 
 @pytest.mark.live
@@ -66,7 +67,7 @@ class TestAuthFailureLive:
                 "message": "What is 2+2?",
                 "session_id": "test-auth-failure-live-probe-4b",
                 # Force the Anthropic provider so we know which key matters.
-                "model": "anthropic:claude-haiku-4-5",
+                "model": respond_model(),
             },
         )
         # Probe 4b: must NOT silently succeed.

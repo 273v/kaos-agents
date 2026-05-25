@@ -15,8 +15,9 @@ from kaos_agents.planning.compose import compose
 from kaos_agents.planning.expand import expand
 from kaos_agents.planning.graph import PlanGraph
 from kaos_agents.types.plan import PlanBudget, StopReason
+from tests.integration._models import respond_model
 
-MODEL = "anthropic:claude-haiku-4-5"
+MODEL = respond_model()
 
 
 def _make_mock_tool(name: str, response: str) -> Tool:

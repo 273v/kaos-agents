@@ -32,11 +32,7 @@ from dataclasses import dataclass, field
 import pytest
 
 from kaos_agents.planning.goal_check import check_goal
-
-MODELS: tuple[str, ...] = (
-    "openai:gpt-5.4-mini",
-    "anthropic:claude-sonnet-4-6",
-)
+from tests.integration._models import critic_model
 
 
 def _have_key_for(model: str) -> bool:
@@ -214,12 +210,14 @@ _CASES: tuple[GoalCheckCase, ...] = (
 )
 
 
+# GoalCheck is the canonical critic role — see
+# ``tests/integration/_models.py``. Defaults to Sonnet; operators can
+# rerun against the OpenAI provider via
+# ``KAOS_TEST_CRITIC_MODEL=openai:gpt-5.4-mini``.
 @pytest.mark.live
-@pytest.mark.parametrize("model", MODELS, ids=lambda m: m.replace(":", "_"))
 @pytest.mark.parametrize("case", _CASES, ids=lambda c: c.case_id)
 async def test_goal_check_label_emission(
     case: GoalCheckCase,
-    model: str,
 ) -> None:
     """Hard-gate: GoalCheck verdict KIND matches the case's expectation.
 
@@ -229,6 +227,7 @@ async def test_goal_check_label_emission(
     the exact pattern that produced the SPA refusal footers users
     saw on 2026-05-24.
     """
+    model = critic_model()
     if not _have_key_for(model):
         pytest.skip(f"missing API key for {model}")
 

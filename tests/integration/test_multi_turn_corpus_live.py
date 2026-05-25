@@ -36,6 +36,7 @@ from kaos_agents.memory.store import SessionStore
 from kaos_agents.patterns.chat import ChatAgent
 from kaos_agents.settings import KaosAgentSettings
 from kaos_agents.types.memory import MemoryType
+from tests.integration._models import respond_model
 
 requires_anthropic = pytest.mark.skipif(
     "ANTHROPIC_API_KEY" not in os.environ,
@@ -43,7 +44,7 @@ requires_anthropic = pytest.mark.skipif(
 )
 
 
-MODEL = "anthropic:claude-haiku-4-5"
+MODEL = respond_model()
 
 
 # A small synthetic "PDF" body — enough that an LLM can draw a

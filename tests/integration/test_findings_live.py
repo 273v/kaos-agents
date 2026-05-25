@@ -24,6 +24,7 @@ from kaos_agents.patterns.findings import (
     extract_finding_id_citations,
     sentences_with_token_selector,
 )
+from tests.integration._models import critic_model
 
 NDA_DIR = Path.home() / "projects" / "273v" / "kelvin-app" / "samples" / "docx"
 
@@ -37,8 +38,8 @@ requires_nda_fixtures = pytest.mark.skipif(
     reason=f"NDA fixtures missing at {NDA_DIR}",
 )
 
-INNER_MODEL = "anthropic:claude-haiku-4-5"
-SYNTH_MODEL = "anthropic:claude-sonnet-4-6"
+INNER_MODEL = critic_model()
+SYNTH_MODEL = critic_model()
 
 
 def _first_nda() -> Path:

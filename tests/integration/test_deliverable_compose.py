@@ -41,6 +41,7 @@ from kaos_agents.output import (
     compose_narrative,
 )
 from kaos_agents.types.memory import MemoryType
+from tests.integration._models import critic_model, respond_model
 
 _HAS_ANTHROPIC_KEY = bool(
     os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("KAOS_LLM_ANTHROPIC_API_KEY")
@@ -114,7 +115,7 @@ async def test_compose_narrative_round_trip() -> None:
     result = await compose_narrative(
         memory,
         structure,
-        model="anthropic:claude-haiku-4-5",
+        model=respond_model(),
         title="Test M&A Memo",
     )
 
@@ -159,7 +160,7 @@ async def test_refine_deliverable_one_iteration() -> None:
         result = await compose_narrative(
             memory,
             structure,
-            model="anthropic:claude-haiku-4-5",
+            model=respond_model(),
             title="Refine Smoke",
         )
         # NarrativeDeliverable is a structural :class:`Deliverable` —
@@ -178,7 +179,7 @@ async def test_refine_deliverable_one_iteration() -> None:
     )
 
     critic = RubricDeliverableCritic(
-        critic_model="anthropic:claude-haiku-4-5",
+        critic_model=critic_model(),
         concurrency=1,
     )
 

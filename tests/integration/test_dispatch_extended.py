@@ -25,9 +25,13 @@ from kaos_source import register_federal_register_tools
 from kaos_agents.events import IntentClassified, PatternMismatch, Span, SpanPhase, SpanSubject
 from kaos_agents.patterns.chat import ChatAgent
 from kaos_agents.settings import KaosAgentSettings
+from tests.integration._models import probe_model, respond_model
 
-HAIKU = "anthropic:claude-haiku-4-5"
-SONNET = "anthropic:claude-sonnet-4-6"
+# HAIKU here is the intentional weak-model probe: this file proves
+# the dispatcher fix is model-agnostic by exercising the same path
+# on a weaker reasoner. SONNET is the floor-enforced respond model.
+HAIKU = probe_model()
+SONNET = respond_model()
 
 PLAN_PROMPT = (
     "Search the Federal Register for the most recent SEC rule about "

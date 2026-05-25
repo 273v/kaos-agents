@@ -33,6 +33,7 @@ import pytest
 from kaos_agents.tools.corpus_filter import AgentCorpusFilterTool
 from kaos_agents.tools.findings import AgentFindingsTool
 from kaos_agents.tools.registry import AgentChatTool
+from tests.integration._models import critic_model, respond_model
 
 NDA_DIR = Path.home() / "projects" / "273v" / "kelvin-app" / "samples" / "docx"
 
@@ -116,7 +117,7 @@ class TestAgentChatToolCostCap:
                     "cases and statutory developments. Be thorough."
                 ),
                 "session_id": "cost-cap-test-chat",
-                "model": "anthropic:claude-haiku-4-5",
+                "model": respond_model(),
                 "max_cost_usd": 0.005,
             },
             context,
@@ -200,8 +201,8 @@ class TestAgentFindingsToolCostCap:
                     "right, or warranty. Be exhaustive."
                 ),
                 "select_by": "every_sentence",
-                "filter_model": "anthropic:claude-haiku-4-5",
-                "synthesis_model": "anthropic:claude-haiku-4-5",
+                "filter_model": critic_model(),
+                "synthesis_model": critic_model(),
                 "chunk_size": 10,
                 "num_parallel": 1,
                 "max_cost_usd": cap,
@@ -258,8 +259,8 @@ class TestAgentFindingsToolCostCap:
                 "question": "What counts as Confidential Information?",
                 "select_by": "token",
                 "selector_arg": "confidential",
-                "filter_model": "anthropic:claude-haiku-4-5",
-                "synthesis_model": "anthropic:claude-haiku-4-5",
+                "filter_model": critic_model(),
+                "synthesis_model": critic_model(),
                 "chunk_size": 20,
                 "num_parallel": 3,
                 # No max_cost_usd — uncapped run.
@@ -307,7 +308,7 @@ class TestAgentCorpusFilterToolCostCap:
                 "intent": "Identify NDAs about confidentiality of business plans.",
                 "artifact_ids": artifact_ids,
                 "max_keep": 5,
-                "model": "anthropic:claude-haiku-4-5",
+                "model": respond_model(),
                 "max_cost_usd": cap,
             },
             context,

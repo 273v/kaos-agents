@@ -95,12 +95,21 @@ from kaos_core.registry.container import KaosRuntime
 from kaos_agents.errors import ERROR_KIND_AUTH
 from kaos_agents.tools import AgentChatTool
 from kaos_agents.tools.findings import AgentFindingsTool
+from tests.integration._models import probe_model
 
 # ---------------------------------------------------------------------------
 # Matrix definition — the 4 model rows under test.
+#
+# Unlike every other live test file, this one DELIBERATELY hard-codes
+# specific provider IDs as its subjects: PA15 is the cross-provider
+# adaptation matrix. Each row identity is the test's input, not an
+# implementation detail. HAIKU is wired through ``probe_model()`` so
+# the floor-rejection contract for "respond" / "critic" roles still
+# applies elsewhere; the other three rows are direct literals from
+# the documented respond floor list (see ``tests/integration/_models.py``).
 # ---------------------------------------------------------------------------
 
-ANTHROPIC_HAIKU = "anthropic:claude-haiku-4-5"
+ANTHROPIC_HAIKU = probe_model()
 ANTHROPIC_SONNET = "anthropic:claude-sonnet-4-6"
 OPENAI_MINI = "openai:gpt-5.4-mini"
 OPENAI_REASONING = "openai:gpt-5.5"

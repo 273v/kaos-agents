@@ -24,6 +24,8 @@ from typing import Any
 
 import pytest
 
+from tests.integration._models import critic_model
+
 NDA_DIR = Path.home() / "projects" / "273v" / "kelvin-app" / "samples" / "docx"
 
 
@@ -45,8 +47,8 @@ requires_nda_fixtures = pytest.mark.skipif(
 )
 
 
-FILTER_MODEL = "anthropic:claude-haiku-4-5"
-SYNTH_MODEL = "anthropic:claude-sonnet-4-6"
+FILTER_MODEL = critic_model()
+SYNTH_MODEL = critic_model()
 
 
 # ---------------------------------------------------------------------------

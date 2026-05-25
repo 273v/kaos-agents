@@ -16,8 +16,9 @@ import pytest
 from kaos_agents.planning.evaluate import evaluate, evaluate_semantic
 from kaos_agents.planning.expand import expand
 from kaos_agents.types.plan import EvalMode, StepType
+from tests.integration._models import respond_model
 
-MODEL = "anthropic:claude-haiku-4-5"
+MODEL = respond_model()
 
 
 @pytest.mark.live

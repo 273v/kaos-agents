@@ -48,6 +48,8 @@ from typing import Any
 
 import pytest
 
+from tests.integration._models import respond_model
+
 # ---------------------------------------------------------------------------
 # Fixture file + skip predicates
 # ---------------------------------------------------------------------------
@@ -239,7 +241,7 @@ class TestPdfOcrLegalLive:
             {
                 "message": prompt,
                 "session_id": "pdf-ocr-legal-live",
-                "model": "anthropic:claude-haiku-4-5",
+                "model": respond_model(),
                 # No tool calling needed — the answer is in the prompt.
                 # Set max_cost_usd well above expected spend so we
                 # get a real BudgetExceeded signal if the agent loops.

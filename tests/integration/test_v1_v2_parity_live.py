@@ -46,6 +46,10 @@ requires_openai = pytest.mark.skipif(
 # Models — pinned. Source of truth: kaos-llm-client/tests/integration/test_live.py.
 # Constraint per the standing live-tests rule: claude >= 4.6 AND gpt >= 5.4.
 # claude-haiku-4-5 is BELOW the cutoff so we use claude-sonnet-4-6 here.
+#
+# Unlike most live test files, this one deliberately hard-codes both
+# provider tiers: the test is the v1/v2 cross-provider parity matrix.
+# Both rows are floor models (see ``tests/integration/_models.py``).
 ANTHROPIC = "anthropic:claude-sonnet-4-6"
 OPENAI = "openai:gpt-5.4-mini"
 

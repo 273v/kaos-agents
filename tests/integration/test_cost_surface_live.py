@@ -25,6 +25,7 @@ from typing import Any
 import pytest
 
 from kaos_agents.tools.registry import AgentChatTool
+from tests.integration._models import respond_model
 
 requires_anthropic = pytest.mark.skipif(
     "ANTHROPIC_API_KEY" not in os.environ,
@@ -69,7 +70,7 @@ class TestAgentChatToolCostSurface:
             {
                 "message": "What is 2+2? Reply with just the number.",
                 "session_id": "cost-surface-chat",
-                "model": "anthropic:claude-haiku-4-5",
+                "model": respond_model(),
             },
             context,
         )
@@ -104,7 +105,7 @@ class TestAgentChatToolCostSurface:
         from kaos_agents.config import Agent, AgentPattern
         from kaos_agents.runtime.runner import Runner
 
-        agent = Agent(pattern=AgentPattern.CHAT, model="anthropic:claude-haiku-4-5")
+        agent = Agent(pattern=AgentPattern.CHAT, model=respond_model())
         runner = Runner(agent, runtime=runtime, context=context)
         response = await runner.turn(
             "What is 1+1? Reply with just the number.",
@@ -141,7 +142,7 @@ class TestAgentChatToolCostSurface:
             {
                 "message": "Reply with a single word: 'hello'.",
                 "session_id": "cost-consistency",
-                "model": "anthropic:claude-haiku-4-5",
+                "model": respond_model(),
             },
             context,
         )

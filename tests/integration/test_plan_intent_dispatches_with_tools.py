@@ -57,12 +57,13 @@ from kaos_agents.events import (
 from kaos_agents.patterns.chat import ChatAgent
 from kaos_agents.patterns.plan_execute import PlanExecuteAgent
 from kaos_agents.settings import KaosAgentSettings
+from tests.integration._models import respond_model
 
 # Sonnet was the failing model on the v2 matrix; pin to it to
 # reproduce the original conditions. Haiku also exhibits the bug but
 # less reliably triggers the IntentType.PLAN classification on this
 # prompt.
-MODEL = "anthropic:claude-sonnet-4-6"
+MODEL = respond_model()
 
 # Prompt that the live IntentExtractor classifies as PLAN on Sonnet
 # (matches v2-matrix Test 7).

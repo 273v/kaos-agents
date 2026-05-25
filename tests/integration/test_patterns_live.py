@@ -23,8 +23,9 @@ from kaos_core.vfs.core import IsolationMode, StorageBackend, VFSConfig, Virtual
 
 from kaos_agents.patterns.chat import ChatAgent
 from kaos_agents.patterns.plan_execute import PlanExecuteAgent
+from tests.integration._models import respond_model
 
-MODEL = "anthropic:claude-haiku-4-5"
+MODEL = respond_model()
 
 
 # ---------------------------------------------------------------------------

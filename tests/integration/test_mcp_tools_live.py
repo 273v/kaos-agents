@@ -17,6 +17,7 @@ from kaos_agents.tools import (
     AgentMemoryQueryTool,
     AgentPlanTool,
 )
+from tests.integration._models import respond_model
 
 
 def _memory_vfs() -> VirtualFileSystem:
@@ -49,7 +50,7 @@ class TestAgentChatToolLive:
             {
                 "message": "Say hello in exactly three words.",
                 "session_id": "mcp-chat-model",
-                "model": "anthropic:claude-haiku-4-5",
+                "model": respond_model(),
             }
         )
 

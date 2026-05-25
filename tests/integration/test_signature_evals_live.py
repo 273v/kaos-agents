@@ -52,9 +52,10 @@ from kaos_agents.planning.goal_check import (
     check_goal,
 )
 from kaos_agents.planning.policy import plan_turn_tool_policy
+from tests.integration._models import critic_model
 
-PLANNER_MODEL = "anthropic:claude-haiku-4-5"
-CRITIC_MODEL = "anthropic:claude-haiku-4-5"
+PLANNER_MODEL = critic_model()
+CRITIC_MODEL = critic_model()
 
 
 # ─── Planner eval cases ──────────────────────────────────────────────

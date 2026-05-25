@@ -51,13 +51,15 @@ from typing import Any
 
 import pytest
 
+from tests.integration._models import respond_model
+
 # Image fixture committed under tests/fixtures/images/. See the
 # README beside it for the NASA CC-PD attribution and the EXIF surface.
 FIXTURE_PATH = (
     Path(__file__).parent.parent / "fixtures" / "images" / "iss068e027836-full-moon-south-texas.jpg"
 )
 
-MODEL = "anthropic:claude-haiku-4-5"
+MODEL = respond_model()
 COST_BUDGET_USD = 0.05
 
 requires_anthropic = pytest.mark.skipif(

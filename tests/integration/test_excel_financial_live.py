@@ -39,7 +39,9 @@ from typing import Any
 
 import pytest
 
-MODEL = "anthropic:claude-haiku-4-5"
+from tests.integration._models import respond_model
+
+MODEL = respond_model()
 
 requires_anthropic = pytest.mark.skipif(
     "ANTHROPIC_API_KEY" not in os.environ,

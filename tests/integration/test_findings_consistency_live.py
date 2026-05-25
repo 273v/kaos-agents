@@ -30,6 +30,7 @@ from kaos_agents.patterns.findings import (
     every_sentence_selector,
     sentences_with_token_selector,
 )
+from tests.integration._models import critic_model
 
 NDA_DIR = Path.home() / "projects" / "273v" / "kelvin-app" / "samples" / "docx"
 ACME_NDA = NDA_DIR / "MNDA - Acme.docx"
@@ -51,8 +52,8 @@ requires_acme_nda = pytest.mark.skipif(
 # Phase-2 property. Using Haiku for both keeps the live spend bounded
 # (~$0.01/run instead of ~$0.03/run) while still proving the same
 # determinism gate that costs $0.15+ on Sonnet.
-INNER_MODEL = "anthropic:claude-haiku-4-5"
-SYNTH_MODEL = "anthropic:claude-haiku-4-5"
+INNER_MODEL = critic_model()
+SYNTH_MODEL = critic_model()
 
 
 def _view_for(docx_path: Path):

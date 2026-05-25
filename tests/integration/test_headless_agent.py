@@ -24,6 +24,7 @@ from kaos_agents.events import (
     TurnSummary,
 )
 from kaos_agents.runtime.runner import Runner
+from tests.integration._models import respond_model
 
 
 def _has_key() -> bool:
@@ -49,7 +50,7 @@ def _make_runner(tools: tuple[str, ...] = ()) -> Runner:
     runtime = KaosRuntime.default()
     agent = Agent.create(
         instructions="You are a helpful legal research assistant. Be concise.",
-        model="anthropic:claude-haiku-4-5",
+        model=respond_model(),
         pattern="chat",
         tools=tools,
     )

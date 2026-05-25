@@ -48,6 +48,7 @@ from kaos_agents.runtime.delegation import agent_as_tool
 from kaos_agents.runtime.permissions import PermissionPolicy
 from kaos_agents.runtime.runner import Runner
 from kaos_agents.types.providers import BALANCED, FAST
+from tests.integration._models import respond_model
 
 
 def _is_tool_call_start(event: object) -> bool:
@@ -87,8 +88,8 @@ pytestmark = pytest.mark.skipif(
     reason="ANTHROPIC_API_KEY not set",
 )
 
-# Cheapest current-generation model (per CLAUDE.md guidance)
-_LIVE_MODEL = "anthropic:claude-haiku-4-5"
+# Resolved via tests.integration._models (floor-enforced).
+_LIVE_MODEL = respond_model()
 
 
 # ---------------------------------------------------------------------------

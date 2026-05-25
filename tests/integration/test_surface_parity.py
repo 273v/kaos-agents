@@ -34,9 +34,11 @@ from pathlib import Path
 
 import pytest
 
+from tests.integration._models import respond_model
+
 pytestmark = pytest.mark.live
 
-_LIVE_MODEL = "anthropic:claude-sonnet-4-6"
+_LIVE_MODEL = respond_model()
 
 
 def _require_key() -> None:

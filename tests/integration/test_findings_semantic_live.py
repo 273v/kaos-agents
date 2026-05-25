@@ -39,6 +39,8 @@ import pytest
 from kaos_content.model.document import ContentDocument
 from kaos_content.shortcuts import paragraph
 
+from tests.integration._models import critic_model
+
 requires_anthropic = pytest.mark.skipif(
     "ANTHROPIC_API_KEY" not in os.environ,
     reason=(
@@ -135,9 +137,9 @@ class TestSemanticSelectorLive:
                 "artifact_id": artifact_id,
                 "question": "What is the cyber risk mitigation plan in this deck?",
                 "select_by": "semantic",
-                "filter_model": "anthropic:claude-haiku-4-5",
-                "synthesis_model": "anthropic:claude-haiku-4-5",
-                "semantic_rewrite_model": "anthropic:claude-haiku-4-5",
+                "filter_model": critic_model(),
+                "synthesis_model": critic_model(),
+                "semantic_rewrite_model": critic_model(),
                 "chunk_size": 20,
                 "num_parallel": 3,
                 "relevance_threshold": 0.4,
@@ -221,8 +223,8 @@ class TestSemanticSelectorLive:
                 "question": "What is the cyber risk mitigation plan in this deck?",
                 "select_by": "token",
                 "selector_arg": "cyber",
-                "filter_model": "anthropic:claude-haiku-4-5",
-                "synthesis_model": "anthropic:claude-haiku-4-5",
+                "filter_model": critic_model(),
+                "synthesis_model": critic_model(),
                 "chunk_size": 20,
             },
             context,

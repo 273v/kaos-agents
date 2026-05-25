@@ -18,8 +18,9 @@ from kaos_agents.types.memory import (
     SummarizationPolicy,
     create_item,
 )
+from tests.integration._models import respond_model
 
-MODEL = "anthropic:claude-haiku-4-5"
+MODEL = respond_model()
 
 
 @pytest.mark.live

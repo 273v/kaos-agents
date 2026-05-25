@@ -55,6 +55,7 @@ from typing import Any
 import pytest
 
 from kaos_agents.tools.findings import AgentFindingsTool
+from tests.integration._models import probe_model, respond_model
 
 requires_anthropic = pytest.mark.skipif(
     "ANTHROPIC_API_KEY" not in os.environ,
@@ -62,21 +63,22 @@ requires_anthropic = pytest.mark.skipif(
     "an Anthropic key. See `kaos doctor` for setup.",
 )
 
-# Filter model held constant at Haiku to bound cost — Sprint-1 #3's
-# defense is on the SYNTHESIS step (XML envelope + injection_suspected
-# directive in the _SynthesizeSignature docstring). Per the
-# kaos-llm-client live test header (current as of 2026-05),
-# claude-haiku-4-5 and claude-sonnet-4-6 are the current Anthropic
-# generation; sonnet-4-6 is the stronger model the skeptic predicted
-# would be more easily jailbroken.
-FILTER_MODEL = "anthropic:claude-haiku-4-5"
+# Filter model held at the weak-probe default (Haiku) to bound cost —
+# Sprint-1 #3's defense is on the SYNTHESIS step (XML envelope +
+# injection_suspected directive in the _SynthesizeSignature
+# docstring). Per the kaos-llm-client live test header (current as of
+# 2026-05), claude-haiku-4-5 and claude-sonnet-4-6 are the current
+# Anthropic generation; sonnet-4-6 is the stronger model the skeptic
+# predicted would be more easily jailbroken.
+FILTER_MODEL = probe_model()
 
 # 2-model matrix axis. Skeptic Probe 1's "got-lucky on Haiku"
-# critique requires both: Haiku to retire the original claim,
-# Sonnet to prove the defense holds on the stronger model.
+# critique requires both: a weak probe (default Haiku) to retire the
+# original claim, and the production-floor respond model to prove the
+# defense holds on the stronger model.
 SYNTHESIS_MODELS: tuple[tuple[str, str], ...] = (
-    ("haiku", "anthropic:claude-haiku-4-5"),
-    ("sonnet", "anthropic:claude-sonnet-4-6"),
+    ("haiku-probe", probe_model()),
+    ("respond-floor", respond_model()),
 )
 
 # Each payload class has its own canary so we can assert the model
