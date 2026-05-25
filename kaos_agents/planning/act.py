@@ -117,16 +117,51 @@ async def _act_tool(
 ) -> dict[str, Any]:
     """Execute a tool via the kaos-llm-core Tool interface."""
     import asyncio
+    import time as _time
 
     if tool is None:
         return {"output": "ERROR: No tool provided for TOOL step.", "is_error": True}
 
     from kaos_agents.planning.result_check import is_error_result
 
+    _t0 = _time.perf_counter()
     try:
         async with asyncio.timeout(timeout_seconds):
             result = await tool.invoke(args)
     except TimeoutError:
+        elapsed_ms = (_time.perf_counter() - _t0) * 1000
+        # Theme A (2026-05-25): emit a typed Span(TOOL_CALL, ERROR)
+        # in addition to returning the error dict. Pre-fix: the plan
+        # step's outer ``execute_step`` records the error dict in its
+        # step trace, but no TOOL_CALL span ever fires — so OTel
+        # exporters and the SPA's tool-call chip stream show zero
+        # evidence of the timeout. Mirrors the tool_bridge timeout
+        # fix; gracefully degrades when no emitter is in scope
+        # (plan-execute called directly from a test fixture without
+        # ``use_emitter``).
+        from kaos_agents.events import SpanSubject, active_emitter
+        from kaos_agents.events.spans import SpanPhase
+
+        _em = active_emitter()
+        if _em is not None:
+            _em.span(
+                SpanSubject.TOOL_CALL,
+                SpanPhase.ERROR,
+                span_id="",
+                name=f"tool.{tool.name}",
+                duration_ms=elapsed_ms,
+                error_type="tool_timeout",
+                error_message=(
+                    f"Tool {tool.name!r} timed out after "
+                    f"{timeout_seconds:.1f}s (plan-execute act step)."
+                ),
+                attributes={
+                    "tool_name": tool.name,
+                    "timeout_seconds": timeout_seconds,
+                    "elapsed_ms": elapsed_ms,
+                    "is_error": True,
+                },
+            )
         return {
             "output": f"ERROR: Tool '{tool.name}' timed out after {timeout_seconds}s. "
             "Try a simpler query or increase the timeout.",

@@ -50,6 +50,7 @@ from kaos_agents.events import (
     TurnSummary,
     UsageObserved,
     collect_events,
+    use_emitter,
 )
 from kaos_agents.memory.session import SessionMemory
 from kaos_agents.memory.store import SessionStore
@@ -268,7 +269,16 @@ class BaseAgent(KaosAgent):
         # emission, including those inside dispatched patterns
         # (chat / plan_execute / research) which receive the same
         # emitter and run inside this generator's frame.
-        with collect_events():
+        # Theme A (2026-05-25): also publish ``emitter`` to the
+        # ``_active_emitter_var`` ContextVar via ``use_emitter`` so deep
+        # helpers (capabilities.retrieve._invoke_tool, actions.tool_bridge
+        # asyncio.timeout handler, planning.act._act_tool asyncio.timeout
+        # handler) can call ``active_emitter().emit(RunError, ...)`` /
+        # ``span_error(SpanSubject.TOOL_CALL, ...)`` without the emitter
+        # being threaded through their signatures. The collector scope
+        # is what captures the events; the emitter scope is what lets
+        # those helpers produce events with full base-field metadata.
+        with collect_events(), use_emitter(emitter):
             async for event in self._run_inner(
                 message,
                 session_id,

@@ -211,6 +211,56 @@ def kaos_tool_to_llm_tool(
                 effective_timeout,
                 t_elapsed,
             )
+            # Theme A (2026-05-25): make the timeout observable in the
+            # event stream. Pre-fix: the warning log fired but no typed
+            # event was ever emitted, so audit / OTel / SPA consumers
+            # had no record that a TOOL_CALL had timed out — the
+            # downstream-visible signal was just a ToolReportedError
+            # appearing in the next ReAct observation, with no
+            # standalone span describing the failed call. The TOOL_CALL
+            # span that ``loop.agent_loop._emit_tool_call_spans`` emits
+            # is built from the post-execution ``ToolExecution`` record;
+            # on a timeout no execution record is produced for this
+            # call, so without an in-place emit the failure leaves no
+            # trace in the event stream.
+            #
+            # ``span_error`` auto-generates a span_id; the collector's
+            # current parent (the active TOOL_USE / TURN span) becomes
+            # the parent automatically via ``EventEmitter.span`` parent
+            # synthesis. Gracefully degrades when no emitter is in
+            # scope (most non-agent callers of this bridge).
+            from kaos_agents.events import SpanSubject, active_emitter
+
+            _em = active_emitter()
+            if _em is not None:
+                # span_error requires a span_id; we don't have a prior
+                # START to match against from this site (the canonical
+                # TOOL_CALL.START is emitted post-execution by
+                # ``loop.agent_loop._emit_tool_call_spans`` from the
+                # ToolExecution record — but on timeout no execution
+                # record exists). Use the lower-level ``span()`` with
+                # span_id="" so ``EventEmitter.span`` synthesizes a
+                # fresh ID (``resolved_span_id = span_id or _new_span_id()``).
+                from kaos_agents.events.spans import SpanPhase
+
+                _em.span(
+                    SpanSubject.TOOL_CALL,
+                    SpanPhase.ERROR,
+                    span_id="",
+                    name=f"tool.{meta.name}",
+                    duration_ms=t_elapsed,
+                    error_type="tool_timeout",
+                    error_message=(
+                        f"Tool {meta.name!r} timed out after "
+                        f"{effective_timeout:.1f}s (elapsed {t_elapsed:.0f}ms)."
+                    ),
+                    attributes={
+                        "tool_name": meta.name,
+                        "timeout_seconds": effective_timeout,
+                        "elapsed_ms": t_elapsed,
+                        "is_error": True,
+                    },
+                )
             # Same pattern as the result.isError branch below: raise
             # ToolReportedError so ReAct's _invoke_one records the
             # observation with is_error=True. The agent then sees the

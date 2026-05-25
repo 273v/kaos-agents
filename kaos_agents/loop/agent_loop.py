@@ -70,7 +70,7 @@ from kaos_agents.events.collector import (
     EventCollector,
     _active_collector_var,
 )
-from kaos_agents.events.emitter import EventEmitter
+from kaos_agents.events.emitter import EventEmitter, use_emitter
 from kaos_agents.events.lifecycle import IntentClassified, TurnSummary, UsageObserved
 from kaos_agents.events.spans import SpanSubject
 from kaos_agents.hooks.base import KaosHook
@@ -396,25 +396,36 @@ class AgentLoop(Program):
         try:
             collector = self._open_collector()
             ctoken = _active_collector_var.set(collector)
-            try:
-                await self._run_8_step_turn(plan, invocation, collector)
-                invocation.events = tuple(collector.events)
-                invocation.finalize(output=invocation.output)
-                return invocation
-            except BaseException as exc:
-                # Capture whatever events we accumulated before the
-                # failure so the partial invocation carries them.
-                invocation.events = tuple(collector.events)
-                invocation.error = exc
-                # Tag the partial bundle onto the exception per the
-                # rewrite plan §6 contract; some exceptions disallow
-                # arbitrary attribute assignment, so guard.
-                with contextlib.suppress(Exception):
-                    exc.turn_invocation = invocation  # ty: ignore[unresolved-attribute]
-                invocation.finalize(error=exc)
-                raise
-            finally:
-                _active_collector_var.reset(ctoken)
+            # Theme A (2026-05-25): publish the per-turn emitter to the
+            # ``_active_emitter_var`` ContextVar so deep helpers
+            # (capabilities.retrieve._invoke_tool, actions.tool_bridge
+            # asyncio.timeout handler, planning.act._act_tool asyncio
+            # .timeout handler) can call ``active_emitter().emit(...)``
+            # without the emitter threaded through every signature. The
+            # ``use_emitter`` scope MUST wrap ``_run_8_step_turn`` (the
+            # actor / planner / executor stack lives inside) and MUST
+            # nest inside ``collect_events`` (the collector is what
+            # captures the events those helpers emit).
+            with use_emitter(plan.emitter):
+                try:
+                    await self._run_8_step_turn(plan, invocation, collector)
+                    invocation.events = tuple(collector.events)
+                    invocation.finalize(output=invocation.output)
+                    return invocation
+                except BaseException as exc:
+                    # Capture whatever events we accumulated before the
+                    # failure so the partial invocation carries them.
+                    invocation.events = tuple(collector.events)
+                    invocation.error = exc
+                    # Tag the partial bundle onto the exception per the
+                    # rewrite plan §6 contract; some exceptions disallow
+                    # arbitrary attribute assignment, so guard.
+                    with contextlib.suppress(Exception):
+                        exc.turn_invocation = invocation  # ty: ignore[unresolved-attribute]
+                    invocation.finalize(error=exc)
+                    raise
+                finally:
+                    _active_collector_var.reset(ctoken)
         finally:
             _active_turn_var.reset(token)
 
