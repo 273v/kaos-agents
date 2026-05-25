@@ -230,10 +230,17 @@ async def test_rag_only_fires_for_document_qa_kind() -> None:
 
     fired = []
 
+    class _StubInvocation:
+        def __init__(self, output: Any) -> None:
+            self.output = output
+
     class _StubRAG:
-        async def __call__(self, **kwargs: Any) -> list[PerceptionItem]:
+        async def invoke(self, **kwargs: Any) -> _StubInvocation:
+            # Iteration 8 of the kaos-llm-core design audit: perceiver
+            # now calls ``rag.invoke()`` so ``Invocation.usage`` flows
+            # through. Stub mirrors the canonical RAG return shape.
             fired.append(kwargs)
-            return [PerceptionItem(content="rag-out", source="rag")]
+            return _StubInvocation(output=[PerceptionItem(content="rag-out", source="rag")])
 
     p = Perceiver(rag=_StubRAG(), first_sufficient=False)
 

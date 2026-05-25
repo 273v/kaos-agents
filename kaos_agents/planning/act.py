@@ -148,7 +148,9 @@ async def _act_llm(prompt: str, model: str) -> dict[str, Any]:
     require_llm_core()
     from kaos_llm_core import Call
 
-    call = Call(LLMStepSignature, model=model)
+    from kaos_agents._examples import load_examples
+
+    call = Call(LLMStepSignature, model=model, examples=load_examples("llm_step"))
     invocation = await call.invoke(instruction=prompt)
 
     token_count = 0

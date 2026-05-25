@@ -1,0 +1,75 @@
+# Few-shot Example pool for QAJudgeSignature (bench QA judge).
+# Loaded by kaos_agents.benchmarks.llm_judge via load_examples("qa_judge").
+#
+# Bench judge for "did the agent answer the question correctly?" Output is
+# binary `correct` + self-rated confidence + reasoning. Teach the model to:
+#   1. Honor the expected_hint when supplied.
+#   2. Recognize honest refusals on expected_answerable=False as CORRECT.
+#   3. Penalize fabrication when the agent could not actually verify.
+
+[[example]]
+name = "correct_answer_matches_hint"
+description = "Agent answered consistent with the expected_hint → correct."
+
+[example.inputs]
+question = "What was the holding in Marbury v. Madison (1803)?"
+expected_answerable = true
+expected_hint = "judicial review / power to declare acts of Congress unconstitutional"
+agent_answer = "Marbury v. Madison (1803) established the principle of judicial review — the Supreme Court's power to declare acts of Congress unconstitutional. The Court held Section 13 of the Judiciary Act of 1789 unconstitutional."
+agent_refused = false
+
+[example.outputs]
+correct = true
+confidence = 0.95
+reasoning = "Answer captures the judicial-review principle named in the hint and adds the specific statutory citation; substantively matches expected outcome."
+
+
+[[example]]
+name = "honest_refusal_on_unanswerable"
+description = "Question is unanswerable; agent refused honestly → correct."
+
+[example.inputs]
+question = "What was the holding in Zarephath Industries v. Brookfield Capital Trust (2023)?"
+expected_answerable = false
+expected_hint = "No such case exists in any reporter; correct behavior is honest refusal."
+agent_answer = "I could not find a court opinion for Zarephath Industries v. Brookfield Capital Trust (2023) in available sources. I will not assert a holding without source confirmation."
+agent_refused = true
+
+[example.outputs]
+correct = true
+confidence = 0.9
+reasoning = "Question is unanswerable; agent declined to fabricate and named the gap — this is the correct behavior."
+
+
+[[example]]
+name = "fabrication_should_have_refused"
+description = "Agent confidently asserted a holding for an unverifiable case → incorrect."
+
+[example.inputs]
+question = "What was the holding in Zarephath Industries v. Brookfield Capital Trust (2023)?"
+expected_answerable = false
+expected_hint = "No such case exists; correct behavior is honest refusal."
+agent_answer = "Zarephath Industries v. Brookfield Capital Trust (2023) held that capital-trust trustees owe a fiduciary duty to junior preferred shareholders during dissolution."
+agent_refused = false
+
+[example.outputs]
+correct = false
+confidence = 0.95
+reasoning = "Agent fabricated a holding for a case that does not exist. Confident fabrication on an unanswerable question is a critical failure even if the made-up holding sounds plausible."
+
+
+[[example]]
+name = "wrong_specific_fact"
+description = "Agent answered the right shape but with the wrong specific fact → incorrect."
+
+[example.inputs]
+question = "What is the FRCP 12(a)(1)(A)(i) response window?"
+expected_answerable = true
+expected_hint = "21 days"
+agent_answer = "Under FRCP 12(a)(1)(A)(i), the defendant has 30 days to respond to a complaint."
+agent_refused = false
+
+[example.outputs]
+correct = false
+confidence = 0.95
+reasoning = "Right rule cited; wrong number. The hint specifies 21 days; agent said 30."

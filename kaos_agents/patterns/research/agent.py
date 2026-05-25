@@ -552,15 +552,15 @@ class ResearchAgent(ChatAgent):
             },
         )
 
-        saved_instructions = self._instructions
-        # P7: thread the corpus outline into the ReAct system prompt too.
+        # P7: thread the corpus outline into the ReAct system prompt.
         # The escalation path drives an iterative search agent — knowing
         # what the corpus actually covers helps it pick search terms (and
         # know when to stop searching for non-existent topics).
         outline_prefix = self._resolve_outline_prefix()
         outline_block = f"\n\n{outline_prefix}" if outline_prefix else ""
-        self._instructions = (
-            (saved_instructions + "\n\n" if saved_instructions else "")
+        base_instructions = self._instructions
+        augmented = (
+            (base_instructions + "\n\n" if base_instructions else "")
             + _RESEARCH_REACT_INSTRUCTION
             + outline_block
         )
@@ -570,13 +570,13 @@ class ResearchAgent(ChatAgent):
             confidence=intent.confidence,
             reasoning="Escalating to ReAct after one-shot RAG returned insufficient evidence.",
         )
-        try:
+        # ContextVar-backed override — task-local, no instance mutation,
+        # auto-restored on exit. See BaseAgent.override_instructions.
+        with self.override_instructions(augmented):
             async for event in super()._dispatch_streaming(
                 react_intent, message, memory, context_items, emitter
             ):
                 yield event
-        finally:
-            self._instructions = saved_instructions
 
     async def _handle_research_streaming(
         self,

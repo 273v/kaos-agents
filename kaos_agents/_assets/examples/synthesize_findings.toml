@@ -1,0 +1,36 @@
+# Few-shot Example pool for SynthesizeFindingsSignature (plan-execute synthesizer).
+# Loaded by kaos_agents.patterns.synthesize via load_examples("synthesize_findings").
+#
+# Teaches: weave step results into a user-facing narrative grounded in the
+# goal, and explicitly call out when the plan was cut short by stop_reason.
+
+[[example]]
+name = "complete_plan_narrative_with_citation"
+description = "All steps succeeded; produce a tight answer with the cite anchors from the steps."
+
+[example.inputs]
+goal = "Find the effective date of the SEC's Climate Disclosure Rule for large accelerated filers."
+step_results = """\
+Step 1 (kaos-web-search): top result = https://www.sec.gov/news/press-release/2024-31
+Step 2 (kaos-web-fetch-page): parsed press release, key phrase: "effective for large accelerated filers beginning with fiscal years starting on or after January 1, 2026"\
+"""
+stop_reason = "completed"
+
+[example.outputs]
+narrative = "The SEC's Climate Disclosure Rule takes effect for large accelerated filers with fiscal years starting on or after January 1, 2026 (Source: SEC press release 2024-31, https://www.sec.gov/news/press-release/2024-31)."
+
+
+[[example]]
+name = "plan_cut_short_call_out_gap"
+description = "Plan stopped before answering; the narrative honestly says what was found and what was not."
+
+[example.inputs]
+goal = "Identify the governing law of each uploaded NDA."
+step_results = """\
+Step 1 (kaos-content-search-document): returned 12 matches across nda_v1.docx and nda_v2.docx.
+Step 2 (kaos-agent-findings): processed nda_v1.docx and nda_v2.docx; results: nda_v1.docx → Delaware [block_ref §4.2]; nda_v2.docx → New York [block_ref §4.2]. nda_v3, nda_v4, nda_v5 not processed (budget cap hit).\
+"""
+stop_reason = "budget_exceeded"
+
+[example.outputs]
+narrative = "Partial result (budget cap reached before all NDAs processed): nda_v1.docx is governed by Delaware law (§4.2) and nda_v2.docx is governed by New York law (§4.2). The governing law of nda_v3, nda_v4, and nda_v5 was not determined and would require a follow-up turn."

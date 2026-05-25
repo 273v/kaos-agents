@@ -1,0 +1,75 @@
+# Few-shot Example pool for EvalSemanticSignature (plan-step result evaluator).
+# Loaded by kaos_agents.planning.evaluate via load_examples("eval_semantic").
+#
+# Each example teaches one branch of the matched / new_facts contract:
+#   1. Substance-matches-framing → matched=True with extracted new_facts.
+#   2. Fact mismatch (specific number / name wrong) → matched=False.
+#   3. Empty / non-answer result → matched=False.
+#   4. Partial credit on multi-part expectation → matched=False, calls out gap.
+
+[[example]]
+name = "substantive_match_extracts_new_facts"
+description = "Result substantively matches the expectation; pull key facts forward for downstream steps."
+
+[example.inputs]
+result_text = "The Federal Register notice was published on April 29, 2026, by the SEC. Effective date: July 28, 2026. Comment period closes June 28, 2026."
+expected_description = "Retrieve the publication date and effective date of the SEC Climate Disclosure Rule notice."
+additional_context = ""
+
+[example.outputs]
+matched = true
+confidence = 0.95
+reasoning = "Both requested dates appear verbatim; the result also supplies the comment-period close date as bonus fact."
+new_facts = [
+    "SEC Climate Disclosure Rule published April 29, 2026",
+    "Effective date July 28, 2026",
+    "Comment period closes June 28, 2026",
+]
+
+
+[[example]]
+name = "fact_mismatch_specific_number_wrong"
+description = "Expectation calls out a specific number; result names a different number → matched=False."
+
+[example.inputs]
+result_text = "FRCP Rule 12(a)(1)(A)(i) gives 30 days to respond to a complaint."
+expected_description = "Confirm that FRCP 12(a)(1)(A)(i) gives 21 days to respond."
+additional_context = ""
+
+[example.outputs]
+matched = false
+confidence = 0.95
+reasoning = "Result asserts 30 days but the rule actually states 21 days; specific number is wrong."
+new_facts = []
+
+
+[[example]]
+name = "empty_or_non_answer_result"
+description = "Result is empty / a procedural deflection / a clarifying question → matched=False."
+
+[example.inputs]
+result_text = "I'd be happy to help you find that information. Could you tell me which jurisdiction you're asking about?"
+expected_description = "Return the federal statute of limitations for securities fraud under SEA §10(b)."
+additional_context = ""
+
+[example.outputs]
+matched = false
+confidence = 0.9
+reasoning = "Result is a clarifying question, not the requested statute. Federal-law context was already established in the expectation."
+new_facts = []
+
+
+[[example]]
+name = "partial_credit_multi_part_expectation"
+description = "Expectation has two clauses; result answers one cleanly and ignores the other → matched=False with the gap named."
+
+[example.inputs]
+result_text = "Under FRCP 12(a)(1)(A)(i), the defendant has 21 days to respond to a complaint."
+expected_description = "State both the FRCP 12(a) 21-day window AND the Rule 6(a)(1)(C) weekend rollover behavior."
+additional_context = ""
+
+[example.outputs]
+matched = false
+confidence = 0.85
+reasoning = "First clause (21-day window) answered correctly, but the second clause (Rule 6(a)(1)(C) weekend rollover) is absent. Multi-part expectation requires all parts."
+new_facts = ["FRCP 12(a)(1)(A)(i) gives 21 days to respond"]

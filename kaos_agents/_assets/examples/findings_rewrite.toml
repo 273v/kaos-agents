@@ -1,0 +1,62 @@
+# Few-shot Example pool for _RewriteSignature (findings semantic query rewrite).
+# Loaded by kaos_agents.patterns.findings via load_examples("findings_rewrite").
+#
+# Teaches the model to emit SPECIFIC, CONCRETE 1-3 word terms that would
+# appear in a relevant document — not categories, not paraphrases of the
+# question.
+
+[[example]]
+name = "nda_governing_law_terms"
+description = "NDA-style governing-law question → jurisdiction names + clause-label terms."
+
+[example.inputs]
+question = "What is the governing law of each NDA?"
+max_terms = 8
+
+[example.outputs]
+search_terms = [
+    "governing law",
+    "delaware",
+    "new york",
+    "california",
+    "choice of law",
+    "forum selection",
+    "jurisdiction",
+    "consent to jurisdiction",
+]
+
+
+[[example]]
+name = "compliance_arbitration_terms"
+description = "Arbitration question → specific arbitration-clause vocabulary."
+
+[example.inputs]
+question = "Do these contracts contain an arbitration provision?"
+max_terms = 6
+
+[example.outputs]
+search_terms = [
+    "arbitration",
+    "binding arbitration",
+    "JAMS",
+    "AAA",
+    "arbitrator",
+    "waiver of jury trial",
+]
+
+
+[[example]]
+name = "narrow_question_few_terms"
+description = "Narrow question → fewer high-precision terms, not padded to max_terms."
+
+[example.inputs]
+question = "What is the effective date of the SEC's Climate Disclosure Rule for large accelerated filers?"
+max_terms = 8
+
+[example.outputs]
+search_terms = [
+    "effective date",
+    "large accelerated filer",
+    "climate disclosure",
+    "fiscal year 2026",
+]

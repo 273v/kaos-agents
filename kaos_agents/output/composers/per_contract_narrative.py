@@ -198,8 +198,14 @@ async def compose_per_contract_narratives(
     if not rows:
         return [], ZERO_USAGE
 
+    from kaos_agents._examples import load_examples
+
     sem = asyncio.Semaphore(max(1, concurrency))
-    call = Call(PerContractNarrativeSignature, model=model)
+    call = Call(
+        PerContractNarrativeSignature,
+        model=model,
+        examples=load_examples("per_contract_narrative"),
+    )
     source_texts = source_texts or {}
 
     async def _one(row: ExtractionResult) -> tuple[str, str, InvocationUsage]:

@@ -136,7 +136,9 @@ async def expand(
     else:
         tool_descriptions = "(no tools available — generate LLM-only steps)"
 
-    call = Call(PlanExpandSignature, model=model)
+    from kaos_agents._examples import load_examples
+
+    call = Call(PlanExpandSignature, model=model, examples=load_examples("plan_expand"))
 
     effective_context = context
     if max_context_chars is not None and len(context) > max_context_chars:

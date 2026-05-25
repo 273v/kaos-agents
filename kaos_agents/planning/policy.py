@@ -397,7 +397,11 @@ async def plan_turn_tool_policy(
     # signature is a Signature subclass built lazily under [llm]; ty can't
     # see that without an eager kaos_llm_core import (which we deliberately
     # defer to keep the module loadable without the [llm] extra).
-    call = Call(signature, model=used_model)  # ty: ignore[invalid-argument-type]
+    from kaos_agents._examples import load_examples
+
+    call = Call(  # ty: ignore[invalid-argument-type]
+        signature, model=used_model, examples=load_examples("turn_tool_policy")
+    )
     t_start = time.monotonic()
     try:
         invocation = await call.invoke(

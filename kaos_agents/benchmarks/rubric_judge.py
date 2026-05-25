@@ -247,7 +247,14 @@ async def rubric_judge(
         unavailable: ..."``.
     """
     try:
-        judge_call = Call(RubricVerdictSignature, model=model, max_retries=2)
+        from kaos_agents._examples import load_examples
+
+        judge_call = Call(
+            RubricVerdictSignature,
+            model=model,
+            max_retries=2,
+            examples=load_examples("rubric_verdict"),
+        )
     except ImportError as exc:
         return _unavailable_verdict(
             criterion_id,

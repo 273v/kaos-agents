@@ -1,0 +1,60 @@
+# Few-shot Example pool for SummarizeMemorySignature.
+# Loaded by kaos_agents.memory.summarize via load_examples("summarize_memory").
+#
+# Teaches the summarizer to compress while preserving key facts (names,
+# dates, numbers, citations, decisions). Length guidance varies by
+# section_type — the examples show one short, one medium summary so the
+# model anchors to the target_length input rather than padding.
+
+[[example]]
+name = "messages_section_short_compression"
+description = "Compress a multi-turn exchange to a 2-sentence recap that preserves the user's request and the answer."
+
+[example.inputs]
+content = """\
+User: Can you help me understand the response window for a federal civil complaint?
+Assistant: Under FRCP 12(a)(1)(A)(i), a defendant has 21 days from service to file a responsive pleading.
+User: And what if the deadline falls on a weekend?
+Assistant: FRCP 6(a)(1)(C) rolls the deadline to the next day that is not a Saturday, Sunday, or legal holiday.\
+"""
+section_type = "messages"
+target_length = "2 sentences"
+
+[example.outputs]
+summary = "User asked about federal civil complaint response deadlines; assistant explained the 21-day FRCP 12(a)(1)(A)(i) window and the FRCP 6(a)(1)(C) weekend rollover to the next business day."
+
+
+[[example]]
+name = "actions_section_medium_compression"
+description = "Compress a sequence of tool calls into a list that preserves call name + key result. Don't paraphrase numbers."
+
+[example.inputs]
+content = """\
+- kaos-web-search('SEC climate disclosure rule effective date') → returned 5 results
+- kaos-web-fetch-page('https://www.sec.gov/news/press-release/2024-31') → 200 OK, parsed press release
+- Extracted: rule effective for large accelerated filers beginning FY 2026
+- kaos-content-search-document('Scope 1 emissions') over uploaded 10-K → 3 hits in section 7\
+"""
+section_type = "actions"
+target_length = "3-4 lines"
+
+[example.outputs]
+summary = "Web search + fetch confirmed SEC climate-rule effective date is FY 2026 for large accelerated filers (sec.gov/2024-31). Corpus search on the uploaded 10-K returned 3 Scope-1 hits in section 7."
+
+
+[[example]]
+name = "findings_section_preserve_citations"
+description = "Compress findings without dropping the cite anchors — those are the load-bearing parts."
+
+[example.inputs]
+content = """\
+Finding 1: NDA_v1.docx §4.2 — governing law is Delaware.
+Finding 2: NDA_v3.docx §4.2 — governing law is New York.
+Finding 3: NDA_v5.docx §4.2 — governing law is California.
+Finding 4: NDA_v1.docx §6.1 — 2-year term, automatic renewal.\
+"""
+section_type = "findings"
+target_length = "preserve every citation; aggregate prose"
+
+[example.outputs]
+summary = "Governing-law jurisdictions vary across the corpus: Delaware (NDA_v1.docx §4.2), New York (NDA_v3.docx §4.2), California (NDA_v5.docx §4.2). NDA_v1.docx §6.1 carries a 2-year automatic-renewal term."

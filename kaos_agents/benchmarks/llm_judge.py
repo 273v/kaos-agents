@@ -191,7 +191,11 @@ async def llm_judge(
         unavailable: ..."``.
     """
     try:
-        judge_call = Call(QAJudgeSignature, model=model, max_retries=2)
+        from kaos_agents._examples import load_examples
+
+        judge_call = Call(
+            QAJudgeSignature, model=model, max_retries=2, examples=load_examples("qa_judge")
+        )
     except ImportError as exc:
         return _unavailable_verdict(
             f"judge unavailable: kaos-llm-client not installed ({exc})", model

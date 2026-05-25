@@ -21,10 +21,12 @@ The 8-step turn (both modes share the same logic):
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import re
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from typing import TYPE_CHECKING, Any
 
 from kaos_core.logging import get_logger
@@ -150,6 +152,39 @@ class BaseAgent(KaosAgent):
         #   ``_REACT_INSTRUCTION``) apply only when
         #   ``instructions is None``.
         self._instructions: str | None = instructions
+
+    # ContextVar for per-call instruction overrides — replaces the legacy
+    # ``self._instructions = augmented; try: ...; finally: self._instructions = saved``
+    # mutation pattern. ContextVar propagates correctly across awaits and
+    # is task-local, so concurrent invocations of the same agent instance
+    # never see each other's overrides. Read via :attr:`instructions`.
+    _INSTRUCTIONS_OVERRIDE: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+        "kaos_agents._instructions_override", default=None
+    )
+
+    @property
+    def instructions(self) -> str | None:
+        """Resolved instructions: per-call override (if set) or the agent default.
+
+        Subclass dispatch paths (e.g. ResearchAgent's ReAct escalation) push a
+        temporary augmented prompt via :meth:`override_instructions` instead of
+        mutating ``self._instructions`` directly.
+        """
+        return self._INSTRUCTIONS_OVERRIDE.get() or self._instructions
+
+    @classmethod
+    @contextlib.contextmanager
+    def override_instructions(cls, augmented: str | None) -> Iterator[None]:
+        """Push a per-call instructions override for the lifetime of the block.
+
+        ContextVar-backed so the override is task-local and propagates across
+        awaits — safe for concurrent invocations of the same agent instance.
+        """
+        token = cls._INSTRUCTIONS_OVERRIDE.set(augmented)
+        try:
+            yield
+        finally:
+            cls._INSTRUCTIONS_OVERRIDE.reset(token)
 
     def _model_for_role(self, role: str) -> str:
         """Resolve the model to use for a specific role.
@@ -995,7 +1030,7 @@ class BaseAgent(KaosAgent):
             recent = memory.get_recent(MemoryType.MESSAGES, FALLBACK_RECENT_MESSAGES)
             history = "\n".join(item.content for item in recent) if recent else "(new conversation)"
 
-        instructions = self._instructions or _DEFAULT_RESPOND_INSTRUCTION
+        instructions = self.instructions or _DEFAULT_RESPOND_INSTRUCTION
         if extra_instruction:
             instructions = f"{instructions} {extra_instruction}"
 
@@ -1010,10 +1045,13 @@ class BaseAgent(KaosAgent):
         # paths that don't truncate this way; if a JSON-side truncation
         # regresses, file it as a JSONCodec bug in kaos-llm-core rather
         # than working around it with text scaffolding here.
+        from kaos_agents._examples import load_examples
+
         call = Call(
             RespondSignature,
             model=self._model_for_role("respond"),
             instructions=instructions,
+            examples=load_examples("respond"),
         )
         # ``.invoke()`` returns the full Invocation so we can read
         # ``invocation.usage`` — the bare ``await call(...)`` path is

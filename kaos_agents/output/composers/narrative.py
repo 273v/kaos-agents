@@ -111,7 +111,9 @@ async def compose_narrative(
     body_blocks: list[Block] = []
     per_section_usage: list[tuple[str, InvocationUsage]] = []
     total = ZERO_USAGE
-    call = Call(SectionWriterSignature, model=model)
+    from kaos_agents._examples import load_examples
+
+    call = Call(SectionWriterSignature, model=model, examples=load_examples("section_writer"))
 
     for spec in structure:
         section_context = _recall_for_section(memory)

@@ -443,6 +443,24 @@ def _build_signature_class() -> type:
             zero tool calls. Counter-cases (NOT this rule):
             definitions of stable concepts, arithmetic, language
             tasks, summarization of already-quoted text.
+            **This rule does NOT apply when the
+            ``Anaphoric follow-up recall IS grounded`` OR
+            ``Pure deterministic computation IS grounded``
+            carve-outs above apply.** Examples that fall under
+            the carve-outs (return ``satisfied`` instead): the
+            user's question is "in one sentence, what was the X
+            you just cited?" (follow-up recall); the user's
+            question supplies BOTH the rule citation AND the
+            inputs and asks for the deterministic computation
+            (e.g., "if a complaint was filed March 15 and FRCP
+            12(a) gives 21 days, what is the deadline?" — the
+            user supplied ``FRCP 12(a) gives 21 days`` AND
+            ``March 15``; the agent's job is calendar math, not
+            re-fetching FRCP). Calling FR / eCFR to re-verify a
+            rule the user already named in the prompt is wasted
+            cost — confidence the agent should have in
+            user-supplied premises is the same as confidence in
+            user-supplied facts.
           - **Clarification-loop ceiling.** If ``iteration`` >= 2
             AND the agent's response is *another* clarification
             question (request for more information, choice between
@@ -524,6 +542,16 @@ def _get_signature() -> type:
     return _SIGNATURE_CACHE
 
 
+# ─── Few-shot demonstrations (ground the Signature) ──────────────────
+#
+# The labelled :class:`~kaos_llm_core.types.Example` pool lives in
+# ``kaos_agents/_assets/examples/goal_check.toml`` — see
+# :mod:`kaos_agents._examples` for the loader contract. Adding or
+# removing examples = edit the TOML; optimizers may rewrite it without
+# touching this module. The rubric docstring stays short + abstract;
+# the per-incident evidence is data, not code.
+
+
 # ─── Public entrypoint ───────────────────────────────────────────────
 
 
@@ -578,6 +606,8 @@ async def check_goal(
     try:
         from kaos_llm_core import Call
 
+        from kaos_agents._examples import load_examples
+
         signature = _get_signature()
     except ImportError as exc:
         latency_ms = (time.monotonic() - t_start) * 1000
@@ -596,7 +626,11 @@ async def check_goal(
             iteration=iteration,
         )
 
-    call = Call(signature, model=used_model)  # ty: ignore[invalid-argument-type]
+    call = Call(  # ty: ignore[invalid-argument-type]
+        signature,
+        model=used_model,
+        examples=load_examples("goal_check"),
+    )
 
     try:
         invocation = await call.invoke(

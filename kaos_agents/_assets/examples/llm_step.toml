@@ -1,0 +1,30 @@
+# Few-shot Example pool for LLMStepSignature (plan-step LLM executor).
+# Loaded by kaos_agents.planning.act via load_examples("llm_step").
+#
+# LLMStepSignature is the I/O contract for ONE "LLM" step inside an
+# executing plan. The wrapping plan has already settled the goal, prior
+# step results, and any sequencing. The Signature's only job is to
+# execute the instruction faithfully. The examples therefore demonstrate:
+#   1. Execute the instruction directly; don't refuse or ask for clarification.
+#   2. When asked to draw a conclusion from supplied facts, do the synthesis.
+
+[[example]]
+name = "direct_execution"
+description = "Instruction is a self-contained reasoning task; produce the answer directly."
+
+[example.inputs]
+instruction = "Compute the response deadline if a complaint was filed March 15, 2025 under FRCP 12(a)(1)(A)(i) (21-day window)."
+
+[example.outputs]
+response = "March 15, 2025 + 21 days = April 5, 2025. Because April 5 is a Saturday, FRCP 6(a)(1)(C) moves the deadline to Monday, April 7, 2025."
+
+
+[[example]]
+name = "synthesis_from_supplied_facts"
+description = "Instruction provides the facts; draw the conclusion they imply."
+
+[example.inputs]
+instruction = "Given: (a) Q3 revenue was $1.2B, (b) Q4 revenue was $1.5B, (c) Q1 revenue was $1.1B. State whether revenue grew QoQ from Q4 to Q1, and by how much."
+
+[example.outputs]
+response = "Revenue declined QoQ from Q4 to Q1, dropping $0.4B (a 26.7% decrease: $1.1B - $1.5B = -$0.4B; -$0.4B / $1.5B ≈ -26.7%)."

@@ -1,0 +1,50 @@
+# Few-shot Example pool for PlanExpandSignature.
+# Loaded by kaos_agents.planning.expand via load_examples("plan_expand").
+#
+# Teaches the planner to emit small, ordered, tool-name-grounded steps with
+# explicit dependencies. Each example has 2-3 steps.
+
+[[example]]
+name = "two_step_research_then_synthesize"
+description = "Simple research → synthesize plan. Tool names taken verbatim from the tools input."
+
+[example.inputs]
+goal = "Find and summarize the SEC's Climate Disclosure Rule effective date for large accelerated filers."
+tools = """\
+kaos-web-search: Web search across multiple backends (SerpAPI, Brave, Exa).
+kaos-web-fetch-page: Fetch and parse a specific URL.
+kaos-source-fr-search: Search the Federal Register.\
+"""
+context = ""
+max_steps = 4
+prior_failures = ""
+
+[example.outputs]
+steps = [
+    {step_number = 1, description = "Search the SEC press release URL for the Climate Disclosure Rule.", tool_name = "kaos-web-search", input_description = "Query: 'SEC Climate Disclosure Rule effective date large accelerated filer'.", expected_output = "Top results including sec.gov/news/press-release/2024-31.", depends_on = [], abort_if = ""},
+    {step_number = 2, description = "Fetch the SEC press release page identified in step 1.", tool_name = "kaos-web-fetch-page", input_description = "URL identified in step 1's top results.", expected_output = "Parsed press release text naming the effective fiscal year.", depends_on = [1], abort_if = "Step 1 returned no SEC press-release URL."},
+    {step_number = 3, description = "Draft the answer with the effective date and a source citation.", tool_name = "llm", input_description = "Synthesize from step 2's fetched text.", expected_output = "1-2 sentence answer with the FY 2026 effective date and SEC press-release URL.", depends_on = [2], abort_if = ""},
+]
+
+
+[[example]]
+name = "corpus_review_three_step"
+description = "Corpus-scoped review with conditional skip-on-empty."
+
+[example.inputs]
+goal = "Across the uploaded NDAs, identify the governing law of each."
+tools = """\
+kaos-content-search-document: BM25 search across attached documents.
+kaos-office-parse-docx: Parse a DOCX file from the session VFS.
+kaos-agent-findings: Multi-stage corpus extraction pipeline.\
+"""
+context = "5 DOCX files attached this session."
+max_steps = 4
+prior_failures = ""
+
+[example.outputs]
+steps = [
+    {step_number = 1, description = "Search the attached NDAs for governing-law clauses.", tool_name = "kaos-content-search-document", input_description = "Query: 'governing law' over the DOCUMENTS section.", expected_output = "Match snippets with file paths and section labels.", depends_on = [], abort_if = ""},
+    {step_number = 2, description = "Run the findings pipeline to extract jurisdiction per file.", tool_name = "kaos-agent-findings", input_description = "Question: 'What jurisdiction governs this NDA?' over the corpus.", expected_output = "Per-file finding records with cited block_refs.", depends_on = [1], abort_if = "Step 1 returned no matches across the corpus."},
+    {step_number = 3, description = "Compose the per-file jurisdiction table.", tool_name = "llm", input_description = "Aggregate step 2 findings into a citation-anchored table.", expected_output = "Markdown table: file | jurisdiction | block_ref.", depends_on = [2], abort_if = ""},
+]

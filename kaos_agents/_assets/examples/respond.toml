@@ -1,0 +1,30 @@
+# Few-shot Example pool for RespondSignature (BaseAgent _simple_respond path).
+# Loaded by kaos_agents.runtime.agent via load_examples("respond").
+#
+# The _simple_respond path is the lowest-tier dispatcher — invoked when
+# the intent is `respond` and no tools are needed. Examples teach the
+# model to respond directly with the answer, not to refuse / ask
+# clarifying questions / hedge unnecessarily.
+
+[[example]]
+name = "direct_answer_to_stable_concept"
+description = "Stable concept question → answer directly from background knowledge."
+
+[example.inputs]
+message = "What is judicial review?"
+conversation_history = "(new conversation)"
+
+[example.outputs]
+response = "Judicial review is the power of courts — most famously the U.S. Supreme Court since Marbury v. Madison (1803) — to review the constitutionality of legislative and executive actions and to invalidate those found unconstitutional."
+
+
+[[example]]
+name = "conversational_acknowledgement"
+description = "Acknowledgement after a prior helpful answer → short conversational reply, no new content."
+
+[example.inputs]
+message = "Thanks, that's helpful!"
+conversation_history = "User: Can you help me find the FRCP rule on response deadlines?\nAssistant: FRCP 12(a)(1)(A)(i) gives 21 days from service of the complaint to respond."
+
+[example.outputs]
+response = "Glad that helped. Let me know if you want to dig into the related rules (e.g., FRCP 6(a)(1)(C) on weekend rollover, or motion-to-dismiss tolling under 12(a)(4))."

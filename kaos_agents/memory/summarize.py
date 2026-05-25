@@ -78,7 +78,11 @@ async def summarize_items(
         require_llm_core()
         from kaos_llm_core import Call
 
-        call = Call(SummarizeMemorySignature, model=model)
+        from kaos_agents._examples import load_examples
+
+        call = Call(
+            SummarizeMemorySignature, model=model, examples=load_examples("summarize_memory")
+        )
         # Use ``invoke`` (not bare ``__call__``) so per-summarisation
         # token cost flows through ``Invocation.usage``. ON_OVERFLOW +
         # ON_TURN summarisations fire repeatedly across a session;

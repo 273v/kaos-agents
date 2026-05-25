@@ -6,6 +6,22 @@ exactly one specialist; the router then delegates the actual work to
 that specialist's ``turn()`` and returns its response with a
 ``routing_trace`` entry attached to ``metadata``.
 
+Design: the classifier is :class:`kaos_llm_core.FewShotClassify` over
+a :class:`~kaos_llm_core.labels.LabelSet` built from the registered
+:class:`Specialist` definitions. The specialist names become labels,
+descriptions become label descriptions, and per-specialist
+``examples`` become labelled :class:`~kaos_llm_core.Example`
+demonstrations attached to the underlying :class:`~kaos_llm_core.Call`.
+
+This replaces a hand-maintained function-local ``_RoutingSignature``
++ raw ``Call`` from a previous iteration. The benefit is the
+classification surface now composes with the rest of kaos-llm-core:
+optimizers (MIPRO / BootstrapOptimizer) can tune the example pool
+without touching this file, ``LabelSet`` supports an explicit
+``ABSTAIN_LABEL`` fall-through, and trace/cost rollups go through
+the same :class:`~kaos_llm_core.observability.ExecutionTrace`
+machinery the rest of the runtime uses.
+
 This is the generic / portable analogue of the "triage agent" pattern
 that ships in OpenAI's Agents SDK and Anthropic's multi-agent
 cookbooks. Distinct from ``Agent.handoffs``:
@@ -148,6 +164,11 @@ class RouterAgent:
     whatever the chosen specialist costs.
     """
 
+    # Lazy-built classifier Program (None until first invocation). Cached
+    # on the instance because building it imports kaos-llm-core, which is
+    # the optional ``[llm]`` extra. See :meth:`_get_classifier`.
+    _classifier_program: Any | None
+
     def __init__(
         self,
         specialists: tuple[Specialist, ...],
@@ -194,6 +215,7 @@ class RouterAgent:
         self.model = model
         self.min_confidence = min_confidence
         self._by_name: dict[str, Specialist] = {s.name: s for s in specialists}
+        self._classifier_program = None
 
     async def turn(self, message: str, session_id: str) -> AgentResponse:
         """Classify ``message``, then delegate to the chosen specialist."""
@@ -274,74 +296,93 @@ class RouterAgent:
             cost,
         )
 
-    async def _invoke_classifier(self, message: str) -> tuple[str, float, str, float]:
-        """Run the LLM classification call.
+    def _get_classifier(self) -> Any:
+        """Lazy-build and cache the :class:`FewShotClassify` /
+        :class:`ZeroShotClassify` Program for this router.
 
-        Returns ``(name, confidence, reasoning, cost_usd)``. The cost
-        component is the USD cost of the classifier LLM call so the
-        routing trace can surface real per-turn router overhead.
-
-        Lazy-imports kaos-llm-core so the agent module stays importable
-        without the ``[llm]`` extra.
+        Construction is deferred to first invocation because
+        ``kaos_llm_core`` is the optional ``[llm]`` extra. The Program
+        captures the :class:`LabelSet` (one Label per Specialist) and
+        the :class:`Example` set (one Example per
+        ``Specialist.examples`` entry) for the lifetime of this
+        :class:`RouterAgent`.
         """
+        if self._classifier_program is not None:
+            return self._classifier_program
+
         from kaos_agents._llm_imports import require_llm_core
 
         require_llm_core()
-        from kaos_llm_core.programs.call import Call
-        from kaos_llm_core.signatures.fields import InputField, OutputField
-        from kaos_llm_core.signatures.signature import Signature
+        from kaos_llm_core import Example, FewShotClassify, ZeroShotClassify
+        from kaos_llm_core.labels import Label, LabelSet
 
-        class _RoutingSignature(Signature):
-            """Classify a user message into exactly one specialist."""
-
-            message: str = InputField(description="The user's message to route.")
-            specialists: str = InputField(
-                description=(
-                    "Available specialists, formatted as 'name: description'. "
-                    "Each line is one option."
-                ),
-            )
-            specialist_name: str = OutputField(
-                description=(
-                    "Exactly one of the specialist names from the input. Lowercase, no spaces."
-                ),
-            )
-            confidence: float = OutputField(
-                description=(
-                    "Confidence in the routing decision, 0.0..1.0. Use 0.5 "
-                    "when the message could plausibly fit multiple "
-                    "specialists; near 1.0 when one is clearly correct."
-                ),
-            )
-            reasoning: str = OutputField(
-                description="One-sentence justification for the choice.",
-            )
-
-        call = Call(_RoutingSignature, model=self.model)
-        # KC9: use .invoke() instead of bare __call__ so Invocation.usage
-        # is available — otherwise the router's classifier cost is dropped.
-        invocation = await call.invoke(
-            message=message,
-            specialists=self._format_specialist_catalog(),
+        labels = LabelSet(
+            labels=[
+                Label(
+                    name=s.name,
+                    description=s.description,
+                    examples=list(s.examples),
+                )
+                for s in self.specialists
+            ],
+            exclusive=True,
+            allow_abstain=self.default_specialist is not None,
         )
-        result = invocation.output
-        cost = float(getattr(invocation.usage, "cost_usd", 0.0) or 0.0)
-        return (
-            str(result.specialist_name).strip(),
-            float(result.confidence),
-            str(result.reasoning),
-            cost,
-        )
-
-    def _format_specialist_catalog(self) -> str:
-        """Render the specialist list as the classifier prompt input."""
-        lines: list[str] = []
+        examples: list[Example] = []
         for s in self.specialists:
-            lines.append(f"{s.name}: {s.description}")
-            if s.examples:
-                for ex in s.examples:
-                    lines.append(f"  example: {ex}")
-        return "\n".join(lines)
+            for ex in s.examples:
+                examples.append(
+                    Example(
+                        inputs={"text": ex},
+                        outputs={"label": s.name, "confidence": 0.95, "rationale": ""},
+                    )
+                )
+
+        if examples:
+            program = FewShotClassify(labels=labels, examples=examples, model=self.model)
+        else:
+            program = ZeroShotClassify(labels=labels, model=self.model)
+
+        self._classifier_program = program
+        return program
+
+    async def _invoke_classifier(self, message: str) -> tuple[str, float, str, float]:
+        """Run the :class:`FewShotClassify` Program against ``message``.
+
+        Returns ``(name, confidence, reasoning, cost_usd)``. The
+        Program emits a :class:`~kaos_llm_core.results.Classification`;
+        we unpack the picked label, its confidence score, and the
+        classifier's rationale. When the LabelSet allows abstention
+        and the model abstains, we return ``ABSTAIN_LABEL`` and let
+        :meth:`_classify_with_cost` apply the configured fallback.
+
+        Cost is read from the per-call invocation's
+        :class:`~kaos_llm_core.programs.Invocation` via the trace tree
+        the Program records — the Classifier's ``last_trace`` carries
+        cost_usd populated by the kaos-llm-core Call layer.
+        """
+        from kaos_llm_core.labels import ABSTAIN_LABEL
+
+        program = self._get_classifier()
+        classification = await program(text=message)
+
+        # Pull rationale + picked label + confidence.
+        rationale = str(classification.rationale or "")
+        if classification.abstained:
+            name = ABSTAIN_LABEL
+            confidence = float(classification.scores.get(ABSTAIN_LABEL, 0.0))
+        else:
+            picked = classification.labels[0]
+            name = picked.name
+            confidence = float(classification.scores.get(picked.name, 0.0))
+
+        # Cost rollup from the Program's last trace tree.
+        cost = 0.0
+        last_trace = getattr(program, "last_trace", None)
+        if last_trace is not None:
+            cost = float(getattr(last_trace, "cost_usd", 0.0) or 0.0)
+
+        return (name, confidence, rationale, cost)
 
 
 # ---------------------------------------------------------------------------

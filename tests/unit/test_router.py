@@ -258,8 +258,16 @@ class TestRouterFallback:
 # ---------------------------------------------------------------------------
 
 
-class TestCatalogRendering:
-    def test_simple_catalog(self) -> None:
+class TestLabelSetConstruction:
+    """The classifier-program build path now used in place of the
+    old ``_format_specialist_catalog`` prompt helper. Each Specialist
+    becomes a :class:`kaos_llm_core.labels.Label`; each example
+    becomes a labelled :class:`kaos_llm_core.types.Example`.
+    """
+
+    def test_specialists_become_labels_with_descriptions(self) -> None:
+        from kaos_llm_core.programs.classify import ZeroShotClassify
+
         stub = cast("KaosAgent", _StubSpecialist("x"))
         router = RouterAgent(
             specialists=(
@@ -267,11 +275,18 @@ class TestCatalogRendering:
                 Specialist("chat", stub, "General chat"),
             ),
         )
-        rendered = router._format_specialist_catalog()
-        assert "legal: Legal research" in rendered
-        assert "chat: General chat" in rendered
+        program = router._get_classifier()
+        # No examples on either specialist → ZeroShotClassify.
+        assert isinstance(program, ZeroShotClassify)
+        names = {label.name for label in program._label_set}
+        assert names == {"legal", "chat"}
+        descriptions = {label.description for label in program._label_set}
+        assert "Legal research" in descriptions
+        assert "General chat" in descriptions
 
-    def test_catalog_with_examples(self) -> None:
+    def test_specialist_examples_become_few_shot_examples(self) -> None:
+        from kaos_llm_core.programs.classify import FewShotClassify
+
         stub = cast("KaosAgent", _StubSpecialist("x"))
         router = RouterAgent(
             specialists=(
@@ -282,8 +297,14 @@ class TestCatalogRendering:
                     examples=("What's the holding in X?", "Cite the relevant rule."),
                 ),
             ),
+            default_specialist="legal",
         )
-        rendered = router._format_specialist_catalog()
-        assert "What's the holding in X?" in rendered
-        assert "Cite the relevant rule." in rendered
-        assert "example:" in rendered
+        program = router._get_classifier()
+        # Examples were provided → FewShotClassify.
+        assert isinstance(program, FewShotClassify)
+        # Inspect the cached Examples on the underlying classifier Call.
+        example_texts = [ex.inputs.get("text") for ex in program.classifier.examples]
+        assert "What's the holding in X?" in example_texts
+        assert "Cite the relevant rule." in example_texts
+        # Each example labels to the specialist's name.
+        assert all(ex.outputs.get("label") == "legal" for ex in program.classifier.examples)

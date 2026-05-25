@@ -641,9 +641,12 @@ class HyDESearchTool(KaosTool):
             query[:100],
         )
 
-        from kaos_agents.context.retrieval import _generate_pseudo_document
+        # 2026-05-24 iteration 3: use the async-native helper so
+        # InvocationUsage propagates instead of being dropped at the
+        # asyncio.run boundary.
+        from kaos_agents.context.retrieval import _generate_pseudo_document_async
 
-        pseudo_doc = _generate_pseudo_document(query)
+        pseudo_doc, _cost = await _generate_pseudo_document_async(query)
         if not pseudo_doc:
             logger.debug(
                 "retrieval_tools.HyDESearchTool: pseudo-document generation failed, query=%s",
@@ -787,7 +790,10 @@ class EvaluateCoverageTool(KaosTool):
             len(summaries),
         )
 
-        from kaos_agents.context.retrieval import _reflect_on_coverage
+        # 2026-05-24 iteration 3: use the async-native helper so
+        # InvocationUsage propagates instead of being dropped at the
+        # asyncio.run boundary.
+        from kaos_agents.context.retrieval import _reflect_on_coverage_async
         from kaos_agents.memory.search import MemorySearchResult
         from kaos_agents.types.memory import MemoryType
 
@@ -796,7 +802,7 @@ class EvaluateCoverageTool(KaosTool):
                 content=summaries, section=MemoryType.DOCUMENTS, score=1.0, item_id="eval"
             )
         ]
-        gap_queries = _reflect_on_coverage(query, fake_results)
+        gap_queries, _cost = await _reflect_on_coverage_async(query, fake_results)
 
         if gap_queries:
             logger.info(

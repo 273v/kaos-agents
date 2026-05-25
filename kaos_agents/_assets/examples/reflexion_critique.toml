@@ -1,0 +1,53 @@
+# Few-shot Example pool for ReflexionCritic.
+# Loaded by kaos_agents.patterns.reflexion via load_examples("reflexion_critique").
+#
+# Each [[example]] is a labelled (inputs, outputs) pair for the
+# ReflexionCritiqueSignature. Optimizers (MIPRO / BootstrapFewShot) may rewrite
+# this file; humans extend it by appending [[example]] rows.
+#
+# Balanced set: fully satisfactory / clearly insufficient / partially correct —
+# the three verdicts the loop's threshold gate depends on.
+
+[[example]]
+name = "fully_satisfactory_cite_and_state"
+description = "Cites the case with full reporter, states judicial review explicitly."
+
+[example.inputs]
+question = "What was the holding in Marbury v. Madison (1803)?"
+rubric = "Must cite the case and state the principle of judicial review."
+candidate_output = "Marbury v. Madison, 5 U.S. (1 Cranch) 137 (1803), held that the Supreme Court has the power of judicial review — the authority to declare an act of Congress unconstitutional."
+
+[example.outputs]
+score = 0.95
+feedback = ""
+reasoning = "Cites the case with full reporter, states judicial review explicitly."
+
+
+[[example]]
+name = "clearly_insufficient_describe_not_quote"
+description = "Describes Rule 10b-5 generally but does not quote subsection (b)."
+
+[example.inputs]
+question = "Quote the antifraud rule under SEC Rule 10b-5(b)."
+rubric = "Must quote the verbatim text of subsection (b)."
+candidate_output = "Rule 10b-5 is the SEC's antifraud rule covering manipulative and deceptive practices."
+
+[example.outputs]
+score = 0.25
+feedback = "The response describes Rule 10b-5 generally but does not quote subsection (b). Fetch the rule text from eCFR and include the verbatim subsection (b) language."
+reasoning = "Describes instead of quoting; the rubric specifically required a verbatim quote."
+
+
+[[example]]
+name = "partially_correct_half_answer"
+description = "Half-answer: first clause yes, second clause missing."
+
+[example.inputs]
+question = "What is the FRCP 12(a) response window AND the Rule 6(a)(1)(C) weekend-rollover behaviour?"
+rubric = "Must answer both: the 21-day FRCP 12(a)(1)(A)(i) window AND the weekend rollover rule."
+candidate_output = "Under FRCP 12(a)(1)(A)(i), the defendant has 21 days to respond to a complaint."
+
+[example.outputs]
+score = 0.5
+feedback = "Answers the 21-day window correctly but ignores the second clause about Rule 6(a)(1)(C) weekend rollover. Add a sentence stating that if the deadline falls on a weekend or legal holiday, Rule 6(a)(1)(C) moves it to the next business day."
+reasoning = "Half-answer: first clause yes, second clause missing."

@@ -1,0 +1,36 @@
+# Few-shot Example pool for SuggestQueriesSignature.
+# Loaded by kaos_agents.context.retrieval via load_examples("suggest_queries").
+#
+# When the original query yields few/no results, suggest alternative phrasings
+# that probe the same intent with different lexicon.
+
+[[example]]
+name = "zero_results_rephrase_with_synonyms"
+description = "Zero results → propose 3 lexical alternates using domain synonyms."
+
+[example.inputs]
+original_query = "termination for convenience clause"
+results_found = 0
+
+[example.outputs]
+alternative_queries = [
+    "termination without cause clause",
+    "voluntary termination provision",
+    "right to terminate at-will language",
+]
+
+
+[[example]]
+name = "low_results_broader_then_narrower"
+description = "Few results → one broader and one narrower alternate to probe both directions."
+
+[example.inputs]
+original_query = "MFN clause exception list"
+results_found = 1
+
+[example.outputs]
+alternative_queries = [
+    "most favored nation provision",
+    "MFN carve-out",
+    "preferred-terms exception",
+]
