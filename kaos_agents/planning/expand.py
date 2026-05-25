@@ -98,6 +98,7 @@ async def expand(
     max_steps: int = 10,
     model: str = DEFAULT_MODEL,
     max_context_chars: int | None = None,
+    multi_chain_n: int | None = None,
 ) -> list[Step]:
     """Generate plan steps for a goal via LLM.
 
@@ -119,6 +120,16 @@ async def expand(
             silently drop the constraint that determines the plan
             shape). When the cap fires, a ``logger.warning`` is
             emitted so the truncation is auditable.
+        multi_chain_n: When set to ``>= 2``, route plan generation
+            through :class:`kaos_llm_core.programs.multi_chain_comparison.MultiChainComparison`
+            — sample ``multi_chain_n`` independent reasoning chains
+            and synthesise the final plan via an aggregator LM.
+            Costs ~``N + 1`` LLM calls instead of 1; reach for this
+            on complex / ambiguous goals where one shot is unreliable.
+            The same ``examples=load_examples("plan_expand")`` few-shot
+            calibration flows to every producer chain (requires
+            kaos-llm-core >= 0.1.2 which added ``examples=`` forwarding
+            to MCC). ``None`` or ``< 2`` keeps the single-Call path.
 
     Returns:
         List of Steps with validated tool names and dependency references.
@@ -138,7 +149,21 @@ async def expand(
 
     from kaos_agents._examples import load_examples
 
-    call = Call(PlanExpandSignature, model=model, examples=load_examples("plan_expand"))
+    plan_examples = load_examples("plan_expand")
+    if multi_chain_n is not None and multi_chain_n >= 2:
+        # Multi-chain path: sample N plans, aggregator synthesises the
+        # final answer. Same Signature + same examples as the single-
+        # Call path, so the Iter-4-14 grounded-Signature contract holds.
+        from kaos_llm_core.programs.multi_chain_comparison import MultiChainComparison
+
+        call: Call | MultiChainComparison = MultiChainComparison(
+            PlanExpandSignature,
+            n=multi_chain_n,
+            producer_model=model,
+            examples=plan_examples,
+        )
+    else:
+        call = Call(PlanExpandSignature, model=model, examples=plan_examples)
 
     effective_context = context
     if max_context_chars is not None and len(context) > max_context_chars:
