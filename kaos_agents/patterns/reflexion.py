@@ -221,7 +221,11 @@ class ReflexionCritic:
         from kaos_agents._examples import load_examples
 
         signature = _get_critique_signature()
-        call = Call(signature, model=self.model, examples=load_examples("reflexion_critique"))
+        call = Call(
+            signature,  # ty: ignore[invalid-argument-type]
+            model=self.model,
+            examples=load_examples("reflexion_critique"),
+        )
         # KC9: use .invoke() instead of bare __call__ so Invocation.usage
         # is available — otherwise the critic's tokens + cost are dropped.
         invocation = await call.invoke(

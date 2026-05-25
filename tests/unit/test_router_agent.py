@@ -123,13 +123,13 @@ def specialists(legal_agent: _StubAgent, chat_agent: _StubAgent) -> tuple[Specia
     return (
         Specialist(
             name="legal",
-            agent=legal_agent,
+            agent=legal_agent,  # ty: ignore[invalid-argument-type]
             description="Legal research, citations, case law.",
             examples=("Find the holding in Marbury v. Madison.",),
         ),
         Specialist(
             name="chat",
-            agent=chat_agent,
+            agent=chat_agent,  # ty: ignore[invalid-argument-type]
             description="General conversation.",
             examples=("Hello, how are you?",),
         ),
@@ -316,8 +316,8 @@ class TestRouterAgentConstruction:
 
     def test_rejects_duplicate_specialist_names(self, chat_agent: _StubAgent) -> None:
         dup = (
-            Specialist(name="x", agent=chat_agent, description="d"),
-            Specialist(name="x", agent=chat_agent, description="d"),
+            Specialist(name="x", agent=chat_agent, description="d"),  # ty: ignore[invalid-argument-type]
+            Specialist(name="x", agent=chat_agent, description="d"),  # ty: ignore[invalid-argument-type]
         )
         with pytest.raises(ValueError, match="Duplicate"):
             RouterAgent(specialists=dup)

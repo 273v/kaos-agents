@@ -399,8 +399,10 @@ async def plan_turn_tool_policy(
     # defer to keep the module loadable without the [llm] extra).
     from kaos_agents._examples import load_examples
 
-    call = Call(  # ty: ignore[invalid-argument-type]
-        signature, model=used_model, examples=load_examples("turn_tool_policy")
+    call = Call(
+        signature,  # ty: ignore[invalid-argument-type]
+        model=used_model,
+        examples=load_examples("turn_tool_policy"),
     )
     t_start = time.monotonic()
     try:

@@ -626,8 +626,8 @@ async def check_goal(
             iteration=iteration,
         )
 
-    call = Call(  # ty: ignore[invalid-argument-type]
-        signature,
+    call = Call(
+        signature,  # ty: ignore[invalid-argument-type]
         model=used_model,
         examples=load_examples("goal_check"),
     )

@@ -743,7 +743,7 @@ def _reflect_on_coverage(
         import concurrent.futures
 
         with concurrent.futures.ThreadPoolExecutor() as pool:
-            queries, _cost = pool.submit(
+            queries, _cost = pool.submit(  # ty: ignore[not-iterable]
                 asyncio.run,
                 _reflect_on_coverage_async(query, results, model=model),
             ).result(timeout=_DEFAULT_LLM_TIMEOUT)
@@ -949,7 +949,7 @@ def _generate_pseudo_document(
         import concurrent.futures
 
         with concurrent.futures.ThreadPoolExecutor() as pool:
-            passage, _cost = pool.submit(
+            passage, _cost = pool.submit(  # ty: ignore[not-iterable]
                 asyncio.run, _generate_pseudo_document_async(query, model=model)
             ).result(timeout=_DEFAULT_LLM_TIMEOUT)
     else:
@@ -1020,7 +1020,7 @@ def _generate_llm_queries(
         import concurrent.futures
 
         with concurrent.futures.ThreadPoolExecutor() as pool:
-            queries, _cost = pool.submit(
+            queries, _cost = pool.submit(  # ty: ignore[not-iterable]
                 asyncio.run,
                 _generate_llm_queries_async(original_query, found_item_ids, model=model),
             ).result(timeout=_DEFAULT_LLM_TIMEOUT)
