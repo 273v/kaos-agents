@@ -1,0 +1,51 @@
+# Few-shot Example pool for _CorpusFilterSig.
+# Loaded by kaos_agents.tools.corpus_filter via load_examples("corpus_filter").
+#
+# The filter scores each artifact for relevance to the user's intent and
+# splits into kept / dropped lists. Examples teach: pin specific reasoning
+# per artifact, prefer dropping over keeping when relevance is unclear,
+# preserve artifact_id verbatim.
+
+[[example]]
+name = "intent_targets_subset"
+description = "Intent narrows to a subset of artifacts; the others are dropped with one-line reasons."
+
+[example.inputs]
+intent = "Find every governing-law clause across the uploaded NDAs."
+max_keep = 5
+artifacts = """\
+nda_v1: head='Mutual Non-Disclosure Agreement between Acme and Beta...' ngrams=['governing law', 'Delaware', 'jurisdiction'] entities={'org': 4, 'date': 2}
+nda_v2: head='Mutual Non-Disclosure Agreement between Acme and Gamma...' ngrams=['governing law', 'New York', 'jurisdiction'] entities={'org': 4, 'date': 2}
+invoice_q3: head='Invoice INV-2025-031 from Beta Services LLC...' ngrams=['amount due', 'wire transfer', 'net 30'] entities={'org': 1, 'money': 3}
+employee_handbook: head='Acme Employee Handbook v2026.1...' ngrams=['leave policy', 'remote work', 'benefits'] entities={'org': 1, 'percent': 2}\
+"""
+
+[example.outputs]
+kept = [
+    {artifact_id = "nda_v1", relevance = 0.95, reasoning = "NDA explicitly discusses governing law (Delaware) and jurisdiction."},
+    {artifact_id = "nda_v2", relevance = 0.95, reasoning = "NDA explicitly discusses governing law (New York) and jurisdiction."},
+]
+dropped = [
+    {artifact_id = "invoice_q3", reason = "Invoice document; no governing-law clause."},
+    {artifact_id = "employee_handbook", reason = "Employee handbook; unrelated to NDA governing-law analysis."},
+]
+
+
+[[example]]
+name = "none_relevant"
+description = "Intent fits nothing in the corpus → kept=[] with reasons for each drop."
+
+[example.inputs]
+intent = "Find the parties' arbitration provisions."
+max_keep = 5
+artifacts = """\
+loan_2019: head='Loan Agreement dated 2019-04-15...' ngrams=['interest rate', 'LIBOR', 'payment schedule'] entities={'money': 5}
+loan_2021: head='Loan Agreement dated 2021-06-22...' ngrams=['interest rate', 'SOFR', 'payment schedule'] entities={'money': 5}\
+"""
+
+[example.outputs]
+kept = []
+dropped = [
+    {artifact_id = "loan_2019", reason = "Loan agreement focused on interest and payment terms; no arbitration provision surfaced in the head/ngrams."},
+    {artifact_id = "loan_2021", reason = "Loan agreement focused on interest and payment terms; no arbitration provision surfaced in the head/ngrams."},
+]

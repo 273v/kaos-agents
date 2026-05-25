@@ -1,0 +1,39 @@
+# Few-shot Example pool for GeneratePseudoDocumentSignature (HyDE).
+# Loaded by kaos_agents.context.retrieval via load_examples("generate_pseudo_document").
+#
+# HyDE = Hypothetical Document Embedding. The Signature drafts a short
+# passage in the style of an ideal answer; the search layer then embeds
+# the passage rather than the bare query to widen lexical recall. Examples
+# teach: keep passages 2–4 sentences, factual register, no hedging.
+
+[[example]]
+name = "regulatory_passage_style"
+description = "Regulatory query → 2-sentence factual passage."
+
+[example.inputs]
+search_query = "SEC Climate Disclosure Rule effective date for large accelerated filers"
+
+[example.outputs]
+hypothetical_passage = "The SEC's Climate Disclosure Rule requires large accelerated filers to begin disclosing Scope 1 and Scope 2 GHG emissions in their annual reports (Form 10-K) beginning with fiscal years starting on or after January 1, 2026. Accelerated filers follow one year later (FY 2027), and smaller reporting companies and non-accelerated filers are exempt from Scope 1/2 GHG disclosure under the final rule."
+
+
+[[example]]
+name = "case_law_passage_style"
+description = "Case-law query → passage that mirrors a case-summary excerpt."
+
+[example.inputs]
+search_query = "Marbury v. Madison judicial review holding"
+
+[example.outputs]
+hypothetical_passage = "In Marbury v. Madison, 5 U.S. (1 Cranch) 137 (1803), the Supreme Court held that Section 13 of the Judiciary Act of 1789 was unconstitutional because it expanded the Court's original jurisdiction beyond the boundaries set by Article III. The decision established the principle of judicial review — that federal courts may declare acts of Congress unconstitutional and decline to enforce them."
+
+
+[[example]]
+name = "contract_clause_passage_style"
+description = "Contract-clause query → passage in boilerplate-clause register."
+
+[example.inputs]
+search_query = "Delaware governing law clause with New Castle County forum selection"
+
+[example.outputs]
+hypothetical_passage = "This Agreement shall be governed by and construed in accordance with the laws of the State of Delaware, without regard to its conflict of laws principles. The parties irrevocably consent to the exclusive jurisdiction of the state and federal courts located in New Castle County, Delaware for the resolution of any dispute arising out of or relating to this Agreement."

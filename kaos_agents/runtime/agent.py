@@ -21,10 +21,12 @@ The 8-step turn (both modes share the same logic):
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import re
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from typing import TYPE_CHECKING, Any
 
 from kaos_core.logging import get_logger
@@ -48,6 +50,8 @@ from kaos_agents.events import (
     TurnSummary,
     UsageObserved,
     collect_events,
+    emit_memory_added,
+    use_emitter,
 )
 from kaos_agents.memory.session import SessionMemory
 from kaos_agents.memory.store import SessionStore
@@ -151,6 +155,39 @@ class BaseAgent(KaosAgent):
         #   ``instructions is None``.
         self._instructions: str | None = instructions
 
+    # ContextVar for per-call instruction overrides — replaces the legacy
+    # ``self._instructions = augmented; try: ...; finally: self._instructions = saved``
+    # mutation pattern. ContextVar propagates correctly across awaits and
+    # is task-local, so concurrent invocations of the same agent instance
+    # never see each other's overrides. Read via :attr:`instructions`.
+    _INSTRUCTIONS_OVERRIDE: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+        "kaos_agents._instructions_override", default=None
+    )
+
+    @property
+    def instructions(self) -> str | None:
+        """Resolved instructions: per-call override (if set) or the agent default.
+
+        Subclass dispatch paths (e.g. ResearchAgent's ReAct escalation) push a
+        temporary augmented prompt via :meth:`override_instructions` instead of
+        mutating ``self._instructions`` directly.
+        """
+        return self._INSTRUCTIONS_OVERRIDE.get() or self._instructions
+
+    @classmethod
+    @contextlib.contextmanager
+    def override_instructions(cls, augmented: str | None) -> Iterator[None]:
+        """Push a per-call instructions override for the lifetime of the block.
+
+        ContextVar-backed so the override is task-local and propagates across
+        awaits — safe for concurrent invocations of the same agent instance.
+        """
+        token = cls._INSTRUCTIONS_OVERRIDE.set(augmented)
+        try:
+            yield
+        finally:
+            cls._INSTRUCTIONS_OVERRIDE.reset(token)
+
     def _model_for_role(self, role: str) -> str:
         """Resolve the model to use for a specific role.
 
@@ -233,7 +270,16 @@ class BaseAgent(KaosAgent):
         # emission, including those inside dispatched patterns
         # (chat / plan_execute / research) which receive the same
         # emitter and run inside this generator's frame.
-        with collect_events():
+        # Theme A (2026-05-25): also publish ``emitter`` to the
+        # ``_active_emitter_var`` ContextVar via ``use_emitter`` so deep
+        # helpers (capabilities.retrieve._invoke_tool, actions.tool_bridge
+        # asyncio.timeout handler, planning.act._act_tool asyncio.timeout
+        # handler) can call ``active_emitter().emit(RunError, ...)`` /
+        # ``span_error(SpanSubject.TOOL_CALL, ...)`` without the emitter
+        # being threaded through their signatures. The collector scope
+        # is what captures the events; the emitter scope is what lets
+        # those helpers produce events with full base-field metadata.
+        with collect_events(), use_emitter(emitter):
             async for event in self._run_inner(
                 message,
                 session_id,
@@ -286,6 +332,7 @@ class BaseAgent(KaosAgent):
         # fix in docs/plans/2026-05-19-agentic-loop-honesty.md §3.1.a.
         if not is_internal_iteration:
             memory.add(MemoryType.MESSAGES, f"user: {message}")
+            emit_memory_added(MemoryType.MESSAGES.value, item_count=1)
         logger.debug(
             "agent.step3_add_message: session=%s message_len=%d internal=%s",
             session_id,
@@ -551,6 +598,7 @@ class BaseAgent(KaosAgent):
         # the next iteration's classifier + planner see what was tried.
         if response_text and not is_internal_iteration:
             memory.add(MemoryType.MESSAGES, f"assistant: {response_text}")
+            emit_memory_added(MemoryType.MESSAGES.value, item_count=1)
         if tool_executions:
             for te in tool_executions:
                 summary = f"Tool: {te.tool_name}({te.arguments}) → {te.result_summary}"
@@ -995,7 +1043,7 @@ class BaseAgent(KaosAgent):
             recent = memory.get_recent(MemoryType.MESSAGES, FALLBACK_RECENT_MESSAGES)
             history = "\n".join(item.content for item in recent) if recent else "(new conversation)"
 
-        instructions = self._instructions or _DEFAULT_RESPOND_INSTRUCTION
+        instructions = self.instructions or _DEFAULT_RESPOND_INSTRUCTION
         if extra_instruction:
             instructions = f"{instructions} {extra_instruction}"
 
@@ -1010,10 +1058,13 @@ class BaseAgent(KaosAgent):
         # paths that don't truncate this way; if a JSON-side truncation
         # regresses, file it as a JSONCodec bug in kaos-llm-core rather
         # than working around it with text scaffolding here.
+        from kaos_agents._examples import load_examples
+
         call = Call(
             RespondSignature,
             model=self._model_for_role("respond"),
             instructions=instructions,
+            examples=load_examples("respond"),
         )
         # ``.invoke()`` returns the full Invocation so we can read
         # ``invocation.usage`` — the bare ``await call(...)`` path is

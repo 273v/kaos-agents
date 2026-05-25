@@ -171,7 +171,11 @@ async def evaluate_condition(
         require_llm_core()
         from kaos_llm_core import Call
 
-        call = Call(EvaluateConditionSignature, model=model)
+        from kaos_agents._examples import load_examples
+
+        call = Call(
+            EvaluateConditionSignature, model=model, examples=load_examples("evaluate_condition")
+        )
         invocation = await call.invoke(
             condition=condition,
             prior_outputs=_format_prior_outputs(prior_outputs),

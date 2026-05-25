@@ -241,7 +241,9 @@ async def _classify_with_llm(
             "\n".join(item.content for item in recent) if recent else "(no prior messages)"
         )
 
-    call = Call(ClassifyIntentSignature, model=model)
+    from kaos_agents._examples import load_examples
+
+    call = Call(ClassifyIntentSignature, model=model, examples=load_examples("classify_intent"))
     invocation = await call.invoke(
         message=user_message,
         conversation_context=context_text,

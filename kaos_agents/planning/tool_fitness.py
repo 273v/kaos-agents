@@ -134,9 +134,11 @@ async def rank_tools_for_query(
             fell_back=True,
         )
 
+    from kaos_agents._examples import load_examples
+
     catalog_text = _render_catalog(catalog)
     valid_names = {name for name, _ in catalog if name}
-    call = Call(ToolFitnessSignature, model=model)
+    call = Call(ToolFitnessSignature, model=model, examples=load_examples("tool_fitness"))
     try:
         invocation = await asyncio.wait_for(
             call.invoke(

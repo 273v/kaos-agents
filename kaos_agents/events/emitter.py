@@ -13,8 +13,12 @@ plan, research) all share.
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import time
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
 from kaos_agents.base.event import KaosEvent
@@ -303,8 +307,136 @@ def emit_thinking_from_invocation(
     return emitter.emit(ThinkingDelta, content=thinking)
 
 
+# ---------------------------------------------------------------------------
+# Active EventEmitter ContextVar
+#
+# Mirrors the ``_active_collector_var`` / :func:`collect_events` /
+# :func:`active_collector` triple in :mod:`kaos_agents.events.collector`.
+# The collector solves "where do emitted events accumulate"; this primitive
+# solves the symmetric problem of "how do helpers deep in the call stack
+# *produce* an event with full base-field metadata when no emitter was
+# threaded through their signature".
+#
+# Theme A motivation (audit 2026-05-25):
+#   ``kaos_agents/capabilities/retrieve.py:_invoke_tool``,
+#   ``kaos_agents/actions/tool_bridge.py`` (asyncio.timeout handler),
+#   ``kaos_agents/planning/act.py::_act_tool`` (asyncio.timeout handler)
+# all swallowed tool-execution failures silently because no
+# :class:`EventEmitter` was in scope. With this primitive each of those
+# sites can call ``active_emitter().emit(...)`` (gracefully degrading to
+# a no-op when no emitter is in scope, preserving the back-compat
+# contract that callers without a ``use_emitter`` block continue to
+# work unchanged).
+# ---------------------------------------------------------------------------
+
+_active_emitter_var: contextvars.ContextVar[EventEmitter | None] = contextvars.ContextVar(
+    "kaos_agents_event_emitter", default=None
+)
+
+
+@contextmanager
+def use_emitter(emitter: EventEmitter) -> Iterator[EventEmitter]:
+    """Make ``emitter`` the active EventEmitter for the duration of the with-block.
+
+    Helpers deep in the call stack (e.g. tool execution wrappers in
+    :mod:`kaos_agents.capabilities.retrieve`,
+    :mod:`kaos_agents.actions.tool_bridge`,
+    :mod:`kaos_agents.planning.act`) can call
+    ``active_emitter().emit(SomeEvent, ...)`` without needing the emitter
+    threaded through every call signature.
+
+    Mirrors the ``_active_collector_var`` / :func:`collect_events`
+    pattern from :mod:`kaos_agents.events.collector`. Nested scopes
+    restore the prior emitter on exit (via the ContextVar token).
+
+    Usage::
+
+        emitter = EventEmitter(session_id=sid, run_id=rid)
+        with collect_events() as coll, use_emitter(emitter):
+            ...  # any helper can call active_emitter().emit(...)
+        # collector saw every event the helpers emitted.
+    """
+    token = _active_emitter_var.set(emitter)
+    try:
+        yield emitter
+    finally:
+        # ContextVar.reset() raises ValueError when the token was set
+        # in a different Context (e.g. when use_emitter wraps an async
+        # generator that yields control to a consumer in a different
+        # task — same reason collect_events suppresses the same error
+        # in collector.py). The contextvar auto-resets when its
+        # owning context exits, so swallowing this is safe.
+        with contextlib.suppress(ValueError):
+            _active_emitter_var.reset(token)
+
+
+def active_emitter() -> EventEmitter | None:
+    """Return the active EventEmitter, or ``None`` if none is in scope.
+
+    Callers MUST check the return for ``None`` — most call paths today
+    don't open a :func:`use_emitter` scope, so this returns ``None``
+    outside agent runs. Treat that as "skip the emit" rather than an
+    error: the back-compat contract is that any caller not opening
+    ``use_emitter`` continues to work unchanged.
+    """
+    return _active_emitter_var.get()
+
+
+def emit_memory_added(
+    section: str,
+    *,
+    item_count: int = 1,
+    attributes: dict[str, Any] | None = None,
+) -> KaosEvent | None:
+    """Emit a ``MemoryEvent(kind=ADDED, section=section, item_count=N)``
+    via the active emitter, or no-op when none is in scope.
+
+    Helpers deep in the call stack (research-agent FINDINGS / REFLECTION
+    writes, BaseAgent.run user/assistant MESSAGES writes, etc.) write to
+    SessionMemory inside an active turn but typically don't hold the
+    EventEmitter directly. This helper closes the observability gap —
+    audit hooks, OTel exporters, SSE consumers, and the persistent
+    event log all see the same MemoryEvent shape regardless of which
+    helper performed the ``memory.add()``.
+
+    Centralizes the field mapping so call sites stay symmetric and
+    future MemoryEvent schema changes touch one place. Mirrors the
+    :func:`emit_usage_observed` pattern.
+
+    Args:
+        section: The ``MemoryType`` value (e.g. ``MemoryType.MESSAGES.value``).
+            Stored verbatim on the event so downstream consumers can
+            discriminate by section name.
+        item_count: How many items were appended in the underlying
+            ``memory.add()`` call. Defaults to 1 (the most common case).
+        attributes: Optional kind-specific extras. Mirrors the
+            :class:`MemoryEvent.attributes` field shape.
+
+    Returns:
+        The emitted ``MemoryEvent`` (or ``None`` when no emitter is in
+        scope — see :func:`active_emitter` semantics).
+    """
+    # Lazy import to avoid pulling kaos_agents.events.memory at module
+    # load (keeps the optional-extras invariant clean).
+    from kaos_agents.events.memory import MemoryEvent, MemoryEventKind
+
+    emitter = active_emitter()
+    if emitter is None:
+        return None
+    return emitter.emit(
+        MemoryEvent,
+        kind=MemoryEventKind.ADDED,
+        section=section,
+        item_count=item_count,
+        attributes=attributes or {},
+    )
+
+
 __all__ = [
     "EventEmitter",
+    "active_emitter",
+    "emit_memory_added",
     "emit_thinking_from_invocation",
     "emit_usage_observed",
+    "use_emitter",
 ]

@@ -95,7 +95,7 @@ def _patch_evaluate_call(
     mock_invoke = AsyncMock(return_value=_invocation(output))
 
     class _StubCall:
-        def __init__(self, signature: Any, *, model: str) -> None:
+        def __init__(self, signature: Any, *, model: str, examples: Any = None) -> None:
             pass
 
         async def invoke(self, **kwargs: Any) -> Invocation:
@@ -175,7 +175,7 @@ class TestEvaluateSemanticJudgeSpan:
     @pytest.mark.asyncio
     async def test_judge_span_error_on_call_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
         class _ExplodingCall:
-            def __init__(self, signature: Any, *, model: str) -> None:
+            def __init__(self, signature: Any, *, model: str, examples: Any = None) -> None:
                 pass
 
             async def invoke(self, **kwargs: Any) -> Invocation:

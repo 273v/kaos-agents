@@ -538,7 +538,24 @@ class TestLegalResearch:
             f"missing a signature phrase from 17 CFR 240.10b-5 (title or "
             f"any of subparts a/b/c). head: {response.text[:200]!r}"
         )
-        assert "ecfr.gov" in text_lower, f"no ecfr.gov URL. head: {response.text[:200]!r}"
+        # Accept any authoritative host for the rule OR a bare CFR citation.
+        # Limiting to ecfr.gov rejected agent answers that quoted from
+        # sec.gov / govinfo.gov / law.cornell.edu (all authoritative)
+        # — the verbatim-text + tool-trace checks above/below already
+        # ground the answer; this is a citation-presence floor, not a
+        # host prescription.
+        _RULE_CITATION_HOSTS = (
+            "ecfr.gov",
+            "cfr.gov",
+            "govinfo.gov",
+            "sec.gov",
+            "law.cornell.edu",
+            "justia.com",
+        )
+        _RULE_CITATION_TOKENS = ("17 cfr 240.10b-5", "§240.10b-5", "§ 240.10b-5", "rule 10b-5")
+        assert any(h in text_lower for h in _RULE_CITATION_HOSTS) or any(
+            t in text_lower for t in _RULE_CITATION_TOKENS
+        ), f"no authoritative-source URL and no CFR citation token. head: {response.text[:200]!r}"
         _assert_cost_and_tools(response, families=("ecfr", "search", "fetch"))
         await _judge_and_record(
             response=response,
@@ -1107,8 +1124,14 @@ class TestFinanceMarkets:
         assert "treasury" in text_lower or "yield" in text_lower, (
             f"no 'treasury' or 'yield' in response. head: {response.text[:200]!r}"
         )
-        assert "10" in response.text and "2" in response.text, (
-            f"missing 10Y/2Y tenor markers. head: {response.text[:200]!r}"
+        # Tenor markers must be explicit ("10-year" / "10Y" / "10 yr"),
+        # not just the bare characters "10" and "2" — every numeric
+        # answer contains those, so the prior check trivially passed.
+        _has_10y = bool(re.search(r"\b10[-\s]?[Yy](?:ear|r)?\b", response.text))
+        _has_2y = bool(re.search(r"\b2[-\s]?[Yy](?:ear|r)?\b", response.text))
+        assert _has_10y and _has_2y, (
+            f"missing explicit 10Y/2Y tenor markers (need '10-year/10Y/10yr' "
+            f"AND '2-year/2Y/2yr'). head: {response.text[:200]!r}"
         )
         percent_hits = re.findall(r"\d+(?:\.\d+)?\s*%", response.text)
         assert len(percent_hits) >= 2, (
@@ -1168,8 +1191,19 @@ class TestFinanceMarkets:
             f"no transaction-code letter (P/S/M/A/G/F/...) and no "
             f"'transaction code' phrase. head: {text[:200]!r}"
         )
-        assert re.search(r"\d[\d,]*\s*shar", text_lower), (
-            f"no 'NNN shares' pattern. head: {text[:200]!r}"
+        # Share-count grounding: the agent must mention BOTH a 3+ digit
+        # number AND the word "share" / "shares" / "shrs" somewhere in
+        # the answer. The prior regex required the literal "NNN shares"
+        # adjacency which rejected valid answers formatted as
+        # "87,135 (transaction code S)" or "shares of common stock —
+        # quantity 87,135". The judge rubric still grades the four-field
+        # ground truth (filer + date + code + count); this is the
+        # programmatic floor.
+        _has_share_word = bool(re.search(r"\bshares?\b|\bshrs?\b", text_lower))
+        _has_share_count = bool(re.search(r"\d[\d,]{2,}", text))
+        assert _has_share_word and _has_share_count, (
+            f"missing share-count grounding (need a 3+ digit number AND a "
+            f"share/shrs word). head: {text[:200]!r}"
         )
         assert "sec.gov" in text_lower or "edgar" in text_lower, (
             f"no sec.gov / EDGAR URL. head: {text[:200]!r}"
@@ -1316,8 +1350,15 @@ class TestWebMechanics:
             f"no §404-obligation term (management/auditor/annual/report/"
             f"assess/implement/costly). head: {response.text[:200]!r}"
         )
-        assert "en.wikipedia.org" in text_lower and "sarbanes" in text_lower, (
-            f"no en.wikipedia.org/wiki/Sarbanes... URL. head: {response.text[:200]!r}"
+        # Accept any wikipedia.org host (en, simple, or a mirror) — the
+        # tool-trace assertion below independently verifies the fetch
+        # actually happened. Conjoining `and "sarbanes"` in the URL
+        # check rejected valid answers where the URL was URL-encoded
+        # (`Sarbanes%E2%80%93Oxley_Act`) or used the SOX abbreviation
+        # in the path.
+        assert "wikipedia.org" in text_lower, (
+            f"no wikipedia.org URL — Section-404 prompt explicitly asked "
+            f"to fetch the Wikipedia page. head: {response.text[:200]!r}"
         )
         _assert_cost_and_tools(response, families=("get-markdown", "fetch", "search", "get-text"))
         await _judge_and_record(

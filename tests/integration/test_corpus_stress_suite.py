@@ -60,6 +60,8 @@ from tests.integration._corpus_fixtures import (
     hydrate_corpus_into_memory,
     synth_corpus,
     synth_docx,
+    synth_empty,
+    synth_gibberish,
     synth_html,
     synth_json,
     synth_pdf_image,
@@ -924,6 +926,264 @@ class TestMixedFileTypes:
             request=request,
         )
 
+    async def test_scenario_16_full_format_pile(
+        self,
+        runtime: KaosRuntime,
+        judge_state: dict,
+        request: pytest.FixtureRequest,
+    ) -> None:
+        """S16 — every supported format in one turn (PDF + DOCX + XLSX + HTML + JSON).
+
+        Each format carries its OWN distinctive planted fact. The agent
+        must reach into all five loaders in one turn — any single loader
+        regression (e.g., the kaos-pdf-vs-DOCX fitness ranker miss) drops
+        the count from 5/5 to 4/5 and the judge fails on ``partial``.
+        """
+        sid = _new_session_id("s16")
+        facts = {
+            "pdf": "Format-pile PDF fact: revenue plug-figure $93.14M.",
+            "docx": "Format-pile DOCX fact: counsel-of-record is Hannah Brueggeman.",
+            "xlsx": "LI-PILE-9001",  # cell value the narrative refers to
+            "html": "Format-pile HTML fact: marketing launch on 2026-08-14.",
+            "json": "PILE-JSON-TOKEN-Z7Q",
+        }
+        xlsx_rows = [
+            ["row_id", "description", "amount_usd"],
+            ["LI-PILE-9000", "Vendor onboarding", "2500.00"],
+            [facts["xlsx"], "Pile-test critical line", "77777.77"],
+            ["LI-PILE-9002", "Catering", "612.50"],
+        ]
+        docs = [
+            SynthDoc(
+                filename="pile-revenue.pdf",
+                bytes=synth_pdf_text(
+                    f"REVENUE BRIEF\n\n{facts['pdf']}\n\n"
+                    "All other line items confirmed to roll forward.",
+                    title="Revenue Brief",
+                ),
+                mime="application/pdf",
+                is_needle=True,
+                needle_fact=facts["pdf"],
+            ),
+            SynthDoc(
+                filename="pile-counsel.docx",
+                bytes=synth_docx(
+                    f"COUNSEL OF RECORD\n\n{facts['docx']}\n\n"
+                    "Engagement letter executed on 2026-03-01.",
+                    title="Counsel Memo",
+                ),
+                mime=("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+                is_needle=True,
+                needle_fact=facts["docx"],
+            ),
+            SynthDoc(
+                filename="pile-lineitems.xlsx",
+                bytes=synth_xlsx(xlsx_rows, sheet_name="LineItems"),
+                mime=("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                is_needle=True,
+                needle_fact=f"XLSX critical-line row id: {facts['xlsx']}",
+            ),
+            SynthDoc(
+                filename="pile-launch.html",
+                bytes=synth_html(
+                    f"LAUNCH ANNOUNCEMENT\n\n{facts['html']}\n\nPre-orders open one week prior.",
+                    title="Launch",
+                ),
+                mime="text/html",
+                is_needle=True,
+                needle_fact=facts["html"],
+            ),
+            SynthDoc(
+                filename="pile-config.json",
+                bytes=synth_json(
+                    {
+                        "environment": "production",
+                        "release_token": facts["json"],
+                        "feature_flags": {"format_pile": True},
+                    }
+                ),
+                mime="application/json",
+                is_needle=True,
+                needle_fact=f"JSON release_token: {facts['json']}",
+            ),
+        ]
+        await _hydrate_session(runtime, docs, session_id=sid)
+
+        agent = _make_agent(runtime, session_id=sid, max_cost=TIER1_CAP_USD, max_react=14)
+        prompt = (
+            "Five files of different formats are attached (PDF, DOCX, "
+            "XLSX, HTML, JSON). From each, surface one specific fact: "
+            "(1) the PDF's revenue plug-figure, (2) the DOCX's counsel-"
+            "of-record name, (3) the XLSX row_id labelled the 'critical "
+            "line', (4) the HTML announcement's launch date, and "
+            "(5) the JSON's release_token. List all five with their values."
+        )
+        response = await agent.turn(prompt, session_id=sid)
+        _assert_needle_present(response, "$93.14M")
+        _assert_needle_present(response, "Hannah Brueggeman")
+        _assert_needle_present(response, "LI-PILE-9001")
+        _assert_needle_present(response, "2026-08-14")
+        _assert_needle_present(response, "PILE-JSON-TOKEN-Z7Q")
+        _assert_no_tool_errors(response)
+        _assert_retrieval_tool(response)
+        _assert_cost_cap(response, TIER1_CAP_USD)
+        await _judge_and_record(
+            response=response,
+            user_prompt=prompt,
+            rubric=_multi_needle_rubric(
+                scenario="S16 full-format pile (PDF + DOCX + XLSX + HTML + JSON)",
+                planted_facts=list(facts.values()),
+            ),
+            test_id="S16",
+            passing_labels=("grounded",),
+            judge_state=judge_state,
+            request=request,
+        )
+
+    async def test_scenario_17_wrong_mime_manifest_spoof(
+        self,
+        runtime: KaosRuntime,
+        judge_state: dict,
+        request: pytest.FixtureRequest,
+    ) -> None:
+        """S17 — artifact manifest mime LIES about the bytes (vs S02 which
+        spoofs only the filename extension).
+
+        Manifest declares ``text/plain`` but the bytes are a real PDF.
+        Tools that trust the manifest mime will dispatch the wrong parser
+        and either fail (loud) or fabricate (silent). The agent must
+        either content-sniff itself or recover from the parser error and
+        retry with the correct tool.
+        """
+        sid = _new_session_id("s17")
+        needle_fact = "Manifest-spoof passphrase: KAOS-S17-MIME-OK"
+        pdf_body = f"ARCHIVAL FILING\n\n{needle_fact}.\nConfirm receipt and route to compliance."
+        pdf_bytes = synth_pdf_text(pdf_body, title="Archival")
+        # Real DOCX distractor — no needle.
+        docx_bytes = synth_docx(
+            "QUARTERLY UPDATE\n\nNo material items to report.",
+            title="QU",
+        )
+        docs = [
+            SynthDoc(
+                filename="filing.bin",
+                bytes=pdf_bytes,
+                # The LIE: the bytes are %PDF but we tell the artifact
+                # store they're plain text. The on-disk filename also
+                # gives no help (.bin). The agent's only way out is to
+                # actually read the bytes or invoke a content-sniff
+                # before trusting the manifest.
+                mime="text/plain",
+                is_needle=True,
+                needle_fact=needle_fact,
+            ),
+            SynthDoc(
+                filename="update.docx",
+                bytes=docx_bytes,
+                mime=("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+                is_needle=False,
+            ),
+        ]
+        await _hydrate_session(runtime, docs, session_id=sid)
+
+        agent = _make_agent(runtime, session_id=sid, max_cost=TIER1_CAP_USD)
+        prompt = (
+            "Two files are attached. One contains a 'Manifest-spoof "
+            "passphrase' that I need verbatim. Note that file metadata "
+            "may be misleading — trust the actual file contents."
+        )
+        response = await agent.turn(prompt, session_id=sid)
+        _assert_needle_present(response, "KAOS-S17-MIME-OK")
+        _assert_no_tool_errors(response)
+        _assert_retrieval_tool(response)
+        _assert_cost_cap(response, TIER1_CAP_USD)
+        await _judge_and_record(
+            response=response,
+            user_prompt=prompt,
+            rubric=_grounding_rubric(
+                scenario="S17 manifest-mime spoof (PDF bytes, text/plain manifest)",
+                planted_fact=needle_fact,
+            ),
+            test_id="S17",
+            passing_labels=("grounded",),
+            judge_state=judge_state,
+            request=request,
+        )
+
+    async def test_scenario_18_corrupted_and_empty_files(
+        self,
+        runtime: KaosRuntime,
+        judge_state: dict,
+        request: pytest.FixtureRequest,
+    ) -> None:
+        """S18 — empty + gibberish + good file in one corpus.
+
+        Two of three files are unreadable on purpose. The agent must
+        (a) extract the planted fact from the ONE good file, and
+        (b) not fabricate "from" the broken ones. The judge gates on
+        grounded — if the agent claims content from the empty / gibberish
+        files (or attributes the answer to them), the verdict drops.
+        """
+        sid = _new_session_id("s18")
+        needle_fact = "Recovery passphrase: KAOS-S18-GOLDEN-PATH"
+        good_body = (
+            f"GOLDEN PATH MEMO\n\n{needle_fact}.\nUse only this memo for the recovery procedure."
+        )
+        docs = [
+            SynthDoc(
+                filename="empty-policy.pdf",
+                bytes=synth_empty(),
+                mime="application/pdf",
+                is_needle=False,
+            ),
+            SynthDoc(
+                filename="corrupted-archive.docx",
+                bytes=synth_gibberish(512, seed=1818),
+                mime=("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+                is_needle=False,
+            ),
+            SynthDoc(
+                filename="golden-memo.pdf",
+                bytes=synth_pdf_text(good_body, title="Golden Path"),
+                mime="application/pdf",
+                is_needle=True,
+                needle_fact=needle_fact,
+            ),
+        ]
+        await _hydrate_session(runtime, docs, session_id=sid)
+
+        agent = _make_agent(runtime, session_id=sid, max_cost=TIER1_CAP_USD, max_react=14)
+        prompt = (
+            "Three files are attached. Find and quote the 'recovery "
+            "passphrase'. If any of the files appear unreadable / "
+            "empty / corrupted, list which ones so I know to re-upload."
+        )
+        response = await agent.turn(prompt, session_id=sid)
+        _assert_needle_present(response, "KAOS-S18-GOLDEN-PATH")
+        # NOT _assert_no_tool_errors — we EXPECT parser tool errors on
+        # the empty / gibberish files. The helper already permits mixed
+        # error/success as long as at least one tool call succeeded
+        # (which it must here, to recover the needle).
+        if response.tool_calls and not any(not tc.is_error for tc in response.tool_calls):
+            raise AssertionError(
+                "every tool call errored — agent could not recover the good file "
+                f"despite the planted needle being present. tools={_tool_names(response)}"
+            )
+        _assert_retrieval_tool(response)
+        _assert_cost_cap(response, TIER1_CAP_USD)
+        await _judge_and_record(
+            response=response,
+            user_prompt=prompt,
+            rubric=_grounding_rubric(
+                scenario="S18 corrupted + empty + good file recovery",
+                planted_fact=needle_fact,
+            ),
+            test_id="S18",
+            passing_labels=("grounded",),
+            judge_state=judge_state,
+            request=request,
+        )
+
 
 # ===========================================================================
 # Tier 2 — Needle in haystack (S06-S10)
@@ -1283,6 +1543,414 @@ class TestNeedleInHaystack:
             request=request,
         )
 
+    async def test_scenario_19_live_edgar_plus_uploaded_xlsx(
+        self,
+        runtime: KaosRuntime,
+        judge_state: dict,
+        request: pytest.FixtureRequest,
+    ) -> None:
+        """S19 — uploaded XLSX cross-referenced with a live SEC EDGAR fetch.
+
+        The XLSX names Apple Inc + CIK 0000320193 as the issuer of interest.
+        The agent must (a) read the XLSX, (b) call a kaos-source-edgar or
+        kaos-web tool to retrieve the most recent 10-K accession, and (c)
+        report both the CIK from the XLSX AND a 10-K accession number
+        formatted ``NNNNNNNNNN-NN-NNNNNN``. Combines local file loading
+        with live data freshness.
+        """
+        sid = _new_session_id("s19")
+        xlsx_rows = [
+            ["issuer_name", "cik", "form_type"],
+            ["Apple Inc.", "0000320193", "10-K"],
+            ["Microsoft Corporation", "0000789019", "10-Q"],
+        ]
+        docs = [
+            SynthDoc(
+                filename="watchlist.xlsx",
+                bytes=synth_xlsx(xlsx_rows, sheet_name="Watchlist"),
+                mime=("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                is_needle=True,
+                needle_fact="Watchlist issuer Apple Inc CIK 0000320193 form 10-K",
+            ),
+        ]
+        await _hydrate_session(runtime, docs, session_id=sid)
+
+        agent = _make_agent(runtime, session_id=sid, max_cost=TIER2_CAP_USD, max_react=16)
+        prompt = (
+            "An XLSX 'watchlist' is attached. Read it: for the issuer "
+            "marked as a 10-K filer, fetch from EDGAR (sec.gov) the "
+            "accession number of its MOST RECENT 10-K filing. Report "
+            "both the issuer's CIK from the watchlist AND the "
+            "accession number in the EDGAR format "
+            "(NNNNNNNNNN-NN-NNNNNN)."
+        )
+        response = await agent.turn(prompt, session_id=sid)
+        # Both must appear: the CIK from the local XLSX AND a live
+        # EDGAR-shaped accession number. The exact accession may move
+        # filing-to-filing but the SHAPE is stable.
+        _assert_needle_present(response, "0000320193")
+        import re
+
+        if not re.search(r"\d{10}-\d{2}-\d{6}", response.text):
+            raise AssertionError(
+                "no EDGAR-shaped accession number "
+                "(NNNNNNNNNN-NN-NNNNNN) found in the response — agent "
+                "did not bring the live-fetched filing identifier back. "
+                f"response head: {response.text[:300]!r} "
+                f"tools: {_tool_names(response)}"
+            )
+        _assert_no_tool_errors(response)
+        _assert_retrieval_tool(response)
+        _assert_cost_cap(response, TIER2_CAP_USD)
+        await _judge_and_record(
+            response=response,
+            user_prompt=prompt,
+            rubric=_grounding_rubric(
+                scenario="S19 uploaded XLSX + live EDGAR 10-K accession",
+                planted_fact="Apple Inc CIK 0000320193 most-recent 10-K accession",
+            ),
+            test_id="S19",
+            passing_labels=("grounded",),
+            judge_state=judge_state,
+            request=request,
+        )
+
+    async def test_scenario_20_live_ecfr_plus_uploaded_docx(
+        self,
+        runtime: KaosRuntime,
+        judge_state: dict,
+        request: pytest.FixtureRequest,
+    ) -> None:
+        """S20 — uploaded legal memo references a CFR section; agent must
+        fetch the live regulatory text and quote subsection (b).
+
+        The memo says: "see 17 CFR § 240.10b-5 for the antifraud rule".
+        The agent must read the memo to pick the citation, then use a
+        kaos-source-ecfr (or kaos-web-fetch) tool to retrieve the text
+        and quote subsection (b).
+        """
+        sid = _new_session_id("s20")
+        memo_body = (
+            "MEMORANDUM\n\n"
+            "To: Litigation Team\n"
+            "Re: Antifraud framework reference\n\n"
+            "Counsel should review 17 CFR § 240.10b-5 for the SEC "
+            "antifraud rule and quote subsection (b) verbatim when "
+            "drafting the complaint."
+        )
+        docs = [
+            SynthDoc(
+                filename="memo-antifraud-ref.docx",
+                bytes=synth_docx(memo_body, title="Antifraud Memo"),
+                mime=("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+                is_needle=True,
+                needle_fact="memo cites 17 CFR § 240.10b-5 subsection (b)",
+            ),
+        ]
+        await _hydrate_session(runtime, docs, session_id=sid)
+
+        agent = _make_agent(runtime, session_id=sid, max_cost=TIER2_CAP_USD, max_react=16)
+        prompt = (
+            "An internal memo (DOCX) is attached. It directs you to a "
+            "CFR rule and asks for subsection (b) verbatim. (1) State "
+            "which CFR section the memo cites, then (2) fetch the live "
+            "rule text and quote subsection (b)."
+        )
+        response = await agent.turn(prompt, session_id=sid)
+        _assert_needle_present(response, "240.10b-5")
+        # Subsection (b)'s text starts with "To make any untrue
+        # statement of a material fact". We check the distinctive phrase.
+        if "untrue statement of a material fact" not in response.text.lower():
+            raise AssertionError(
+                "agent did not return the verbatim text of 17 CFR § "
+                "240.10b-5(b). The phrase 'untrue statement of a "
+                "material fact' is the canonical anchor and was not "
+                f"present. response head: {response.text[:400]!r} "
+                f"tools: {_tool_names(response)}"
+            )
+        _assert_no_tool_errors(response)
+        _assert_retrieval_tool(response)
+        _assert_cost_cap(response, TIER2_CAP_USD)
+        await _judge_and_record(
+            response=response,
+            user_prompt=prompt,
+            rubric=_grounding_rubric(
+                scenario="S20 DOCX legal memo + live eCFR 17 CFR 240.10b-5(b)",
+                planted_fact="17 CFR 240.10b-5(b) verbatim text",
+            ),
+            test_id="S20",
+            passing_labels=("grounded",),
+            judge_state=judge_state,
+            request=request,
+        )
+
+    async def test_scenario_21_live_fr_search_plus_uploaded_pdf(
+        self,
+        runtime: KaosRuntime,
+        judge_state: dict,
+        request: pytest.FixtureRequest,
+    ) -> None:
+        """S21 — uploaded PDF policy references a SEC rule; agent must
+        fetch the live Federal Register document number.
+
+        The PDF policy memo says: "Our annual reporting follows the SEC
+        climate disclosure final rule for large filers." The agent must
+        read the PDF, search Federal Register for the rule, and bring
+        back the FR document number ``2024-05137``.
+        """
+        sid = _new_session_id("s21")
+        policy_body = (
+            "INTERNAL POLICY — CLIMATE REPORTING\n\n"
+            "Our annual reporting follows the SEC's climate disclosure "
+            "final rule (published in the Federal Register in 2024). "
+            "Compliance owners must surface the FR document number on "
+            "every cycle-cap deck."
+        )
+        docs = [
+            SynthDoc(
+                filename="climate-policy.pdf",
+                bytes=synth_pdf_text(policy_body, title="Climate Policy"),
+                mime="application/pdf",
+                is_needle=True,
+                needle_fact="policy references SEC climate disclosure FR doc 2024-05137",
+            ),
+        ]
+        await _hydrate_session(runtime, docs, session_id=sid)
+
+        agent = _make_agent(runtime, session_id=sid, max_cost=TIER2_CAP_USD, max_react=16)
+        prompt = (
+            "A short policy PDF is attached. It references a SEC "
+            "climate disclosure final rule published in the Federal "
+            "Register in 2024. Search Federal Register and report the "
+            "exact FR document number for that rule."
+        )
+        response = await agent.turn(prompt, session_id=sid)
+        _assert_needle_present(response, "2024-05137")
+        _assert_no_tool_errors(response)
+        _assert_retrieval_tool(response)
+        _assert_cost_cap(response, TIER2_CAP_USD)
+        await _judge_and_record(
+            response=response,
+            user_prompt=prompt,
+            rubric=_grounding_rubric(
+                scenario="S21 uploaded PDF policy + live Federal Register doc 2024-05137",
+                planted_fact="Federal Register doc 2024-05137 (SEC climate disclosure)",
+            ),
+            test_id="S21",
+            passing_labels=("grounded",),
+            judge_state=judge_state,
+            request=request,
+        )
+
+    async def test_scenario_22_cluster_routing_with_wrong_ext(
+        self,
+        runtime: KaosRuntime,
+        judge_state: dict,
+        request: pytest.FixtureRequest,
+    ) -> None:
+        """S22 — 50 docs in 5 clusters + needle is in a wrong-extension file
+        inside the right cluster.
+
+        Combines cluster routing (S08) with extension spoofing (S10) so
+        the agent has to (a) narrow to the right cluster AND (b) trust
+        bytes over filename inside that cluster. Two distinct failure
+        modes layered on one corpus.
+        """
+        sid = _new_session_id("s22")
+        needle_fact = "Combined-stress fact: medical-trial cohort N=2486 enrolled."
+        clusters = ["finance", "legal", "engineering", "medical", "regulatory"]
+        base = synth_corpus(
+            n_docs=50,
+            n_needles=0,
+            needle_facts=[],
+            seed=2222,
+            cluster_topics=clusters,
+            file_types=("docx", "html"),
+        )
+        # Needle is a DOCX advertised as ``.pdf`` and placed inside the
+        # medical cluster (round-robin index 3).
+        needle_bytes = synth_docx(
+            f"MEDICAL TRIAL UPDATE\n\n{needle_fact}.\n"
+            "Pre-specified endpoints unchanged from prior protocol.",
+            title="Trial Update",
+        )
+        _, spoof_name = wrong_extension(needle_bytes, ".pdf")
+        needle_doc = SynthDoc(
+            filename=spoof_name,
+            bytes=needle_bytes,
+            mime=("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+            is_needle=True,
+            needle_fact=needle_fact,
+        )
+        # Find a medical-cluster slot (i % 5 == 3 in the round-robin).
+        medical_indices = [i for i, _ in enumerate(base) if (i % 5) == 3]
+        needle_pos = medical_indices[len(medical_indices) // 2]
+        docs = list(base)
+        docs[needle_pos] = needle_doc
+        await _hydrate_session(runtime, docs, session_id=sid)
+
+        agent = _make_agent(runtime, session_id=sid, max_cost=TIER2_CAP_USD, max_react=16)
+        prompt = (
+            "Documents in this session span five topics: finance, "
+            "legal, engineering, medical, regulatory. Find the "
+            "MEDICAL document that reports a trial cohort enrollment "
+            "count and quote the exact N. Some filenames may have "
+            "the wrong extension — rely on the file contents."
+        )
+        response = await agent.turn(prompt, session_id=sid)
+        _assert_needle_present(response, "2486")
+        _assert_no_tool_errors(response)
+        _assert_retrieval_tool(response)
+        _assert_cost_cap(response, TIER2_CAP_USD)
+        await _judge_and_record(
+            response=response,
+            user_prompt=prompt,
+            rubric=_grounding_rubric(
+                scenario="S22 cluster routing + wrong-extension combined",
+                planted_fact=needle_fact,
+            ),
+            test_id="S22",
+            passing_labels=("grounded",),
+            judge_state=judge_state,
+            request=request,
+        )
+
+    async def test_scenario_23_conflicting_versions_authoritative(
+        self,
+        runtime: KaosRuntime,
+        judge_state: dict,
+        request: pytest.FixtureRequest,
+    ) -> None:
+        """S23 — same fact appears verbatim in 5 docs with different
+        values; only ONE doc is marked AUTHORITATIVE.
+
+        Real-world version-conflict pathology: the corpus shows five
+        candidate values for "next board meeting date" because earlier
+        drafts persisted. The agent must (a) recognize the conflict,
+        (b) prefer the doc that says "AUTHORITATIVE", and (c) cite
+        the source filename.
+        """
+        sid = _new_session_id("s23")
+        candidate_dates = [
+            "2026-07-10",
+            "2026-08-21",
+            "2026-09-04",
+            "2026-10-15",
+            "2026-11-12",  # this one is in the AUTHORITATIVE doc
+        ]
+        authoritative_date = candidate_dates[-1]
+        docs: list[SynthDoc] = []
+        for i, dt in enumerate(candidate_dates):
+            is_auth = i == len(candidate_dates) - 1
+            tag = (
+                "AUTHORITATIVE — supersedes all prior drafts" if is_auth else "DRAFT v" + str(i + 1)
+            )
+            body = (
+                f"BOARD MEETING NOTICE [{tag}]\n\n"
+                f"The next board meeting will be held on {dt}.\n"
+                "Logistics will be confirmed by the corporate secretary."
+            )
+            docs.append(
+                SynthDoc(
+                    filename=(
+                        "board-notice-FINAL.docx" if is_auth else f"board-notice-draft-{i + 1}.docx"
+                    ),
+                    bytes=synth_docx(body, title="Board Notice"),
+                    mime=(
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    ),
+                    is_needle=is_auth,
+                    needle_fact=(f"AUTHORITATIVE board meeting date: {dt}" if is_auth else None),
+                )
+            )
+        await _hydrate_session(runtime, docs, session_id=sid)
+
+        agent = _make_agent(runtime, session_id=sid, max_cost=TIER2_CAP_USD, max_react=14)
+        prompt = (
+            "Five board-meeting notices are attached. Some are drafts, "
+            "one is the AUTHORITATIVE version. What is the date of the "
+            "next board meeting, and which filename is the authoritative "
+            "source?"
+        )
+        response = await agent.turn(prompt, session_id=sid)
+        _assert_needle_present(response, authoritative_date)
+        if "board-notice-FINAL" not in response.text:
+            raise AssertionError(
+                "agent did not cite the AUTHORITATIVE filename "
+                "'board-notice-FINAL.docx'; this is the version-conflict "
+                f"pathology. response head: {response.text[:400]!r} "
+                f"tools: {_tool_names(response)}"
+            )
+        _assert_no_tool_errors(response)
+        _assert_retrieval_tool(response)
+        _assert_cost_cap(response, TIER2_CAP_USD)
+        await _judge_and_record(
+            response=response,
+            user_prompt=prompt,
+            rubric=_grounding_rubric(
+                scenario="S23 conflicting versions — AUTHORITATIVE supersedes drafts",
+                planted_fact=f"AUTHORITATIVE date {authoritative_date}",
+            ),
+            test_id="S23",
+            passing_labels=("grounded",),
+            judge_state=judge_state,
+            request=request,
+        )
+
+    async def test_scenario_24_high_spoof_rate_mixed_corpus(
+        self,
+        runtime: KaosRuntime,
+        judge_state: dict,
+        request: pytest.FixtureRequest,
+    ) -> None:
+        """S24 — 40 docs, 50% wrong-extension spoof rate.
+
+        High wrong-extension density stresses the content-type detector
+        and the agent's willingness to retry with a different parser
+        after the first one fails. ``synth_corpus`` handles the spoof
+        distribution; we plant one needle and ride the random spoof
+        roulette.
+        """
+        sid = _new_session_id("s24")
+        needle_fact = "High-spoof corpus needle: VAULT-PHOENIX-2026-7Q"
+        docs = synth_corpus(
+            n_docs=40,
+            n_needles=1,
+            needle_facts=[needle_fact],
+            seed=2424,
+            cluster_topics=["legal", "regulatory", "finance"],
+            file_types=("pdf", "docx", "html", "text"),
+            # 50% spoof rate — half of all files will have their
+            # filename extension lying about the real bytes.
+            wrong_extension_rate=0.5,
+        )
+        await _hydrate_session(runtime, docs, session_id=sid)
+
+        agent = _make_agent(runtime, session_id=sid, max_cost=TIER2_CAP_USD, max_react=16)
+        prompt = (
+            "Find the document that contains a 'high-spoof corpus "
+            "needle' and quote it verbatim. Note: roughly half of the "
+            "filenames in this corpus may have the wrong extension — "
+            "rely on actual file contents."
+        )
+        response = await agent.turn(prompt, session_id=sid)
+        _assert_needle_present(response, "VAULT-PHOENIX-2026-7Q")
+        _assert_no_tool_errors(response)
+        _assert_retrieval_tool(response)
+        _assert_cost_cap(response, TIER2_CAP_USD)
+        await _judge_and_record(
+            response=response,
+            user_prompt=prompt,
+            rubric=_grounding_rubric(
+                scenario="S24 high (50%) wrong-extension spoof rate, 40 docs",
+                planted_fact=needle_fact,
+            ),
+            test_id="S24",
+            passing_labels=("grounded",),
+            judge_state=judge_state,
+            request=request,
+        )
+
 
 # ===========================================================================
 # Tier 3 — Pure scale (S11-S15)
@@ -1579,3 +2247,403 @@ class TestPureScale:
             judge_state=judge_state,
             request=request,
         )
+
+    async def test_scenario_25_250_doc_needle_in_wrong_ext(
+        self,
+        runtime: KaosRuntime,
+        judge_state: dict,
+        request: pytest.FixtureRequest,
+    ) -> None:
+        """S25 — 250 docs, needle is in a wrong-extension file.
+
+        Scale (250) plus extension spoof on the one doc that matters.
+        Stress retrieval + content-sniff together at modest scale.
+        """
+        sid = _new_session_id("s25")
+        needle_fact = "Scale-spoof needle: GOLDEN-FALCON-PHASE-9"
+        base = synth_corpus(
+            n_docs=250,
+            n_needles=0,
+            needle_facts=[],
+            seed=2525,
+            file_types=("docx", "html", "text"),
+            paragraphs_per_doc=4,
+        )
+        needle_bytes = synth_pdf_text(
+            f"PHASE 9 BRIEF\n\n{needle_fact}.\nPhase-gate review scheduled next quarter.",
+            title="Phase 9",
+        )
+        # PDF bytes named .txt.
+        _, spoof_name = wrong_extension(needle_bytes, ".txt")
+        needle_doc = SynthDoc(
+            filename=spoof_name,
+            bytes=needle_bytes,
+            mime="application/pdf",
+            is_needle=True,
+            needle_fact=needle_fact,
+        )
+        # Place needle two-thirds in so a "first 50" cap won't reach it.
+        insert_at = (len(base) * 2) // 3
+        docs = [*base[:insert_at], needle_doc, *base[insert_at:]]
+        await _hydrate_session(runtime, docs, session_id=sid)
+
+        agent = _make_agent(runtime, session_id=sid, max_cost=TIER3_CAP_USD, max_react=20)
+        prompt = (
+            "About 250 documents are attached. One contains a "
+            "'scale-spoof needle' — find and quote it. Some filenames "
+            "may have the wrong extension; rely on contents."
+        )
+        response = await agent.turn(prompt, session_id=sid)
+        _assert_needle_present(response, "GOLDEN-FALCON-PHASE-9")
+        _assert_no_tool_errors(response)
+        _assert_retrieval_tool(response)
+        _assert_cost_cap(response, TIER3_CAP_USD)
+        await _judge_and_record(
+            response=response,
+            user_prompt=prompt,
+            rubric=_grounding_rubric(
+                scenario="S25 250-doc scale + wrong-extension needle",
+                planted_fact=needle_fact,
+            ),
+            test_id="S25",
+            passing_labels=("grounded",),
+            judge_state=judge_state,
+            request=request,
+        )
+
+    async def test_scenario_26_500_doc_six_format_mix(
+        self,
+        runtime: KaosRuntime,
+        judge_state: dict,
+        request: pytest.FixtureRequest,
+    ) -> None:
+        """S26 — 500 docs in six formats (PDF/DOCX/HTML/XLSX/JSON/TXT)
+        with 3 needles spread across three different formats.
+
+        Exercises the full file-loader matrix at scale: 500 docs x 6
+        round-robin types means each loader gets ~80 docs to process.
+        The three needles are placed in three different formats so a
+        single-loader regression also drops needle count from 3 to 2.
+        """
+        sid = _new_session_id("s26")
+        needle_facts = [
+            "Six-format mark 1: confidential project budget $87.4M.",
+            "Six-format mark 2: launch readiness 92.5% per QA sign-off.",
+            "Six-format mark 3: regulatory window closes 2027-01-31.",
+        ]
+        docs = synth_corpus(
+            n_docs=500,
+            n_needles=3,
+            needle_facts=needle_facts,
+            seed=2626,
+            cluster_topics=["finance", "engineering", "regulatory"],
+            file_types=("pdf", "docx", "html", "xlsx", "json", "text"),
+            paragraphs_per_doc=4,
+        )
+        await _hydrate_session(runtime, docs, session_id=sid)
+
+        agent = _make_agent(runtime, session_id=sid, max_cost=TIER3_CAP_USD, max_react=25)
+        prompt = (
+            "Roughly 500 documents in six different formats (PDF, DOCX, "
+            "HTML, XLSX, JSON, plain text) are attached. Find all three "
+            "'six-format mark' facts and report each with its specific "
+            "value (budget figure, readiness percentage, regulatory date)."
+        )
+        response = await agent.turn(prompt, session_id=sid)
+        _assert_needle_present(response, "$87.4M")
+        _assert_needle_present(response, "92.5%")
+        _assert_needle_present(response, "2027-01-31")
+        _assert_no_tool_errors(response)
+        _assert_retrieval_tool(response)
+        _assert_cost_cap(response, TIER3_CAP_USD)
+        await _judge_and_record(
+            response=response,
+            user_prompt=prompt,
+            rubric=_multi_needle_rubric(
+                scenario="S26 500-doc six-format mix — three needles",
+                planted_facts=needle_facts,
+            ),
+            test_id="S26",
+            passing_labels=("grounded",),
+            judge_state=judge_state,
+            request=request,
+        )
+
+    async def test_scenario_27_1000_doc_five_cluster_five_format(
+        self,
+        runtime: KaosRuntime,
+        judge_state: dict,
+        request: pytest.FixtureRequest,
+    ) -> None:
+        """S27 — 1000 docs across 5 clusters, 5 needles each in a different
+        cluster AND a different file type.
+
+        Largest planted-cardinality scenario. Combines pure scale,
+        cluster routing, and format diversity. A regression in any of
+        triage / loader / retrieval drops the needle count.
+        """
+        sid = _new_session_id("s27")
+        needle_facts = [
+            "27-needle finance: cash reserves at $412M held in T-bills.",
+            "27-needle legal: governing-law clause amended to Delaware.",
+            "27-needle engineering: API rate limit raised to 10k QPS.",
+            "27-needle medical: protocol enrolled 312 patients in cohort B.",
+            "27-needle regulatory: FDA submission cleared on 2026-04-22.",
+        ]
+        docs = synth_corpus(
+            n_docs=1000,
+            n_needles=5,
+            needle_facts=needle_facts,
+            seed=2727,
+            cluster_topics=["finance", "legal", "engineering", "medical", "regulatory"],
+            file_types=("pdf", "docx", "html", "xlsx", "text"),
+            paragraphs_per_doc=4,
+        )
+        await _hydrate_session(runtime, docs, session_id=sid)
+
+        agent = _make_agent(runtime, session_id=sid, max_cost=TIER3_CAP_USD, max_react=25)
+        prompt = (
+            "Roughly 1000 documents span five topical clusters "
+            "(finance, legal, engineering, medical, regulatory) and "
+            "five file formats. Find the five '27-needle' facts — one "
+            "per cluster. For each, report the specific value: cash "
+            "reserves figure, governing-law jurisdiction, API rate "
+            "limit, patient enrollment count, FDA clearance date."
+        )
+        response = await agent.turn(prompt, session_id=sid)
+        _assert_needle_present(response, "$412M")
+        _assert_needle_present(response, "Delaware")
+        _assert_needle_present(response, "10k QPS")
+        _assert_needle_present(response, "312")
+        _assert_needle_present(response, "2026-04-22")
+        _assert_no_tool_errors(response)
+        _assert_retrieval_tool(response)
+        _assert_cost_cap(response, TIER3_CAP_USD)
+        await _judge_and_record(
+            response=response,
+            user_prompt=prompt,
+            rubric=_multi_needle_rubric(
+                scenario="S27 1000-doc, 5 clusters x 5 formats x 5 needles",
+                planted_facts=needle_facts,
+            ),
+            test_id="S27",
+            passing_labels=("grounded",),
+            judge_state=judge_state,
+            request=request,
+        )
+
+    async def test_scenario_28_multi_turn_corpus_growth(
+        self,
+        runtime: KaosRuntime,
+        judge_state: dict,
+        request: pytest.FixtureRequest,
+    ) -> None:
+        """S28 — corpus GROWS between turns.
+
+        Turn 1: 100 docs hydrated; agent answers question A.
+        Turn 2: ANOTHER 50 docs hydrated mid-session; agent must answer
+        question B that can ONLY be satisfied by the newly-added docs.
+        Exercises SessionMemory hydration after a save/reload cycle —
+        the F4 path (per-session run_state scoping) is on the critical
+        line for this.
+        """
+        sid = _new_session_id("s28")
+        first_needle = "Turn-1 anchor: legal-hold reference number is LH-2026-0901."
+        second_needle = "Turn-2 anchor: privilege log row count is 4,128."
+        # Round 1 corpus.
+        first = synth_corpus(
+            n_docs=100,
+            n_needles=1,
+            needle_facts=[first_needle],
+            seed=28001,
+            cluster_topics=["legal"],
+            file_types=("docx", "html"),
+        )
+        await _hydrate_session(runtime, first, session_id=sid)
+
+        agent = _make_agent(runtime, session_id=sid, max_cost=TIER3_CAP_USD, max_react=18)
+        prompt_t1 = (
+            "About 100 legal documents are attached. What is the "
+            "'legal-hold reference number'? Quote the exact ID."
+        )
+        response_t1 = await agent.turn(prompt_t1, session_id=sid)
+        _assert_needle_present(response_t1, "LH-2026-0901")
+        _assert_no_tool_errors(response_t1)
+        _assert_cost_cap(response_t1, TIER3_CAP_USD)
+
+        # Round 2: grow the corpus, then answer a question that only the
+        # newly-added docs can satisfy.
+        second = synth_corpus(
+            n_docs=50,
+            n_needles=1,
+            needle_facts=[second_needle],
+            seed=28002,
+            cluster_topics=["legal"],
+            file_types=("docx", "html"),
+        )
+        await _hydrate_session(runtime, second, session_id=sid)
+        prompt_t2 = (
+            "Additional documents have been added since the last "
+            "answer. What is the privilege-log row count? Answer with "
+            "the exact number."
+        )
+        response_t2 = await agent.turn(prompt_t2, session_id=sid)
+        _assert_needle_present(response_t2, "4,128")
+        _assert_no_tool_errors(response_t2)
+        _assert_retrieval_tool(response_t2)
+        _assert_cost_cap(response_t2, TIER3_CAP_USD)
+        await _judge_and_record(
+            response=response_t2,
+            user_prompt=f"Turn 1: {prompt_t1}\nTurn 2: {prompt_t2}",
+            rubric=_grounding_rubric(
+                scenario="S28 multi-turn corpus growth (100 → 150 docs)",
+                planted_fact=second_needle,
+            ),
+            test_id="S28",
+            passing_labels=("grounded",),
+            judge_state=judge_state,
+            request=request,
+        )
+
+    async def test_scenario_29_live_web_search_plus_uploaded_xlsx(
+        self,
+        runtime: KaosRuntime,
+        judge_state: dict,
+        request: pytest.FixtureRequest,
+    ) -> None:
+        """S29 — live web search + fetch + uploaded XLSX cross-reference.
+
+        Upload an XLSX with a 'reference rule citation' column. The
+        agent must (a) read the XLSX to discover the citation, (b)
+        run a web search / fetch to retrieve the live regulation's
+        title, and (c) report both. Combines kaos-web tools with
+        local file loading at Tier 3 scope.
+        """
+        sid = _new_session_id("s29")
+        xlsx_rows = [
+            ["case_number", "rule_citation", "status"],
+            ["DOJ-2026-0001", "15 U.S.C. § 1", "open"],
+            ["DOJ-2026-0002", "15 U.S.C. § 78j", "review"],
+        ]
+        docs = [
+            SynthDoc(
+                filename="caseload.xlsx",
+                bytes=synth_xlsx(xlsx_rows, sheet_name="Cases"),
+                mime=("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                is_needle=True,
+                needle_fact="caseload references 15 U.S.C. § 1 (Sherman Act)",
+            ),
+        ]
+        await _hydrate_session(runtime, docs, session_id=sid)
+
+        agent = _make_agent(runtime, session_id=sid, max_cost=TIER3_CAP_USD, max_react=18)
+        prompt = (
+            "An XLSX caseload is attached. For the OPEN case (status = "
+            "'open'), the rule_citation column names a US Code section. "
+            "(1) Identify the citation. (2) Search the web and report "
+            "the common name of the statute that codifies that section. "
+            "(3) Cite the source URL you used."
+        )
+        response = await agent.turn(prompt, session_id=sid)
+        _assert_needle_present(response, "15 U.S.C.")
+        if "sherman" not in response.text.lower():
+            raise AssertionError(
+                "agent did not name 'Sherman' (Antitrust Act) as the "
+                "statute codifying 15 U.S.C. § 1, even though the open "
+                f"case row points to it. response head: {response.text[:300]!r} "
+                f"tools: {_tool_names(response)}"
+            )
+        _assert_no_tool_errors(response)
+        _assert_retrieval_tool(response)
+        _assert_cost_cap(response, TIER3_CAP_USD)
+        await _judge_and_record(
+            response=response,
+            user_prompt=prompt,
+            rubric=_grounding_rubric(
+                scenario="S29 uploaded XLSX + live web search Sherman Act name",
+                planted_fact="15 U.S.C. § 1 = Sherman Antitrust Act",
+            ),
+            test_id="S29",
+            passing_labels=("grounded",),
+            judge_state=judge_state,
+            request=request,
+        )
+
+    async def test_scenario_30_mega_isolation_five_sessions(
+        self,
+        runtime: KaosRuntime,
+        judge_state: dict,
+        request: pytest.FixtureRequest,
+    ) -> None:
+        """S30 — five sessions x 200 docs each, format-diverse, query each
+        in turn and verify zero leakage in any direction.
+
+        Extends S15 (3 x 100, single query) to 5 x 200 + queries of two
+        different sessions. The isolation contract must hold under both
+        scale AND query-direction variation; an F4 regression that
+        leaks the second session's secret into the first would surface
+        here even when S15 passes.
+        """
+        sids = [_new_session_id(f"s30-{i}") for i in range(5)]
+        secrets = {
+            sids[0]: "Mega-A secret: PALADIN-AAAA-0001",
+            sids[1]: "Mega-B secret: KOBOLD-BBBB-0002",
+            sids[2]: "Mega-C secret: WIZARD-CCCC-0003",
+            sids[3]: "Mega-D secret: RANGER-DDDD-0004",
+            sids[4]: "Mega-E secret: CLERIC-EEEE-0005",
+        }
+        for idx, sid in enumerate(sids):
+            docs = synth_corpus(
+                n_docs=200,
+                n_needles=1,
+                needle_facts=[secrets[sid]],
+                seed=30000 + idx,
+                file_types=("docx", "html", "text"),
+                paragraphs_per_doc=3,
+            )
+            await _hydrate_session(runtime, docs, session_id=sid)
+
+        # Query session 0 and session 2 — proves isolation holds across
+        # different querying positions, not just a single arbitrary one.
+        for query_sid in (sids[0], sids[2]):
+            agent = _make_agent(runtime, session_id=query_sid, max_cost=TIER3_CAP_USD, max_react=18)
+            prompt = (
+                "What 'secret' code is mentioned in this session's "
+                "documents? Quote the exact secret verbatim."
+            )
+            response = await agent.turn(prompt, session_id=query_sid)
+            expected = secrets[query_sid]
+            expected_token = expected.rsplit(": ", 1)[-1]
+            _assert_needle_present(response, expected_token)
+            text = response.text
+            for other_sid, other_secret in secrets.items():
+                if other_sid == query_sid:
+                    continue
+                other_token = other_secret.rsplit(": ", 1)[-1]
+                if other_token in text:
+                    raise AssertionError(
+                        f"MEGA isolation breach: session {query_sid} "
+                        f"surfaced {other_token!r} which belongs to "
+                        f"session {other_sid}. response head: {text[:300]!r}"
+                    )
+            _assert_no_tool_errors(response)
+            _assert_retrieval_tool(response)
+            _assert_cost_cap(response, TIER3_CAP_USD)
+            # Judge gates on the final query of the pair (sids[2]).
+            if query_sid == sids[2]:
+                await _judge_and_record(
+                    response=response,
+                    user_prompt=prompt,
+                    rubric=_isolation_rubric(
+                        scenario=(
+                            "S30 mega isolation — 5 sessions x 200 docs, "
+                            "query session C; sibling secrets MUST NOT leak"
+                        ),
+                        planted_fact=expected,
+                        forbidden_facts=[s for k, s in secrets.items() if k != query_sid],
+                    ),
+                    test_id="S30",
+                    passing_labels=("grounded",),
+                    judge_state=judge_state,
+                    request=request,
+                )

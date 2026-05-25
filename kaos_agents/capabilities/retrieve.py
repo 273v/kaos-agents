@@ -244,7 +244,25 @@ def _build_tool_args(tool: KaosTool, query: str, max_n: int) -> dict[str, Any]:
 
 
 async def _invoke_tool(tool: KaosTool, query: str, max_n: int) -> ToolResult | None:
-    """Invoke ``tool.execute`` defensively; ``None`` on any failure."""
+    """Invoke ``tool.execute`` defensively; ``None`` on any failure.
+
+    The federated-retrieval contract intentionally swallows per-tool
+    failures so a single broken backend can't sink the whole retrieve
+    call (Plan §1 — federated SEARCH / READ over many tools, return
+    whatever survived). Pre-Theme-A this was a *silent* skip: only a
+    debug log fired, so a misconfigured tool that crashed on every
+    call looked indistinguishable from "tool returned no hits" in
+    every downstream consumer (UI, audit log, OTel traces).
+
+    Theme A (2026-05-25): in addition to the existing debug log, emit
+    a typed :class:`~kaos_agents.events.lifecycle.RunError` via
+    :func:`~kaos_agents.events.active_emitter` when an emitter is in
+    scope. Return contract is unchanged (``None`` on failure), so
+    every existing caller continues to work — the only behavioral
+    delta is that the skip is now visible in the event stream.
+    """
+    from kaos_agents.events import RunError, active_emitter
+
     args = _build_tool_args(tool, query, max_n)
     if "query" not in args:
         # Tool doesn't accept ``query`` — not a real retriever.
@@ -260,6 +278,27 @@ async def _invoke_tool(tool: KaosTool, query: str, max_n: int) -> ToolResult | N
             "capabilities.retrieve.tool_error",
             extra={"tool": tool.metadata.name, "error": str(exc)},
         )
+        # Theme A: make the silent skip observable. Gracefully degrades
+        # to a no-op when no emitter is in scope (most non-agent
+        # callers — e.g. direct unit tests of ``retrieve()`` — don't
+        # open a ``use_emitter`` scope).
+        emitter = active_emitter()
+        if emitter is not None:
+            emitter.emit(
+                RunError,
+                error_type="tool_execution_failure",
+                message=(
+                    f"Federated retrieve: tool {tool.metadata.name!r} raised "
+                    f"{type(exc).__name__}: {exc}. Skipping this tool's "
+                    "contribution to the federated result set."
+                ),
+                recovery_hint=(
+                    "Check the tool's registration in this runtime and the "
+                    "tool-specific logs for the underlying error. Other "
+                    "retrieval tools continue to contribute hits — the "
+                    "federated contract is partial-success."
+                ),
+            )
         return None
 
 

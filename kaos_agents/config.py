@@ -174,9 +174,17 @@ class Agent:
         """
         if self.refusal_policy is not None:
             return self.refusal_policy
+        # A+ Theme C — narrow the swallow. ``resolve_settings`` already
+        # has its own internal fallback (returns the per-process default
+        # KaosAgentSettings when no override is configured). A bare
+        # ``except Exception: return None`` here silently disabled the
+        # grounding gate when ``resolve_settings`` raised for any reason
+        # other than the documented one, masking misconfigurations as
+        # "no policy". Narrow to AttributeError (the documented "no
+        # settings on self" path); let real bugs propagate.
         try:
             settings = self.resolve_settings()
-        except Exception:
+        except AttributeError:
             return None
         threshold = float(getattr(settings, "verifier_min_confidence", 0.0) or 0.0)
         if threshold <= 0.0:

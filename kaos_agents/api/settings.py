@@ -110,6 +110,40 @@ class KaosAgentsApiSettings(ModuleSettings):
 
     @model_validator(mode="before")
     @classmethod
+    def _documented_env_names(cls, values: Any) -> Any:
+        """Honor the documented env-var names that drop the redundant ``API_`` prefix.
+
+        With ``env_prefix="KAOS_AGENTS_API_"`` and a field literally named
+        ``api_token``, pydantic-settings concatenates them to
+        ``KAOS_AGENTS_API_API_TOKEN`` (double ``API_``). The README,
+        SECURITY.md, the class docstring above, and the
+        :meth:`insecure_startup_error` message all advertise the cleaner
+        names ``KAOS_AGENTS_API_TOKEN`` and
+        ``KAOS_AGENTS_API_ALLOW_UNAUTH_LOCALHOST``. This validator reads
+        those documented names from ``os.environ`` and back-fills the
+        fields when the caller didn't pass an explicit kwarg, so the docs
+        and the runtime agree. Same legacy-fallback shape as kaos-web's
+        ``SERPAPI_API_KEY`` / ``BRAVE_API_KEY`` validators.
+        """
+        if not isinstance(values, dict):
+            return values
+        if "api_token" not in values:
+            token_env = os.environ.get("KAOS_AGENTS_API_TOKEN")
+            if token_env:
+                values["api_token"] = token_env
+        if "api_allow_unauth_localhost" not in values:
+            flag_env = os.environ.get("KAOS_AGENTS_API_ALLOW_UNAUTH_LOCALHOST")
+            if flag_env is not None:
+                values["api_allow_unauth_localhost"] = flag_env.lower() in (
+                    "1",
+                    "true",
+                    "yes",
+                    "on",
+                )
+        return values
+
+    @model_validator(mode="before")
+    @classmethod
     def _parse_cors_origins_csv(cls, values: dict[str, Any]) -> dict[str, Any]:
         """Normalize a CSV string passed via the constructor kwarg form.
 

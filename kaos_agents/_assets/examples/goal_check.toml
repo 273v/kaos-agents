@@ -1,0 +1,164 @@
+# Few-shot Example pool for the GoalCheck (M4 verify-before-answer) critic.
+# Loaded by kaos_agents.planning.goal_check via load_examples("goal_check").
+#
+# Each [[example]] is a labelled (inputs, outputs) pair for the
+# _GoalCheckerSignature.  Optimizers (MIPRO / BootstrapFewShot) may rewrite
+# this file; humans extend it by appending [[example]] rows. The Signature
+# rubric (in goal_check.py) stays short + abstract; the per-incident evidence
+# lives here.
+#
+# Balanced set: positive paths for each grounded shape the critic must
+# recognize + negative paths for each canonical failure mode.
+
+# ─── Positive: ``satisfied`` paths ────────────────────────────────────
+
+[[example]]
+name = "fresh_with_tools"
+description = "Worker called tools, got grounded data, cited it."
+
+[example.inputs]
+user_message = "What is the current US federal funds rate? Cite the FOMC source."
+agent_response = """\
+As of the FOMC statement issued April 29, 2026, the Committee said it would \
+maintain the target range for the federal funds rate at 3-1/2 to 3-3/4 \
+percent. Source: Federal Reserve, "Federal Reserve issues FOMC statement," \
+https://www.federalreserve.gov/newsevents/pressreleases/monetary20260429a.htm.\
+"""
+tool_calls_made = [
+    { name = "kaos-web-fetch-page", is_error = false, summary_excerpt = "target range for the federal funds rate at 3-1/2 to 3-3/4 percent" },
+]
+elevation_trail = []
+available_groups = ["web", "source"]
+iteration = 1
+
+[example.outputs.result]
+kind = "satisfied"
+confidence = 0.9
+rationale = "Answer cites the FOMC statement and a successful web-fetch grounded the rate."
+
+
+[[example]]
+name = "anaphoric_followup_recall"
+description = "User asks the agent to recall a fact it cited last turn. Restating the prior URL is recall, not a fresh claim."
+
+[example.inputs]
+user_message = "In one sentence: what was the target range you just cited, and what was the date of that FOMC statement?"
+agent_response = """\
+The target range was 3-1/2 to 3-3/4 percent, and the FOMC statement was dated \
+April 29, 2026. Source: Federal Reserve, "Federal Reserve issues FOMC \
+statement," https://www.federalreserve.gov/newsevents/pressreleases/monetary20260429a.htm.\
+"""
+tool_calls_made = []
+elevation_trail = []
+available_groups = ["web", "source"]
+iteration = 2
+
+[example.outputs.result]
+kind = "satisfied"
+confidence = 0.85
+rationale = "Follow-up recall of a fact the agent cited in a prior turn — grounded by the previous turn's tool result. Restating the prior turn's URL is recall, not a fresh claim."
+
+
+[[example]]
+name = "pure_deterministic_computation"
+description = "User supplied BOTH the rule citation AND the inputs. Agent's job is arithmetic; fetching to 'verify' the rule the user named is wasted cost."
+
+[example.inputs]
+user_message = "If a complaint was filed on March 15, 2025, and FRCP Rule 12(a)(1)(A)(i) gives 21 days to respond, what is the response deadline?"
+agent_response = "March 15, 2025 + 21 days = April 5, 2025. Because April 5 is a Saturday, FRCP 6(a)(1)(C) moves the deadline to Monday, April 7, 2025."
+tool_calls_made = []
+elevation_trail = []
+available_groups = ["web", "source"]
+iteration = 1
+
+[example.outputs.result]
+kind = "satisfied"
+confidence = 0.9
+rationale = "User supplied the rule and the inputs; agent performed the deterministic calendar math."
+
+
+[[example]]
+name = "stable_concept_definition"
+description = "Stable-concept definition; no tool call needed for ground truth that does not change."
+
+[example.inputs]
+user_message = "What is JSON Schema?"
+agent_response = "JSON Schema is a declarative language for annotating and validating JSON document structure. The current draft is 2020-12."
+tool_calls_made = []
+elevation_trail = []
+available_groups = ["web", "source"]
+iteration = 1
+
+[example.outputs.result]
+kind = "satisfied"
+confidence = 0.85
+rationale = "Stable-concept definition; no tool call needed for ground truth that does not change."
+
+
+# ─── Negative: ``needs_more_work`` paths ──────────────────────────────
+
+[[example]]
+name = "fresh_confident_hallucination"
+description = "Specific rate asserted with zero tool calls and no prior-turn grounding — confident hallucination of a look-up-able fact."
+
+[example.inputs]
+user_message = "What is the current US federal funds rate?"
+agent_response = "The current US federal funds rate target range is 4.75% to 5.00%."
+tool_calls_made = []
+elevation_trail = []
+available_groups = ["web", "source"]
+iteration = 1
+
+[example.outputs.result]
+kind = "needs_more_work"
+next_action = "Fetch the FOMC statement from federalreserve.gov and quote the verified target range before answering."
+confidence = 0.9
+rationale = "Specific rate asserted with zero tool calls and no prior-turn grounding — confident hallucination of a look-up-able fact."
+
+
+[[example]]
+name = "header_then_stop"
+description = "Deliverable heading present with no body."
+
+[example.inputs]
+user_message = "Compare these five NDAs and produce a CSV-ready table of governing-law clauses."
+agent_response = "## CSV-ready table\n\n"
+tool_calls_made = [
+    { name = "kaos-office-parse-docx", is_error = false, summary_excerpt = "NDA #1 parsed" },
+]
+elevation_trail = []
+available_groups = ["office"]
+iteration = 1
+
+[example.outputs.result]
+kind = "needs_more_work"
+next_action = "Emit the table rows under the heading you wrote; do not stop on a header alone."
+confidence = 0.95
+rationale = "Deliverable heading present with no body."
+
+
+# ─── Negative: ``insufficient_evidence`` path ─────────────────────────
+
+[[example]]
+name = "honest_cant_verify"
+description = "Agent searched, found nothing, declined to fabricate — correct refusal."
+
+[example.inputs]
+user_message = "What was the holding in Zarephath Industries v. Brookfield Capital Trust (2023)?"
+agent_response = """\
+I could not verify the holding of Zarephath Industries v. Brookfield Capital \
+Trust (2023) with the available tools. The web search returned no court \
+opinion identifying the holding. I am not asserting a holding for this case \
+without source confirmation.\
+"""
+tool_calls_made = [
+    { name = "kaos-web-search", is_error = false, summary_excerpt = "no results for case name" },
+]
+elevation_trail = []
+available_groups = ["web", "source"]
+iteration = 2
+
+[example.outputs.result]
+kind = "insufficient_evidence"
+missing = "No court opinion for the named case in any available connector."
+rationale = "Agent searched, found nothing, declined to fabricate — correct refusal."

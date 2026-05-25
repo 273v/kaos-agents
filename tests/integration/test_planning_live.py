@@ -127,6 +127,57 @@ class TestExpandLive:
 
 
 @pytest.mark.live
+class TestExpandMultiChainLive:
+    """Live verification of the ``multi_chain_n`` MCC routing path.
+
+    The unit tests in ``tests/unit/test_expand.py::TestExpandMultiChainRouting``
+    pin the constructor wiring (signature, n, producer_model, examples)
+    via monkeypatch stubs. This test exercises the same path against a
+    real LLM end-to-end — requires kaos-llm-core >= 0.1.2 which added
+    the ``examples=`` kwarg to ``MultiChainComparison``. Per
+    ``CONTRIBUTING.md`` "New public API needs at least one live
+    integration test through its real entry point."
+    """
+
+    async def test_multi_chain_n_2_produces_valid_plan(self):
+        """``multi_chain_n=2`` routes through MCC and returns a usable plan.
+
+        Verifies: (a) MCC's producer-then-aggregator pipeline doesn't
+        crash with the kaos-agents PlanExpandSignature, (b) the
+        synthesized output unwraps to a Steps list through
+        ``OutputForwardingMixin``, (c) the same ``load_examples("plan_expand")``
+        few-shot pool reaches the producer chains (verified upstream
+        via the MCC constructor tests; here we just confirm the
+        end-to-end path produces structurally valid plans).
+        """
+        tools = {
+            "kaos-source-ecfr-search": (
+                "Search the eCFR (Electronic Code of Federal Regulations) "
+                "for regulatory text by title, part, or keyword."
+            ),
+        }
+
+        steps = await expand(
+            "Find the Clean Air Act emission standards in the eCFR",
+            available_tools=tools,
+            model=MODEL,
+            multi_chain_n=2,
+        )
+
+        # MCC's aggregator must synthesize a plan — same structural
+        # invariants as the single-Call path.
+        assert len(steps) >= 1, f"Expected at least 1 step from MCC aggregator, got {len(steps)}"
+        # At least one step should reference the eCFR tool (proves the
+        # producer chains saw the tool catalog and the aggregator
+        # preserved it).
+        tool_steps = [s for s in steps if s.step_type == StepType.TOOL]
+        assert tool_steps, (
+            "MCC aggregator produced zero TOOL steps despite "
+            f"eCFR tool being in the catalog. Steps: {steps}"
+        )
+
+
+@pytest.mark.live
 class TestEvaluateSemanticLive:
     """Test that the LLM produces reasonable quality judgments."""
 

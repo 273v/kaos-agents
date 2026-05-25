@@ -193,7 +193,11 @@ async def synthesize_findings(
         step_descriptions=step_descriptions,
     )
 
-    call = Call(SynthesizeFindingsSignature, model=model)
+    from kaos_agents._examples import load_examples
+
+    call = Call(
+        SynthesizeFindingsSignature, model=model, examples=load_examples("synthesize_findings")
+    )
     # ``invoke`` (not bare ``__call__``) so ``Invocation.usage`` is
     # populated for cost accounting.
     invocation = await call.invoke(

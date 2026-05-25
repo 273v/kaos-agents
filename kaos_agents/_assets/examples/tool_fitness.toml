@@ -1,0 +1,148 @@
+# Few-shot Example pool for ToolFitnessSignature (M1 pre-ReAct narrowing).
+# Loaded by kaos_agents.planning.tool_fitness via load_examples("tool_fitness").
+#
+# Each example pairs (query, small catalog, top_k) → expected (picks, rationale,
+# confidence). The catalogs here are intentionally small + diverse so the model
+# learns to read the description rather than name-match, and to honor the
+# specialized-source-vs-web-search rule (#3) and the scale-aware family
+# preference (#10).
+#
+# Anti-regressions baked in:
+#   * #581 — DOCX upload must pick office-parse, not pdf-extract.
+#   * P0-#449 — "current US Senator" must pick web-search, not edgar/fr.
+#   * #506 — large corpus (>= 20 docs) must prefer corpus-aggregators over
+#     per-document parsers.
+
+# ─── Domain-fit positive paths ───────────────────────────────────────
+
+[[example]]
+name = "web_search_for_current_officeholder"
+description = "Live-fact question about a current US officeholder → web-search class only."
+
+[example.inputs]
+query = "Who is the current junior US Senator from Illinois?"
+tool_catalog = """\
+kaos-web-search: Web search across multiple backends (SerpAPI, Brave, Exa).
+kaos-web-fetch-page: Fetch and parse a specific URL.
+kaos-source-edgar-search: Search SEC EDGAR for company filings by CIK or ticker.
+kaos-source-fr-search: Search the Federal Register for regulatory notices.
+kaos-office-parse-docx: Parse a DOCX file from the session VFS.
+kaos-pdf-extract-parse: Parse a PDF file from the session VFS.\
+"""
+recent_messages = ""
+top_k = 3
+corpus_size = 0
+
+[example.outputs]
+picks = ["kaos-web-search", "kaos-web-fetch-page"]
+rationale = "Web search for a current US officeholder."
+confidence = 0.9
+
+
+[[example]]
+name = "docx_parse_not_pdf_extract"
+description = "Attached DOCX must route to office-parse, not pdf-extract — #581 regression."
+
+[example.inputs]
+query = "Summarize the governing law clause in the NDA I just uploaded (NDA_v3.docx)."
+tool_catalog = """\
+kaos-office-parse-docx: Parse a DOCX/Word file from the session VFS into a structured document AST.
+kaos-pdf-extract-parse: Parse a PDF file from the session VFS into a structured document AST.
+kaos-content-search-document: Search across all attached documents using BM25.
+kaos-web-search: Web search across multiple backends.\
+"""
+recent_messages = ""
+top_k = 3
+corpus_size = 1
+
+[example.outputs]
+picks = ["kaos-office-parse-docx", "kaos-content-search-document"]
+rationale = "Office-document parser for the attached DOCX."
+confidence = 0.95
+
+
+[[example]]
+name = "specialized_source_for_filings"
+description = "SEC-filing question routes to edgar source, not generic web-search."
+
+[example.inputs]
+query = "What did Apple report as Q4 2024 revenue in its 10-K filing?"
+tool_catalog = """\
+kaos-source-edgar-search: Search SEC EDGAR for company filings by CIK or ticker.
+kaos-source-edgar-fetch-document: Fetch the full text of a specific EDGAR filing by accession number.
+kaos-web-search: Web search across multiple backends.
+kaos-web-fetch-page: Fetch and parse a specific URL.\
+"""
+recent_messages = ""
+top_k = 3
+corpus_size = 0
+
+[example.outputs]
+picks = ["kaos-source-edgar-search", "kaos-source-edgar-fetch-document"]
+rationale = "Specialized SEC EDGAR source for a 10-K filing lookup."
+confidence = 0.9
+
+
+# ─── Scale-aware family preference (Rule 10) ─────────────────────────
+
+[[example]]
+name = "large_corpus_prefers_aggregators"
+description = "corpus_size >= 20 → prefer search/findings/filter over per-document parsers."
+
+[example.inputs]
+query = "Across all the contracts I uploaded, which ones have a most-favored-nation clause?"
+tool_catalog = """\
+kaos-content-search-document: BM25 search across all attached documents in the session.
+kaos-agent-findings: Run a multi-stage extract→filter→synthesize pipeline over the corpus.
+kaos-agent-corpus-filter: LLM-aided relevance filter that drops the long tail of irrelevant docs.
+kaos-office-parse-docx: Parse a single DOCX file from the session VFS.
+kaos-pdf-extract-parse: Parse a single PDF file from the session VFS.\
+"""
+recent_messages = ""
+top_k = 3
+corpus_size = 47
+
+[example.outputs]
+picks = ["kaos-agent-findings", "kaos-content-search-document", "kaos-agent-corpus-filter"]
+rationale = "Large attached corpus favors aggregating tools over per-document parsers."
+confidence = 0.9
+
+
+# ─── Empty-catalog + small-talk negative paths ───────────────────────
+
+[[example]]
+name = "empty_catalog_returns_no_picks"
+description = "Empty catalog → empty picks. The worker has nothing to dispatch."
+
+[example.inputs]
+query = "Find me the SEC 10-K for Apple."
+tool_catalog = ""
+recent_messages = ""
+top_k = 3
+corpus_size = 0
+
+[example.outputs]
+picks = []
+rationale = "Catalog is empty; no tools available to dispatch."
+confidence = 0.2
+
+
+[[example]]
+name = "small_talk_no_picks_even_with_catalog"
+description = "Conversational small-talk → empty picks even when catalog is large."
+
+[example.inputs]
+query = "Thanks, that helped! Talk to you later."
+tool_catalog = """\
+kaos-web-search: Web search across multiple backends.
+kaos-web-fetch-page: Fetch and parse a specific URL.
+kaos-content-search-document: BM25 search across attached documents.\
+"""
+recent_messages = ""
+top_k = 3
+corpus_size = 0
+
+[example.outputs]
+picks = []
+rationale = "Small-talk acknowledgement; no tool can advance this."
+confidence = 0.9

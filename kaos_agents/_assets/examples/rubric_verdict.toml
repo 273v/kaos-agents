@@ -1,0 +1,52 @@
+# Few-shot Example pool for RubricVerdictSignature (bench rubric judge).
+# Loaded by kaos_agents.benchmarks.rubric_judge via load_examples("rubric_verdict").
+#
+# Per-criterion pass/fail judge. Each example pins one criterion against one
+# deliverable and shows the matching verdict + reasoning shape.
+
+[[example]]
+name = "criterion_clearly_met"
+description = "Deliverable plainly satisfies the criterion → passed=True, high confidence."
+
+[example.inputs]
+criterion_id = "C-001"
+criterion_title = "Cite the case full reporter"
+match_criteria = "The deliverable includes the case name AND the full reporter citation (volume, reporter, page, year)."
+deliverable = "Marbury v. Madison, 5 U.S. (1 Cranch) 137 (1803), held that the Supreme Court has the power of judicial review."
+
+[example.outputs]
+passed = true
+confidence = 0.95
+reasoning = "Case name and full reporter ('5 U.S. (1 Cranch) 137 (1803)') both present."
+
+
+[[example]]
+name = "criterion_clearly_failed"
+description = "Deliverable doesn't satisfy the criterion → passed=False, high confidence."
+
+[example.inputs]
+criterion_id = "C-002"
+criterion_title = "Quote the rule text verbatim"
+match_criteria = "The deliverable quotes the verbatim text of Rule 10b-5(b), in quotation marks, attributed to the source."
+deliverable = "Rule 10b-5 generally prohibits manipulative or deceptive practices in the purchase or sale of securities."
+
+[example.outputs]
+passed = false
+confidence = 0.9
+reasoning = "Deliverable paraphrases Rule 10b-5 generally rather than quoting the verbatim text of subsection (b) as the criterion requires."
+
+
+[[example]]
+name = "ambiguous_low_confidence_honest_pick"
+description = "Criterion is on the line — pick a verdict honestly with lower confidence."
+
+[example.inputs]
+criterion_id = "C-007"
+criterion_title = "Address both clauses of the question"
+match_criteria = "The deliverable addresses BOTH the 21-day FRCP 12(a) window AND the Rule 6(a)(1)(C) weekend-rollover behavior."
+deliverable = "Under FRCP 12(a)(1)(A)(i), the defendant has 21 days to respond. The deadline rolls over to the next business day if it falls on a weekend or holiday."
+
+[example.outputs]
+passed = true
+confidence = 0.7
+reasoning = "Both clauses addressed; the rollover sentence references the right behavior but does not name Rule 6(a)(1)(C) explicitly — close call, leans pass on substance."

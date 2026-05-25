@@ -1,8 +1,21 @@
-"""Tests for the Expand planning primitive — step parsing and validation."""
+"""Tests for the Expand planning primitive — step parsing and validation.
+
+Also pins the ``multi_chain_n`` routing contract: when ``>= 2``, plan
+generation MUST route through ``kaos_llm_core.programs.multi_chain_comparison.MultiChainComparison``
+and forward the canonical ``load_examples("plan_expand")`` few-shot
+pool to every producer chain (the Iter-4-14 grounded-Signature
+contract). Requires kaos-llm-core >= 0.1.2 which added ``examples=``
+forwarding to MCC.
+"""
 
 from __future__ import annotations
 
-from kaos_agents.planning.expand import _parse_steps, expand_from_steps
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+
+from kaos_agents.planning.expand import _parse_steps, expand, expand_from_steps
 from kaos_agents.types.plan import Step, StepType
 
 
@@ -122,3 +135,119 @@ class TestExpandFromSteps:
             Step(id="s1", step_type=StepType.TOOL, description="test", tool_name="t"),
         ]
         assert expand_from_steps(steps) is steps
+
+
+class TestExpandMultiChainRouting:
+    """Pins the ``multi_chain_n`` routing contract.
+
+    The contract:
+    - ``multi_chain_n=None`` or ``< 2`` → single ``Call(PlanExpandSignature, ...)`` path.
+    - ``multi_chain_n >= 2`` → ``MultiChainComparison(PlanExpandSignature, n=...)``
+      with the SAME ``load_examples("plan_expand")`` few-shot pool wired
+      to every producer chain (Iter-4-14 grounded-Signature contract).
+
+    These tests stub both Call and MultiChainComparison at the import
+    site to record constructor args without making a live LLM call.
+    """
+
+    @pytest.mark.asyncio
+    async def test_multi_chain_n_routes_through_mcc(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        constructed_args: dict[str, Any] = {}
+
+        class _StubMCC:
+            def __init__(
+                self,
+                signature: type,
+                *,
+                n: int,
+                producer_model: str | None = None,
+                examples: list[Any] | None = None,
+                **kwargs: Any,
+            ) -> None:
+                constructed_args["signature_name"] = signature.__name__
+                constructed_args["n"] = n
+                constructed_args["producer_model"] = producer_model
+                constructed_args["examples"] = examples
+                constructed_args["other_kwargs"] = kwargs
+
+            async def invoke(self, **inputs: Any) -> Any:
+                return SimpleNamespace(output=SimpleNamespace(steps=[]))
+
+        monkeypatch.setattr(
+            "kaos_llm_core.programs.multi_chain_comparison.MultiChainComparison",
+            _StubMCC,
+        )
+
+        result = await expand(
+            goal="explain rule 10b-5",
+            model="anthropic:claude-haiku-4-5",
+            multi_chain_n=5,
+        )
+
+        assert constructed_args["signature_name"] == "PlanExpandSignature"
+        assert constructed_args["n"] == 5
+        assert constructed_args["producer_model"] == "anthropic:claude-haiku-4-5"
+        # The canonical plan_expand pool must reach the MCC producer
+        # — same examples= contract the single-Call path uses. Without
+        # this, MCC's chain samples lose Iter-4-14 calibration.
+        examples = constructed_args["examples"]
+        assert examples is not None, "examples= must be forwarded to MCC"
+        assert len(examples) >= 1, "plan_expand pool must be non-empty"
+        assert result == []  # stub returned no steps
+
+    @pytest.mark.asyncio
+    async def test_default_multi_chain_none_uses_single_call(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Back-compat: omitting multi_chain_n keeps the single-Call path."""
+        constructed: list[str] = []
+
+        class _StubCall:
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                constructed.append("Call")
+
+            async def invoke(self, **inputs: Any) -> Any:
+                return SimpleNamespace(output=SimpleNamespace(steps=[]))
+
+        class _StubMCC:
+            def __init__(self, *args: Any, **kwargs: Any) -> None:  # pragma: no cover
+                constructed.append("MCC")
+
+            async def invoke(self, **inputs: Any) -> Any:  # pragma: no cover
+                return SimpleNamespace(output=SimpleNamespace(steps=[]))
+
+        monkeypatch.setattr("kaos_llm_core.Call", _StubCall)
+        monkeypatch.setattr(
+            "kaos_llm_core.programs.multi_chain_comparison.MultiChainComparison",
+            _StubMCC,
+        )
+
+        await expand(goal="anything", model="x")
+        assert constructed == ["Call"]
+
+    @pytest.mark.asyncio
+    async def test_multi_chain_n_below_2_uses_single_call(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """multi_chain_n=1 (or 0) keeps the single-Call path — MCC requires n>=2."""
+        constructed: list[str] = []
+
+        class _StubCall:
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                constructed.append("Call")
+
+            async def invoke(self, **inputs: Any) -> Any:
+                return SimpleNamespace(output=SimpleNamespace(steps=[]))
+
+        class _StubMCC:
+            def __init__(self, *args: Any, **kwargs: Any) -> None:  # pragma: no cover
+                constructed.append("MCC")
+
+        monkeypatch.setattr("kaos_llm_core.Call", _StubCall)
+        monkeypatch.setattr(
+            "kaos_llm_core.programs.multi_chain_comparison.MultiChainComparison",
+            _StubMCC,
+        )
+
+        await expand(goal="anything", model="x", multi_chain_n=1)
+        assert constructed == ["Call"]

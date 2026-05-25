@@ -187,10 +187,40 @@ async def evaluate_agent(
         async with semaphore:
             return await _evaluate_example(idx, example, loop, metric, progress)
 
-    per_example = await asyncio.gather(
+    # A+ Theme C — partial-success eval. ``_evaluate_example`` already
+    # catches BaseException and returns an ``ExampleResult(error=...)``,
+    # so this gather was safe in the happy path. But ``return_exceptions=
+    # False`` meant any future defensive layer (semaphore acquire,
+    # metric setup, hook dispatch) that raised BEFORE the inner
+    # try/except would crash the entire eval run and lose every
+    # partial result. Flip to ``True`` and convert raw exceptions into
+    # ``ExampleResult(error=...)`` so one bad example never costs the
+    # whole batch.
+    raw_results = await asyncio.gather(
         *(_run_one(i, ex) for i, ex in enumerate(examples)),
-        return_exceptions=False,
+        return_exceptions=True,
     )
+    per_example: list[ExampleResult] = []
+    for i, r in enumerate(raw_results):
+        if isinstance(r, BaseException):
+            logger.warning("eval[%d] raised outside the inner try/except: %s", i, r)
+            from kaos_llm_core.types import Example as _LLMExample
+
+            per_example.append(
+                ExampleResult(
+                    example=_LLMExample(
+                        inputs=dict(examples[i].inputs),
+                        outputs=dict(examples[i].outputs),
+                    ),
+                    prediction=None,
+                    score=0.0,
+                    error=f"runner error: {r}",
+                    error_class=type(r).__name__,
+                    trace=None,
+                )
+            )
+        else:
+            per_example.append(r)
 
     n_correct = sum(1 for r in per_example if r.score >= 1.0 and r.error is None)
     n_errors = sum(1 for r in per_example if r.error is not None)

@@ -151,7 +151,9 @@ async def evaluate_semantic(
     require_llm_core()
     from kaos_llm_core import Call
 
-    call = Call(EvalSemanticSignature, model=model)
+    from kaos_agents._examples import load_examples
+
+    call = Call(EvalSemanticSignature, model=model, examples=load_examples("eval_semantic"))
 
     # Open the JUDGE span before we issue the Call so observers see the
     # inputs that led to the judgment. Done as a single pair on

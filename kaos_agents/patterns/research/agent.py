@@ -32,6 +32,7 @@ from kaos_agents.events import (
     SpanSubject,
     TextDelta,
     UsageObserved,
+    emit_memory_added,
     emit_usage_observed,
 )
 from kaos_agents.patterns.chat import ChatAgent
@@ -459,6 +460,7 @@ class ResearchAgent(ChatAgent):
             f"URI: {uri}\n{text}",
             metadata={"uri": uri, "type": "document"},
         )
+        emit_memory_added(MemoryType.DOCUMENTS.value, item_count=1)
 
     # Threshold for using ReAct (agent-driven) vs one-shot RAG
     _REACT_CORPUS_THRESHOLD = 20
@@ -552,15 +554,15 @@ class ResearchAgent(ChatAgent):
             },
         )
 
-        saved_instructions = self._instructions
-        # P7: thread the corpus outline into the ReAct system prompt too.
+        # P7: thread the corpus outline into the ReAct system prompt.
         # The escalation path drives an iterative search agent — knowing
         # what the corpus actually covers helps it pick search terms (and
         # know when to stop searching for non-existent topics).
         outline_prefix = self._resolve_outline_prefix()
         outline_block = f"\n\n{outline_prefix}" if outline_prefix else ""
-        self._instructions = (
-            (saved_instructions + "\n\n" if saved_instructions else "")
+        base_instructions = self._instructions
+        augmented = (
+            (base_instructions + "\n\n" if base_instructions else "")
             + _RESEARCH_REACT_INSTRUCTION
             + outline_block
         )
@@ -570,13 +572,13 @@ class ResearchAgent(ChatAgent):
             confidence=intent.confidence,
             reasoning="Escalating to ReAct after one-shot RAG returned insufficient evidence.",
         )
-        try:
+        # ContextVar-backed override — task-local, no instance mutation,
+        # auto-restored on exit. See BaseAgent.override_instructions.
+        with self.override_instructions(augmented):
             async for event in super()._dispatch_streaming(
                 react_intent, message, memory, context_items, emitter
             ):
                 yield event
-        finally:
-            self._instructions = saved_instructions
 
     async def _handle_research_streaming(
         self,
@@ -863,6 +865,11 @@ class ResearchAgent(ChatAgent):
                             "sources": [s["source_uri"] for s in claim_payload["supporting_spans"]],
                         },
                     )
+                    emit_memory_added(
+                        MemoryType.FINDINGS.value,
+                        item_count=1,
+                        attributes={"verified": result.is_verified},
+                    )
 
                 if result.is_verified:
                     response_text += (
@@ -905,6 +912,7 @@ class ResearchAgent(ChatAgent):
                     f"Used plain BM25 on {n_docs_label} docs."
                 )
                 memory.add(MemoryType.REFLECTION, reflection_text)
+                emit_memory_added(MemoryType.REFLECTION.value, item_count=1)
                 logger.debug(
                     "research_agent._handle_research: wrote REFLECTION: %s",
                     reflection_text[:120],
@@ -1057,6 +1065,7 @@ class ResearchAgent(ChatAgent):
                                 f"'{retry_query[:60]}'. Found {len(new_items)} additional docs."
                             )
                             memory.add(MemoryType.REFLECTION, retry_reflection)
+                            emit_memory_added(MemoryType.REFLECTION.value, item_count=1)
                             logger.debug(
                                 "research_agent.retry: wrote REFLECTION: %s",
                                 retry_reflection[:120],
@@ -1105,6 +1114,7 @@ class ResearchAgent(ChatAgent):
                         f"Would resolve: {(refusal.what_would_resolve or 'unknown')[:80]}"
                     )
                     memory.add(MemoryType.REFLECTION, failure_reflection)
+                    emit_memory_added(MemoryType.REFLECTION.value, item_count=1)
                     logger.debug(
                         "research_agent._handle_research: wrote REFLECTION: %s",
                         failure_reflection[:120],

@@ -157,7 +157,7 @@ def _patch_call(monkeypatch: pytest.MonkeyPatch, output: EvaluateConditionSignat
     mock_invoke = AsyncMock(return_value=_invocation(output))
 
     class _StubCall:
-        def __init__(self, signature: Any, *, model: str) -> None:
+        def __init__(self, signature: Any, *, model: str, examples: Any = None) -> None:
             pass
 
         async def invoke(self, **kwargs: Any) -> Invocation:
@@ -230,7 +230,7 @@ class TestEvaluateCondition:
         # Degraded LLM environment — evaluate_condition must NOT raise,
         # it must return (False, "") so the step still executes.
         class _ExplodingCall:
-            def __init__(self, signature: Any, *, model: str) -> None:
+            def __init__(self, signature: Any, *, model: str, examples: Any = None) -> None:
                 pass
 
             async def invoke(self, **kwargs: Any) -> Invocation:

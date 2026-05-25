@@ -954,7 +954,11 @@ async def expand_question_to_terms(
             ),
         )
 
-    call = Call(_RewriteSignature, model=model, temperature=0.0)
+    from kaos_agents._examples import load_examples
+
+    call = Call(
+        _RewriteSignature, model=model, temperature=0.0, examples=load_examples("findings_rewrite")
+    )
     invocation = await call.invoke(question=question, max_terms=max_terms)
     raw_terms = getattr(invocation.output, "search_terms", []) or []
     cost, tokens = _invocation_usage(invocation)
@@ -2017,7 +2021,14 @@ async def _filter_chunk(
 
     chunk = flag_injection_suspected(chunk)
     rendered = _render_filter_candidates(chunk)
-    call = Call(_FilterSignature, model=model, temperature=temperature)
+    from kaos_agents._examples import load_examples
+
+    call = Call(
+        _FilterSignature,
+        model=model,
+        temperature=temperature,
+        examples=load_examples("findings_filter"),
+    )
     invocation = await call.invoke(question=question, candidates=rendered)
     result = invocation.output
     cost, tokens = _invocation_usage(invocation)
@@ -2122,7 +2133,14 @@ async def _synthesize(
         )
 
     rendered = _render_synthesis_findings(findings)
-    call = Call(_SynthesizeSignature, model=model, temperature=temperature)
+    from kaos_agents._examples import load_examples
+
+    call = Call(
+        _SynthesizeSignature,
+        model=model,
+        temperature=temperature,
+        examples=load_examples("findings_synthesize"),
+    )
     invocation = await call.invoke(question=question, findings=rendered)
     answer = str(invocation.output.answer)
     cost, tokens = _invocation_usage(invocation)

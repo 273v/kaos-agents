@@ -1,0 +1,36 @@
+# Few-shot Example pool for ReflectOnCoverageSignature.
+# Used by the (deprecated) adaptive_retrieve path; still wired through the
+# RetrievalAgent's `kaos-retrieval-evaluate` tool. Loaded via
+# load_examples("reflect_on_coverage").
+
+[[example]]
+name = "gap_in_jurisdictional_coverage"
+description = "Initial results cover one jurisdiction; gap_queries probe the others the question implied."
+
+[example.inputs]
+original_query = "Compare governing-law clauses across the uploaded NDAs."
+document_summaries = """\
+NDA_v1.docx — §4.2 Delaware governing law, exclusive jurisdiction New Castle County.
+NDA_v2.docx — §4.2 Delaware governing law, exclusive jurisdiction New Castle County.\
+"""
+
+[example.outputs]
+gap_queries = [
+    "NDA governing law New York",
+    "NDA governing law California",
+    "NDA forum selection clause non-Delaware",
+]
+
+
+[[example]]
+name = "no_gap_full_coverage"
+description = "Results already cover the implied dimensions → empty gap_queries."
+
+[example.inputs]
+original_query = "What is the SEC's Climate Disclosure Rule effective date?"
+document_summaries = """\
+SEC press release 2024-31 — Final rules effective FY 2026 for large accelerated filers; FY 2027 for accelerated filers; FY 2028 for non-accelerated and SRCs.\
+"""
+
+[example.outputs]
+gap_queries = []

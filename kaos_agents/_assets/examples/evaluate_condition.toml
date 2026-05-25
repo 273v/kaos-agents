@@ -1,0 +1,29 @@
+# Few-shot Example pool for EvaluateConditionSignature (plan branch predicate).
+# Loaded by kaos_agents.planning.evaluate_condition via load_examples("evaluate_condition").
+
+[[example]]
+name = "condition_holds_with_evidence"
+description = "Predicate is true based on prior_outputs → holds=True with a one-line evidence cite."
+
+[example.inputs]
+condition = "The corpus contains at least one merger agreement."
+prior_outputs = "Step 2 (kaos-content-search-document): returned 4 matches across uploaded files, including 'merger_agreement_2024.docx' and 'sps_amendment_2025.pdf'."
+
+[example.outputs]
+holds = true
+confidence = 0.95
+evidence = "Step 2 search returned 'merger_agreement_2024.docx' — explicit merger-agreement file in the corpus."
+
+
+[[example]]
+name = "condition_fails_with_explanation"
+description = "Predicate is false → holds=False with what was actually found."
+
+[example.inputs]
+condition = "The retrieved SEC filing mentions an MFN (most-favored-nation) clause."
+prior_outputs = "Step 1 (kaos-source-edgar-fetch-document): pulled the 10-K, parsed sections 1 through 7A. Step 2 (kaos-content-search-document, query='most favored nation'): 0 matches."
+
+[example.outputs]
+holds = false
+confidence = 0.9
+evidence = "Step 2 BM25 search for 'most favored nation' returned 0 matches across the parsed 10-K sections."

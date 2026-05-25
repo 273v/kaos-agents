@@ -1,0 +1,47 @@
+# Few-shot Example pool for SectionWriterSignature (narrative composer).
+# Loaded by kaos_agents.output.composers.narrative via load_examples("section_writer").
+#
+# Teaches the section writer to: (1) honor the section_instruction, (2) cite
+# from the citations input only, (3) match the section_depth heading level.
+
+[[example]]
+name = "depth2_section_with_citations"
+description = "Depth-2 sub-section; instruction is specific; citations supply the facts."
+
+[example.inputs]
+section_id = "sec-3-2-governing-law"
+section_title = "Governing Law"
+section_depth = 2
+section_instruction = "State the governing-law jurisdiction selected by the parties and the related forum-selection clause. Quote the relevant clause language."
+recalled_context = "Master Services Agreement between Acme Corp and Beta LLC, executed 2025-04-15."
+citations = """\
+[1] MSA_2025.docx §10.1 — \"This Agreement shall be governed by and construed in accordance with the laws of the State of Delaware, without regard to its conflict of laws principles.\"
+[2] MSA_2025.docx §10.2 — \"The parties consent to exclusive jurisdiction in the state and federal courts located in New Castle County, Delaware.\"\
+"""
+
+[example.outputs]
+body = """\
+The Master Services Agreement is governed by Delaware law: \"This Agreement \
+shall be governed by and construed in accordance with the laws of the State \
+of Delaware, without regard to its conflict of laws principles.\" [1] The \
+parties further \"consent to exclusive jurisdiction in the state and federal \
+courts located in New Castle County, Delaware.\" [2]\
+"""
+
+
+[[example]]
+name = "depth3_no_evidence_short_refusal"
+description = "Depth-3 sub-section; citations don't cover the instruction → write a single sentence that names the gap, do not fabricate."
+
+[example.inputs]
+section_id = "sec-4-1-1-indemnity-cap"
+section_title = "Indemnity Cap"
+section_depth = 3
+section_instruction = "State the cap on indemnification liability (dollar amount and any carve-outs)."
+recalled_context = "MSA between Acme Corp and Beta LLC."
+citations = """\
+[1] MSA_2025.docx §6.1 — describes the mutual indemnification framework but does not state a dollar cap.\
+"""
+
+[example.outputs]
+body = "The supplied excerpts describe the mutual indemnification framework [1] but do not state a dollar cap or carve-outs; the cap, if any, must be confirmed against the unredacted §6 text before this sub-section can be completed."

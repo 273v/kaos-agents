@@ -94,9 +94,14 @@ async def generate_document_queries(
     try:
         from kaos_llm_core import Call
 
+        from kaos_agents._examples import load_examples
         from kaos_agents.settings import DEFAULT_MODEL
 
-        call = Call(PredictDocumentQueriesSignature, model=model or DEFAULT_MODEL)
+        call = Call(
+            PredictDocumentQueriesSignature,
+            model=model or DEFAULT_MODEL,
+            examples=load_examples("doc2query"),
+        )
         # Use ``invoke`` (not bare ``__call__``) so per-doc indexing
         # cost flows through the standard ``Invocation`` path. Without
         # ``.invoke()``, large corpus loads silently breach the

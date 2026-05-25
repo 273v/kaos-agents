@@ -60,6 +60,66 @@ _DEFAULT_MAX_ITERATIONS: int = 3
 _DEFAULT_THRESHOLD: float = 0.7
 
 
+# ─── Module-level critic Signature + balanced few-shot pool ──────────
+#
+# The Signature contract was previously a function-local class inside
+# ``ReflexionCritic.critique()`` — flagged in the 2026-05-24 design
+# deviation report as one of nine ``Signature`` subclasses that should
+# be lifted to module scope. Promoting it makes it importable for tests,
+# discoverable for optimizers (MIPRO / BootstrapFewShot can take this
+# Signature + the example pool as inputs), and serialisable through
+# ``Call.persist_state``.
+#
+# Lazy-built so the module remains importable without the optional
+# ``[llm]`` extra. The cache idiom mirrors :mod:`kaos_agents.planning.goal_check`.
+
+
+_SIGNATURE_CACHE: type | None = None
+
+
+def _build_critique_signature() -> type:
+    """Build :class:`ReflexionCritiqueSignature` under the [llm] extra."""
+    from kaos_llm_core import InputField, OutputField, Signature
+
+    class ReflexionCritiqueSignature(Signature):
+        """Score an agent's output against a rubric."""
+
+        question: str = InputField(description="The original user question.")
+        rubric: str = InputField(description="The quality criteria.")
+        candidate_output: str = InputField(
+            description="The agent's output to evaluate.",
+        )
+        score: float = OutputField(
+            description="Score 0.0..1.0. Avoid 0.5 unless ambiguous.",
+        )
+        feedback: str = OutputField(
+            description=(
+                "Specific, actionable critique. Empty string when the "
+                "output is fully satisfactory. Otherwise: 1-3 sentences "
+                "of what to fix, phrased as instructions for the next "
+                "iteration."
+            ),
+        )
+        reasoning: str = OutputField(
+            description="One-sentence justification for the score.",
+        )
+
+    return ReflexionCritiqueSignature
+
+
+def _get_critique_signature() -> type:
+    global _SIGNATURE_CACHE
+    if _SIGNATURE_CACHE is None:
+        _SIGNATURE_CACHE = _build_critique_signature()
+    return _SIGNATURE_CACHE
+
+
+# Few-shot demonstrations grounding the critique contract live in
+# ``kaos_agents/_assets/examples/reflexion_critique.toml`` — loaded via
+# :func:`kaos_agents._examples.load_examples`. Edit the TOML to extend
+# the pool; the Signature rubric stays abstract.
+
+
 @dataclass(frozen=True, slots=True)
 class CritiqueResult:
     """Outcome of a single critic evaluation.
@@ -150,42 +210,22 @@ class ReflexionCritic:
         question: str,
         output: str,
     ) -> CritiqueResult:
-        """Run the critique LLM call.
+        """Run the critique LLM call via the module-level
+        :class:`ReflexionCritiqueSignature` + a balanced few-shot pool.
 
         Lazy-imports kaos-llm-core so the agent module stays
         importable without the ``[llm]`` extra.
         """
-        from kaos_agents._llm_imports import require_llm_core
+        from kaos_llm_core import Call
 
-        require_llm_core()
-        from kaos_llm_core.programs.call import Call
-        from kaos_llm_core.signatures.fields import InputField, OutputField
-        from kaos_llm_core.signatures.signature import Signature
+        from kaos_agents._examples import load_examples
 
-        class _ReflexionCritiqueSignature(Signature):
-            """Score an agent's output against a rubric."""
-
-            question: str = InputField(description="The original user question.")
-            rubric: str = InputField(description="The quality criteria.")
-            candidate_output: str = InputField(
-                description="The agent's output to evaluate.",
-            )
-            score: float = OutputField(
-                description="Score 0.0..1.0. Avoid 0.5 unless ambiguous.",
-            )
-            feedback: str = OutputField(
-                description=(
-                    "Specific, actionable critique. Empty string when the "
-                    "output is fully satisfactory. Otherwise: 1-3 sentences "
-                    "of what to fix, phrased as instructions for the next "
-                    "iteration."
-                ),
-            )
-            reasoning: str = OutputField(
-                description="One-sentence justification for the score.",
-            )
-
-        call = Call(_ReflexionCritiqueSignature, model=self.model)
+        signature = _get_critique_signature()
+        call = Call(
+            signature,  # ty: ignore[invalid-argument-type]
+            model=self.model,
+            examples=load_examples("reflexion_critique"),
+        )
         # KC9: use .invoke() instead of bare __call__ so Invocation.usage
         # is available — otherwise the critic's tokens + cost are dropped.
         invocation = await call.invoke(

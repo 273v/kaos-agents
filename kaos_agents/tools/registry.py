@@ -120,6 +120,99 @@ def _resolve_caller_session_id(
     return requested, None
 
 
+def _resolve_invocation_session_id(
+    inputs: dict[str, Any],
+    context: KaosContext | None,
+    *,
+    field: str = "session_id",
+) -> tuple[str, ToolResult | None]:
+    """Resolve session id for top-level agent-invocation tools.
+
+    ``AgentChatTool`` / ``AgentPlanTool`` are externally-driven endpoints:
+    an MCP client, HTTP API caller, or CLI invokes them with the
+    session_id they want the agent to run in. Unlike memory tools (which
+    read/destroy existing session memory and need the strict B0.1
+    same-session guard from :func:`_resolve_caller_session_id`), these
+    tools CREATE / RESUME a session on behalf of the external caller.
+
+    Resolution rule:
+
+    - ``inputs[field]`` is authoritative when present — the external
+      caller picked the session it wants the agent to run in.
+    - When ``inputs[field]`` is absent, fall back to ``context.session_id``
+      (in-process sub-agent invocation, e.g. ``agent_as_tool``).
+    - When both are absent, refuse with the same actionable message as
+      the memory-tool resolver.
+
+    Returns ``(session_id, None)`` on success or
+    ``("", ToolResult.create_error(...))`` on failure.
+    """
+    requested = (inputs.get(field) or "").strip()
+    if requested:
+        return requested, None
+    if context is not None:
+        sid_attr = getattr(context, "session_id", None)
+        if sid_attr:
+            return str(sid_attr).strip(), None
+    return "", ToolResult.create_error(
+        f"Missing '{field}' parameter and no calling-session "
+        f"context. Provide a session id (the caller must scope to "
+        f"a session)."
+    )
+
+
+def _build_invocation_context(
+    context: KaosContext | None,
+    *,
+    runtime: KaosRuntime | None,
+    session_id: str,
+) -> KaosContext | None:
+    """Return a :class:`KaosContext` whose ``session_id`` is ``session_id``.
+
+    Closes the B0.1-class split-brain that
+    :func:`_resolve_invocation_session_id` opened for the agent-invocation
+    tools (``AgentChatTool`` / ``AgentPlanTool``). The resolver lets
+    ``inputs["session_id"]`` win over ``context.session_id`` — necessary
+    for MCP ergonomics (the MCP context's ``session_id`` is the caller's
+    client identity, not the agent chat session). But the rest of the
+    pipeline (hydration's ``caller_session_id``, memory persistence,
+    bridged tools' ``context.session_id``, VFS namespace, artifact-guard
+    scope) MUST see the same session id the resolver picked — otherwise
+    a caller scoped to ``"attacker"`` could push memory writes and tool
+    invocations into ``"victim"`` while bridged runtime tools still ran
+    under attacker's scope.
+
+    Resolution rule:
+
+    - When ``context.session_id`` already matches ``session_id``, return
+      the original context unchanged (cheap, preserves caller-supplied
+      ``default_vfs_namespace``, ``trace_id``, etc.).
+    - When ``context`` exists but its ``session_id`` differs, derive a
+      child context via :meth:`KaosContext.create_child_context` with
+      the resolved ``session_id`` so every downstream boundary resolves
+      uniformly against the same scope.
+    - When ``context`` is ``None`` (CLI / standalone callers), build a
+      fresh ``KaosContext`` from the runtime so bridged tools and
+      hydration still see a valid scoped context.
+
+    The original calling context's identity (e.g. the MCP ``client_id``)
+    is preserved on the child via ``metadata["caller_session_id"]`` so
+    audit hooks that need the caller-vs-target distinction can still
+    inspect it without affecting boundary resolution.
+    """
+    from kaos_core.base.context import KaosContext as _KaosContext
+
+    if context is not None:
+        ctx_sid = (getattr(context, "session_id", "") or "").strip()
+        if ctx_sid == session_id:
+            return context
+        return context.create_child_context(
+            session_id=session_id,
+            metadata={"caller_session_id": ctx_sid} if ctx_sid else {},
+        )
+    return _KaosContext.create(session_id=session_id, runtime=runtime)
+
+
 def _surfacing_error_from_status(status: dict[str, Any]) -> str | None:
     """Return a ToolResult.create_error message when the run hit an
     actionable infrastructure failure, else ``None``.
@@ -421,7 +514,7 @@ class AgentChatTool(KaosTool):
         self, inputs: dict[str, Any], context: KaosContext | None = None
     ) -> ToolResult:
         message = inputs.get("message", "")
-        session_id, err = _resolve_caller_session_id(inputs, context)
+        session_id, err = _resolve_invocation_session_id(inputs, context)
         if err is not None:
             return err
         model = inputs.get("model")
@@ -455,6 +548,18 @@ class AgentChatTool(KaosTool):
             from kaos_agents.settings import DEFAULT_MODEL, KaosAgentSettings
 
             runtime = context.runtime if context else None
+
+            # B0.1 — derive a per-invocation context whose ``session_id``
+            # matches the resolved chat session, so memory hydration, the
+            # bridged tools' ``context.session_id``, VFS namespace lookups,
+            # and the artifact-guard scope all land on the SAME session.
+            # Without this the resolver above can pick ``inputs.session_id``
+            # while the bridged runtime tools still see ``context.session_id``
+            # — the split-brain reopened the B0.1 horizontal-isolation gap
+            # that ``_resolve_caller_session_id`` closed for memory tools.
+            invocation_context = _build_invocation_context(
+                context, runtime=runtime, session_id=session_id
+            )
 
             tool_filter = (
                 tuple(t.strip() for t in tool_filter_str.split(",") if t.strip())
@@ -518,7 +623,7 @@ class AgentChatTool(KaosTool):
             runner = Runner(
                 agent_config,
                 runtime=runtime,
-                context=context,
+                context=invocation_context,
                 permission_policy=permission_policy,
             )
 
@@ -781,7 +886,7 @@ class AgentPlanTool(KaosTool):
         self, inputs: dict[str, Any], context: KaosContext | None = None
     ) -> ToolResult:
         message = inputs.get("message", "")
-        session_id, err = _resolve_caller_session_id(inputs, context)
+        session_id, err = _resolve_invocation_session_id(inputs, context)
         if err is not None:
             return err
         instructions = inputs.get("instructions") or None
@@ -817,6 +922,13 @@ class AgentPlanTool(KaosTool):
             from kaos_agents.settings import DEFAULT_MODEL, KaosAgentSettings
 
             runtime = context.runtime if context else None
+
+            # B0.1 — same per-invocation context derivation as
+            # ``AgentChatTool.execute``. See the docstring on
+            # ``_build_invocation_context`` for the security rationale.
+            invocation_context = _build_invocation_context(
+                context, runtime=runtime, session_id=session_id
+            )
 
             tool_filter = (
                 tuple(t.strip() for t in tool_filter_str.split(",") if t.strip())
@@ -858,7 +970,7 @@ class AgentPlanTool(KaosTool):
             runner = Runner(
                 agent_config,
                 runtime=runtime,
-                context=context,
+                context=invocation_context,
                 permission_policy=permission_policy,
             )
             response, status = await _run_turn_with_status(runner, message, session_id)

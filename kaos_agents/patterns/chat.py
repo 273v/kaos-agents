@@ -537,8 +537,8 @@ class ChatAgent(BaseAgent):
         # the "core identity"; the default appends task-specific
         # guidance ("be thorough, cite sources") without clobbering.
         react_instructions = (
-            f"{self._instructions}\n\n{_REACT_INSTRUCTION}"
-            if self._instructions
+            f"{self.instructions}\n\n{_REACT_INSTRUCTION}"
+            if self.instructions
             else _REACT_INSTRUCTION
         )
         # FIX-16: when ONE tool's JSON Schema is rejected at the

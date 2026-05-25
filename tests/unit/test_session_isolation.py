@@ -26,9 +26,12 @@ from kaos_agents.memory.session import SessionMemory
 from kaos_agents.memory.store import SessionStore
 from kaos_agents.runtime.artifact_hydration import hydrate_artifacts_from_message
 from kaos_agents.tools.registry import (
+    AgentChatTool,
     AgentMemoryClearTool,
     AgentMemoryQueryTool,
     AgentMemorySearchTool,
+    AgentPlanTool,
+    _build_invocation_context,
 )
 from kaos_agents.types.memory import MemoryType
 
@@ -80,6 +83,46 @@ async def _seed_memory(
         memory.add(MemoryType.MESSAGES, m)
     await store.save(memory)
     return memory
+
+
+async def _drive_invocation_tool(
+    tool: object,
+    *,
+    inputs: dict[str, object],
+    context: KaosContext | None,
+) -> dict[str, object]:
+    """Drive ``AgentChatTool`` / ``AgentPlanTool`` ``.execute`` with the
+    ``Runner`` symbol monkey-patched to a stub that records the kwargs it
+    was constructed with (no LLM / runtime cost).
+
+    Returns the captured kwargs dict so a test can assert what the tool
+    actually handed to ``Runner(...)``. Used by the Finding 5 tests to
+    pin the B0.1-invocation fix without exercising a live model.
+    """
+    import kaos_agents.runtime.runner as runner_mod
+
+    captured: dict[str, object] = {}
+
+    class _StubRunner:
+        def __init__(self, _agent, *, runtime=None, context=None, **_kwargs):
+            captured["runner_context"] = context
+            captured["runner_runtime"] = runtime
+
+        async def run(self, _message, _session_id, **_kwargs):
+            # Empty async generator — the runner_turn helper folds zero
+            # events into an empty AgentResponse so we exercise the
+            # full tool wrapper without an LLM call.
+            return
+            yield  # pragma: no cover — unreachable; makes ``run`` a generator
+
+    real_runner = runner_mod.Runner
+    runner_mod.Runner = _StubRunner  # ty: ignore[invalid-assignment]
+    try:
+        result = await tool.execute(inputs, context=context)  # ty: ignore[unresolved-attribute]
+    finally:
+        runner_mod.Runner = real_runner
+    captured["result_is_error"] = bool(getattr(result, "isError", False))
+    return captured
 
 
 # ===========================================================================
@@ -457,3 +500,161 @@ class TestFinding4RunStateScopedPerSession:
             session_id="evt-session",
         )
         assert loaded == []
+
+
+# ===========================================================================
+# Finding 5 — invocation tools (chat/plan) MUST NOT split-brain on
+# ``context.session_id`` vs ``inputs["session_id"]``
+# ===========================================================================
+#
+# The security review that opened #B0.1-invocation noted: a caller scoped
+# to session "A" (``context.session_id="A"``) calling
+# ``AgentChatTool.execute({"session_id": "B", ...})`` previously caused
+# memory + artifact hydration to run as B while the Runner's bridged
+# runtime tools still saw ``context.session_id == "A"`` — a horizontal
+# isolation regression of the same shape that ``_resolve_caller_session_id``
+# closed for the memory tools (Finding 2 above).
+#
+# The fix (``_build_invocation_context``) derives a per-invocation child
+# ``KaosContext`` whose ``session_id`` matches the resolver's choice, so
+# every downstream boundary (memory writes, hydration's
+# ``caller_session_id``, bridged tools' ``context.session_id``, VFS
+# namespace lookups, artifact-guard scope) lands on the SAME session id
+# for a single turn. We MUST preserve MCP ergonomics (the MCP context's
+# ``session_id`` is the caller's ``client_id``, not the agent chat
+# session) so a strict refuse is NOT the right answer — the agent-
+# invocation surface is explicitly "create / resume the chosen session
+# on behalf of the caller". But the chosen session MUST be the only
+# scope the agent's machinery sees.
+
+
+@pytest.mark.unit
+class TestFinding5InvocationContextHelper:
+    """Sync unit tests for :func:`_build_invocation_context` — the
+    helper underpinning the B0.1-invocation fix. Kept separate from
+    the async tool-level tests below so the class-level ``asyncio``
+    mark doesn't flag the sync methods."""
+
+    def test_build_invocation_context_derives_child_on_mismatch(self):
+        """When ``context.session_id != session_id``, the helper returns
+        a child context retargeted at the resolved session — preserving
+        the runtime and other fields — and stashes the caller's original
+        session id under ``metadata["caller_session_id"]`` so audit hooks
+        can still log the caller vs target distinction."""
+        runtime = _make_runtime()
+        attacker_ctx = KaosContext(
+            session_id="attacker",
+            runtime=runtime,
+            metadata={"trace_origin": "mcp-client-X"},
+        )
+
+        derived = _build_invocation_context(attacker_ctx, runtime=runtime, session_id="victim")
+
+        assert derived is not None
+        assert derived.session_id == "victim"
+        # Caller identity preserved for observability — but not as the
+        # session_id every downstream resolver consults.
+        assert derived.metadata.get("caller_session_id") == "attacker"
+        # Parent metadata still propagates.
+        assert derived.metadata.get("trace_origin") == "mcp-client-X"
+        # Runtime survives the derivation (bridged tools need it).
+        assert derived.runtime is runtime
+
+    def test_build_invocation_context_returns_original_when_match(self):
+        """When the caller is already scoped to the chosen session, the
+        helper hands back the same context object — no allocation and
+        no loss of caller-supplied ``default_vfs_namespace`` / trace
+        fields."""
+        runtime = _make_runtime()
+        ctx = KaosContext(session_id="acme", runtime=runtime)
+        derived = _build_invocation_context(ctx, runtime=runtime, session_id="acme")
+        assert derived is ctx
+
+    def test_build_invocation_context_creates_when_context_none(self):
+        """CLI / standalone callers (``context=None``) still get a real
+        ``KaosContext`` scoped to the chosen session — bridged tools and
+        hydration would otherwise see ``context=None`` and skip
+        per-session resolution."""
+        runtime = _make_runtime()
+        derived = _build_invocation_context(None, runtime=runtime, session_id="acme")
+        assert derived is not None
+        assert derived.session_id == "acme"
+        assert derived.runtime is runtime
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+class TestFinding5InvocationToolsConsistentSessionScope:
+    """Pin the B0.1-invocation fix at the tool boundary: when an
+    external caller passes ``inputs["session_id"]`` that differs from
+    ``context.session_id``, the Runner the tool builds MUST receive a
+    context whose ``session_id`` matches the resolved (input-authoritative)
+    chat session. No split-brain.
+    """
+
+    async def test_chat_tool_passes_session_scoped_context_to_runner(self):
+        """Drive ``AgentChatTool.execute`` with mismatched
+        ``context.session_id="attacker"`` and ``inputs.session_id="victim"``.
+        Monkey-patch ``Runner`` so we capture what the tool actually
+        builds. The captured Runner ``context.session_id`` MUST be
+        ``"victim"`` — the same session the resolver picked — so
+        bridged runtime tools, hydration's ``caller_session_id``, and
+        the Runner-internal ``_resolve_context`` fallback all agree.
+        """
+        runtime = _make_runtime()
+        attacker_ctx = KaosContext(session_id="attacker", runtime=runtime)
+
+        captured = await _drive_invocation_tool(
+            AgentChatTool(),
+            inputs={"session_id": "victim", "message": "hello"},
+            context=attacker_ctx,
+        )
+
+        # No infrastructure surfacing error — the stub yields no events
+        # so the tool returns an empty-text success envelope.
+        assert captured["result_is_error"] is False
+        derived_ctx = captured["runner_context"]
+        assert isinstance(derived_ctx, KaosContext)
+        # THE CORE INVARIANT — the Runner saw the victim session, not
+        # the attacker's caller identity.
+        assert derived_ctx.session_id == "victim"
+        assert derived_ctx.metadata.get("caller_session_id") == "attacker"
+        # The runtime threaded through correctly so bridged tools find it.
+        assert captured["runner_runtime"] is runtime
+
+    async def test_plan_tool_passes_session_scoped_context_to_runner(self):
+        """Same invariant as the chat test, applied to ``AgentPlanTool``
+        — sister tool, same call shape, same B0.1-invocation hazard.
+        """
+        runtime = _make_runtime()
+        attacker_ctx = KaosContext(session_id="attacker", runtime=runtime)
+
+        captured = await _drive_invocation_tool(
+            AgentPlanTool(),
+            inputs={"session_id": "victim", "message": "do the thing"},
+            context=attacker_ctx,
+        )
+
+        assert captured["result_is_error"] is False
+        derived_ctx = captured["runner_context"]
+        assert isinstance(derived_ctx, KaosContext)
+        assert derived_ctx.session_id == "victim"
+
+    async def test_chat_tool_preserves_context_when_session_matches(self):
+        """Positive path: when ``inputs.session_id == context.session_id``,
+        the tool hands the original context straight through to Runner —
+        the helper's no-op fast path is intact. Verifies the B0.1 fix
+        didn't accidentally re-allocate contexts on the legitimate
+        happy path."""
+        runtime = _make_runtime()
+        own_ctx = KaosContext(session_id="acme", runtime=runtime)
+
+        captured = await _drive_invocation_tool(
+            AgentChatTool(),
+            inputs={"session_id": "acme", "message": "hi"},
+            context=own_ctx,
+        )
+
+        assert captured["result_is_error"] is False
+        # Identity preservation: same object, no child allocation.
+        assert captured["runner_context"] is own_ctx

@@ -1,0 +1,91 @@
+# Few-shot Example pool for JudgeSignature.
+# Loaded by kaos_agents.planning.judge via load_examples("judge").
+#
+# JudgeSignature is rubric-parametric: the labels vary per call. So this
+# pool grounds the *output shape* (label / confidence / reasoning triple)
+# under representative rubric polarities — not specific verticals. Five
+# Examples cover the rubric-shape distribution we expect a generic Judge
+# to see in production:
+#
+#   1. Strict-checklist rubric, all criteria met → confident positive.
+#   2. Strict-checklist rubric, one criterion missing → confident negative
+#      that names the violated criterion.
+#   3. Three-way discriminated rubric (one strong path, one weak path, one
+#      ambiguous path) → high-confidence pick on the strong path.
+#   4. Genuinely ambiguous input → mid/low confidence honest pick.
+#   5. "Pass iff X" rubric where context is supportive but verdict must
+#      still ground in input_text → correct refusal to over-credit context.
+
+[[example]]
+name = "checklist_all_met_confident_positive"
+description = "Strict 'all criteria' rubric; deliverable contains every named element → confident pass."
+
+[example.inputs]
+rubric = "Output `pass` / `fail`. Pass iff the response contains all of: (a) the case name, (b) the year, (c) the holding."
+input_text = "Marbury v. Madison (1803) held that the Supreme Court has the authority to declare an act of Congress unconstitutional (judicial review)."
+context = ""
+
+[example.outputs]
+label = "pass"
+confidence = 0.95
+reasoning = "All three required elements present: case name (Marbury v. Madison), year (1803), and the holding (judicial review / authority to declare acts unconstitutional)."
+
+
+[[example]]
+name = "checklist_one_missing_confident_negative_with_citation"
+description = "Strict 'all criteria' rubric; one element absent → confident fail naming the gap."
+
+[example.inputs]
+rubric = "Output `pass` / `fail`. Pass iff the response contains all of: (a) the case name, (b) the year, (c) the holding."
+input_text = "Marbury v. Madison held that the Supreme Court can declare an act of Congress unconstitutional."
+context = ""
+
+[example.outputs]
+label = "fail"
+confidence = 0.9
+reasoning = "Criterion (b) violated — the year is not stated. Case name and holding are present, but the rubric demands all three."
+
+
+[[example]]
+name = "three_way_strong_path_confident_pick"
+description = "Three-label discriminated rubric; input matches the strong positive path → confident pick."
+
+[example.inputs]
+rubric = "Output `satisfied` / `needs_more_work` / `insufficient_evidence`. Satisfied = the response answers the user's question with grounded evidence (a cited tool result OR a recall of a prior cited turn). Needs_more_work = the response is non-empty but ungrounded or partial. Insufficient_evidence = the agent searched and honestly declined."
+input_text = "Per the SEC's 2024 Climate Disclosure Rule (Release No. 33-11275), large accelerated filers must include Scope 1 and 2 GHG emissions starting with FY2026 filings. Source: sec.gov/news/press-release/2024-31."
+context = "Tool call: kaos-web-fetch-page returned the SEC press release URL above."
+
+[example.outputs]
+label = "satisfied"
+confidence = 0.9
+reasoning = "Response cites the SEC release number and URL; the supporting tool call returned that exact page. Both criteria of the satisfied path (specific cited source AND successful tool grounding) hold."
+
+
+[[example]]
+name = "genuinely_ambiguous_honest_low_confidence"
+description = "Rubric is clear but the input straddles two labels → pick the closer label with low confidence, do not invent a fence-sitting label."
+
+[example.inputs]
+rubric = "Output `helpful` / `unhelpful`. Helpful = directly advances the user's request. Unhelpful = irrelevant, evasive, or merely procedural."
+input_text = "I can look into that for you. Could you tell me which jurisdiction you're asking about?"
+context = ""
+
+[example.outputs]
+label = "unhelpful"
+confidence = 0.45
+reasoning = "Response is a clarifying question, not an answer — but a clarifying question can be a legitimate next step. Picking `unhelpful` on the literal-text reading; confidence reflects the rubric's ambiguity on whether scoping qualifies as advancing."
+
+
+[[example]]
+name = "context_supportive_but_verdict_grounds_in_input"
+description = "Context provides background; rubric still requires the verdict-bearing fact in input_text → fail when input_text lacks it."
+
+[example.inputs]
+rubric = "Output `grounded` / `ungrounded`. Grounded iff `input_text` itself names the source URL or citation that supports the claim. Background `context` does NOT count."
+input_text = "The federal funds rate target range is currently 4.5% to 4.75%."
+context = "Earlier in the conversation the agent fetched federalreserve.gov/monetary20260429a.htm which confirmed this range."
+
+[example.outputs]
+label = "ungrounded"
+confidence = 0.85
+reasoning = "Rubric is explicit that `context` alone cannot satisfy grounding. `input_text` asserts the rate but does not name the source URL in the response — the citation lives only in `context`."

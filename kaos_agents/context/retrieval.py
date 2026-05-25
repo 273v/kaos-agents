@@ -666,61 +666,90 @@ def _try_hybrid_retrieve(
         return []
 
 
+async def _reflect_on_coverage_async(
+    query: str,
+    results: list[MemorySearchResult],
+    *,
+    model: str | None = None,
+) -> tuple[list[str], float]:
+    """Async-native coverage-gap reflection.
+
+    Returns ``(gap_queries, cost_usd)``. Uses ``Call.invoke()`` so
+    :class:`~kaos_llm_core.programs.Invocation` carries
+    :class:`InvocationUsage` and the cost shows up in the caller's
+    accounting instead of being silently dropped (as the prior
+    ``asyncio.run(call(...))`` shim did).
+    """
+    if len(results) < 3:
+        return ([], 0.0)
+
+    try:
+        from kaos_llm_core import Call
+
+        from kaos_agents.settings import DEFAULT_MODEL
+
+        top_summaries = [f"- {r.content[:200].replace(chr(10), ' ').strip()}" for r in results[:15]]
+        summary_text = "\n".join(top_summaries)
+
+        from kaos_agents._examples import load_examples
+
+        call = Call(
+            ReflectOnCoverageSignature,
+            model=model or DEFAULT_MODEL,
+            examples=load_examples("reflect_on_coverage"),
+        )
+        invocation = await call.invoke(
+            original_query=query,
+            document_summaries=summary_text,
+        )
+        result = invocation.output
+        queries = cast(list[str], getattr(result, "gap_queries", []))
+        cost = float(getattr(invocation.usage, "cost_usd", 0.0) or 0.0)
+        logger.debug(
+            "retrieval.reflect: query=%r gaps=%d cost=%.4f",
+            query[:50],
+            len(queries),
+            cost,
+        )
+        return (queries[:3], cost)
+    except Exception as exc:
+        logger.debug("retrieval.reflect_failed: %s", exc)
+        return ([], 0.0)
+
+
 def _reflect_on_coverage(
     query: str,
     results: list[MemorySearchResult],
     *,
     model: str | None = None,
 ) -> list[str]:
-    """Evaluate coverage gaps and generate targeted follow-up queries.
+    """Sync wrapper around :func:`_reflect_on_coverage_async`.
 
-    Examines the top results, identifies what aspects of the query are NOT
-    covered, and generates specific queries to fill those gaps.
+    Retained for the deprecated synchronous :func:`adaptive_retrieve`
+    entry point and its callers. Async callers (e.g. ``HyDESearchTool``)
+    should reach :func:`_reflect_on_coverage_async` directly so the
+    usage / trace path is preserved end-to-end.
+
+    Drops the cost return — the sync API never plumbed it through.
     """
-    if len(results) < 3:
-        return []
+    import asyncio
 
     try:
-        from kaos_llm_core import Call
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
 
-        top_summaries = []
-        for r in results[:15]:
-            summary = r.content[:200].replace("\n", " ").strip()
-            top_summaries.append(f"- {summary}")
-        summary_text = "\n".join(top_summaries)
+    if loop and loop.is_running():
+        import concurrent.futures
 
-        from kaos_agents.settings import DEFAULT_MODEL
-
-        call = Call(ReflectOnCoverageSignature, model=model or DEFAULT_MODEL)
-
-        import asyncio
-
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop and loop.is_running():
-            import concurrent.futures
-
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                result = pool.submit(
-                    asyncio.run,
-                    call(original_query=query, document_summaries=summary_text),
-                ).result(timeout=_DEFAULT_LLM_TIMEOUT)
-        else:
-            result = asyncio.run(call(original_query=query, document_summaries=summary_text))
-
-        queries = cast(list[str], getattr(result, "gap_queries", []))
-        logger.debug(
-            "retrieval.reflect: query=%r gaps=%d",
-            query[:50],
-            len(queries),
-        )
-        return queries[:3]
-    except Exception as exc:
-        logger.debug("retrieval.reflect_failed: %s", exc)
-        return []
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            queries, _cost = pool.submit(  # ty: ignore[not-iterable]
+                asyncio.run,
+                _reflect_on_coverage_async(query, results, model=model),
+            ).result(timeout=_DEFAULT_LLM_TIMEOUT)
+    else:
+        queries, _cost = asyncio.run(_reflect_on_coverage_async(query, results, model=model))
+    return queries
 
 
 def _try_rerank(
@@ -861,47 +890,112 @@ def _expand_with_prf(
     return expanded
 
 
+async def _generate_pseudo_document_async(
+    query: str,
+    *,
+    model: str | None = None,
+) -> tuple[str, float]:
+    """Async-native HyDE pseudo-document generation.
+
+    Returns ``(hypothetical_passage, cost_usd)``. Uses
+    ``Call.invoke()`` so :class:`InvocationUsage` is preserved.
+    """
+    try:
+        from kaos_llm_core import Call
+
+        from kaos_agents._examples import load_examples
+        from kaos_agents.settings import DEFAULT_MODEL
+
+        call = Call(
+            GeneratePseudoDocumentSignature,
+            model=model or DEFAULT_MODEL,
+            examples=load_examples("generate_pseudo_document"),
+        )
+        invocation = await call.invoke(search_query=query)
+        result = invocation.output
+        passage = cast(str, getattr(result, "hypothetical_passage", ""))
+        cost = float(getattr(invocation.usage, "cost_usd", 0.0) or 0.0)
+        logger.debug(
+            "retrieval.hyde_generated: query=%r passage_len=%d cost=%.4f",
+            query[:50],
+            len(passage),
+            cost,
+        )
+        return (passage, cost)
+    except Exception as exc:
+        logger.debug("retrieval.hyde_failed: %s", exc)
+        return ("", 0.0)
+
+
 def _generate_pseudo_document(
     query: str,
     *,
     model: str | None = None,
 ) -> str:
-    """Generate a hypothetical document passage that would answer the query.
+    """Sync wrapper around :func:`_generate_pseudo_document_async`.
 
-    Uses the Query2Doc/HyDE technique: the LLM writes a fake passage using
-    the vocabulary that real documents would use. BM25 then matches this
-    passage against the corpus, bridging terminology gaps.
+    Async callers should reach the async function directly so
+    :class:`InvocationUsage` reaches the caller's accounting. The sync
+    wrapper drops the cost return.
+    """
+    import asyncio
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            passage, _cost = pool.submit(  # ty: ignore[not-iterable]
+                asyncio.run, _generate_pseudo_document_async(query, model=model)
+            ).result(timeout=_DEFAULT_LLM_TIMEOUT)
+    else:
+        passage, _cost = asyncio.run(_generate_pseudo_document_async(query, model=model))
+    return passage
+
+
+async def _generate_llm_queries_async(
+    original_query: str,
+    found_item_ids: list[str],
+    *,
+    model: str | None = None,
+) -> tuple[list[str], float]:
+    """Async-native alternative-query suggestion.
+
+    Returns ``(alternative_queries, cost_usd)``. Uses
+    ``Call.invoke()`` so :class:`InvocationUsage` is preserved.
     """
     try:
         from kaos_llm_core import Call
 
+        from kaos_agents._examples import load_examples
         from kaos_agents.settings import DEFAULT_MODEL
 
-        call = Call(GeneratePseudoDocumentSignature, model=model or DEFAULT_MODEL)
-
-        import asyncio
-
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop and loop.is_running():
-            import concurrent.futures
-
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                result = pool.submit(asyncio.run, call(search_query=query)).result(
-                    timeout=_DEFAULT_LLM_TIMEOUT
-                )
-        else:
-            result = asyncio.run(call(search_query=query))
-
-        passage = cast(str, getattr(result, "hypothetical_passage", ""))
-        logger.debug("retrieval.hyde_generated: query=%r passage_len=%d", query[:50], len(passage))
-        return passage
+        call = Call(
+            SuggestQueriesSignature,
+            model=model or DEFAULT_MODEL,
+            examples=load_examples("suggest_queries"),
+        )
+        invocation = await call.invoke(
+            original_query=original_query,
+            results_found=len(found_item_ids),
+        )
+        result = invocation.output
+        queries = cast(list[str], getattr(result, "alternative_queries", []))
+        cost = float(getattr(invocation.usage, "cost_usd", 0.0) or 0.0)
+        logger.debug(
+            "retrieval.llm_expand: original=%r suggestions=%d cost=%.4f",
+            original_query[:50],
+            len(queries),
+            cost,
+        )
+        return (queries[:_DEFAULT_MAX_SYNONYM_QUERIES], cost)
     except Exception as exc:
-        logger.debug("retrieval.hyde_failed: %s", exc)
-        return ""
+        logger.debug("retrieval.llm_expand_failed: %s", exc)
+        return ([], 0.0)
 
 
 def _generate_llm_queries(
@@ -910,44 +1004,28 @@ def _generate_llm_queries(
     *,
     model: str | None = None,
 ) -> list[str]:
-    """Ask an LLM to suggest alternative search queries.
+    """Sync wrapper around :func:`_generate_llm_queries_async`.
 
-    Uses a lightweight Call to generate 2-3 alternative queries that
-    might find documents the original query missed.
+    Async callers should reach the async function directly so the
+    :class:`InvocationUsage` reaches the caller's accounting.
     """
+    import asyncio
+
     try:
-        from kaos_llm_core import Call
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
 
-        from kaos_agents.settings import DEFAULT_MODEL
+    if loop and loop.is_running():
+        import concurrent.futures
 
-        call = Call(SuggestQueriesSignature, model=model or DEFAULT_MODEL)
-
-        import asyncio
-
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop and loop.is_running():
-            import concurrent.futures
-
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                result = pool.submit(
-                    asyncio.run,
-                    call(original_query=original_query, results_found=len(found_item_ids)),
-                ).result(timeout=_DEFAULT_LLM_TIMEOUT)
-        else:
-            result = asyncio.run(
-                call(original_query=original_query, results_found=len(found_item_ids))
-            )
-        queries = cast(list[str], getattr(result, "alternative_queries", []))
-        logger.debug(
-            "retrieval.llm_expand: original=%r suggestions=%d",
-            original_query[:50],
-            len(queries),
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            queries, _cost = pool.submit(  # ty: ignore[not-iterable]
+                asyncio.run,
+                _generate_llm_queries_async(original_query, found_item_ids, model=model),
+            ).result(timeout=_DEFAULT_LLM_TIMEOUT)
+    else:
+        queries, _cost = asyncio.run(
+            _generate_llm_queries_async(original_query, found_item_ids, model=model)
         )
-        return queries[:_DEFAULT_MAX_SYNONYM_QUERIES]
-    except Exception as exc:
-        logger.debug("retrieval.llm_expand_failed: %s", exc)
-        return []
+    return queries

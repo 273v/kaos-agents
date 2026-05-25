@@ -568,7 +568,11 @@ async def _synthesize_tool_args(
     tool_desc = str(getattr(tool, "description", "") or getattr(tool, "name", "") or "tool")
     schema_json = json.dumps(schema, default=str)[:4000]
 
-    call = Call(_ToolArgSynthesisSignature, model=model)
+    from kaos_agents._examples import load_examples
+
+    call = Call(
+        _ToolArgSynthesisSignature, model=model, examples=load_examples("tool_arg_synthesis")
+    )
     try:
         invocation = await call.invoke(
             tool_description=tool_desc,

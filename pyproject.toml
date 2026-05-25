@@ -48,11 +48,13 @@ dependencies = [
 
 [project.optional-dependencies]
 # LLM transport + typed Programs (Call, ReAct, RAG, Refine, BestOfN, ...)
-# kaos-llm-core>=0.1.0a6 pulls in the gpt-5.5 pricing entry parity fix
-# from KC16-2 / per-module kaos-llm-core 0.1.0a6 — required so the
-# Sprint-3 #9 cost-cap contract is enforceable on every published
-# provider, not just Anthropic.
-llm = ["kaos-llm-client>=0.1.0,<0.2", "kaos-llm-core>=0.1.0,<0.2"]
+# kaos-llm-core>=0.1.2 ships the wrapping-Program parity bundle
+# (MultiChainComparison / LLMQueryExpander / ProgramOfThought / RAG
+# all accept examples= and core_settings= and forward them to inner
+# Calls). Required so kaos-agents' Iter-4-14 grounded-Signature
+# contract (every Call site passes examples=load_examples("...")) is
+# preserved when planning routes through MultiChainComparison.
+llm = ["kaos-llm-client>=0.1.0,<0.2", "kaos-llm-core>=0.1.2,<0.2"]
 # MCP server bridge (kaos-agents-serve --http and --stdio)
 mcp = ["kaos-mcp>=0.1.0,<0.2"]
 # FastAPI HTTP API surface (kaos-agents-serve --api)
@@ -96,7 +98,7 @@ full = [
 [dependency-groups]
 dev = [
   "kaos-llm-client>=0.1.0,<0.2",
-  "kaos-llm-core>=0.1.0,<0.2",
+  "kaos-llm-core>=0.1.2,<0.2",
   "kaos-mcp>=0.1.0,<0.2",
   "kaos-pdf>=0.1.0,<0.2",
   # WU-J does not cut kaos-office / kaos-web / kaos-tabular / kaos-ml-core.

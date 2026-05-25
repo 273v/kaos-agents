@@ -226,7 +226,9 @@ async def judge_with_rubric(
             fell_back=True,
         )
 
-    call = Call(JudgeSignature, model=model)
+    from kaos_agents._examples import load_examples
+
+    call = Call(JudgeSignature, model=model, examples=load_examples("judge"))
     try:
         invocation = await call.invoke(
             rubric=rubric,

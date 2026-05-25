@@ -52,8 +52,11 @@ from kaos_agents.events.collector import (
 )
 from kaos_agents.events.emitter import (
     EventEmitter,
+    active_emitter,
+    emit_memory_added,
     emit_thinking_from_invocation,
     emit_usage_observed,
+    use_emitter,
 )
 from kaos_agents.events.escalation import EscalationRequired
 from kaos_agents.events.lifecycle import (
@@ -172,13 +175,16 @@ __all__ = [
     "TurnSummary",
     "UsageObserved",
     "active_collector",
+    "active_emitter",
     "collect_events",
     "deserialize_event",
     "deserialize_event_json",
+    "emit_memory_added",
     "emit_thinking_from_invocation",
     "emit_usage_observed",
     "event_type_name",
     "push_event",
     "serialize_event",
     "serialize_event_json",
+    "use_emitter",
 ]

@@ -164,7 +164,7 @@ class TestSynthesizeFindings:
         captured: dict[str, Any] = {}
 
         class _StubCall:
-            def __init__(self, signature: Any, *, model: str) -> None:
+            def __init__(self, signature: Any, *, model: str, examples: Any = None) -> None:
                 captured["signature"] = signature
                 captured["model"] = model
 
@@ -216,7 +216,7 @@ class TestSynthesizeFindings:
         captured: dict[str, Any] = {}
 
         class _StubCall:
-            def __init__(self, signature: Any, *, model: str) -> None:
+            def __init__(self, signature: Any, *, model: str, examples: Any = None) -> None:
                 pass
 
             async def invoke(self, **kwargs: Any) -> Invocation:
@@ -246,7 +246,7 @@ class TestSynthesizeFindings:
         # The caller in plan_execute.py is responsible for catching;
         # synthesize_findings must surface the error.
         class _ExplodingCall:
-            def __init__(self, signature: Any, *, model: str) -> None:
+            def __init__(self, signature: Any, *, model: str, examples: Any = None) -> None:
                 pass
 
             async def invoke(self, **kwargs: Any) -> Invocation:

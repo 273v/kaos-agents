@@ -1,0 +1,40 @@
+# Few-shot Example pool for PerContractNarrativeSignature.
+# Loaded by kaos_agents.output.composers.per_contract_narrative via
+# load_examples("per_contract_narrative").
+#
+# Teaches the model to render structured per-contract extraction rows
+# into a short prose section with explicit citations into the source text.
+
+[[example]]
+name = "tight_clause_prose_with_citations"
+description = "Structured findings + source excerpts → 2-3 sentence summary with citations."
+
+[example.inputs]
+contract_id = "msa-acme-beta-2025-04-15"
+structured_findings = """\
+governing_law: Delaware
+forum: New Castle County (state + federal)
+indemnification_cap: 12 months of fees paid by Customer
+auto_renew: 2-year term, automatic\
+"""
+source_text = "§10.1 (Governing Law). This Agreement shall be governed by the laws of the State of Delaware. §10.2 (Forum). Exclusive jurisdiction in state and federal courts in New Castle County, Delaware. §6.2 (Indemnification Cap). Aggregate liability under this Section shall not exceed the fees paid by Customer in the twelve (12) months preceding the claim. §11.4 (Term). Two-year initial term, automatic renewal."
+
+[example.outputs]
+prose_section = "The MSA is governed by Delaware law with exclusive jurisdiction in New Castle County state and federal courts (§§10.1–10.2). Indemnification is capped at the trailing 12 months of fees paid by Customer (§6.2). The initial term is two years and renews automatically (§11.4)."
+
+
+[[example]]
+name = "honest_gaps_when_findings_silent"
+description = "When a structured finding is absent, the prose says so explicitly — do not fabricate."
+
+[example.inputs]
+contract_id = "loan-2024-0042"
+structured_findings = """\
+governing_law: New York
+interest_rate: SOFR + 250 bps
+indemnification_cap: (not extracted)\
+"""
+source_text = "§9.1 (Governing Law). This Agreement shall be governed by the laws of the State of New York. §3.2 (Interest). Outstanding principal accrues interest at SOFR + 250 basis points. Indemnification provisions begin at §7 (full text not included in this excerpt)."
+
+[example.outputs]
+prose_section = "The Loan Agreement is governed by New York law (§9.1). Principal accrues interest at SOFR + 250 basis points (§3.2). The indemnification provisions begin at §7 but the cap was not extracted into the structured findings; the full §7 text would need to be inspected to confirm."

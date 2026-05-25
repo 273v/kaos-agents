@@ -346,13 +346,15 @@ async def _invoke_rag(rag: Any, query: PerceptionQuery) -> list[PerceptionItem]:
     the RAG either raises or returns an InsufficientEvidence — both
     paths produce zero items here.
     """
+    # PerceptionRAG / RAG: use ``.invoke()`` so ``Invocation.usage``
+    # propagates into perception's cost accounting — bare ``__call__``
+    # discards usage and breaks the session cost budget. ``question``
+    # is the canonical kaos-llm-core RAG input.
     try:
-        # PerceptionRAG / RAG: pass kwargs through __call__. The rewrite
-        # plan does not pin the kwarg name yet; ``question`` is the
-        # canonical kaos-llm-core RAG input.
-        output = await rag(question=query.query_text)
+        invocation = await rag.invoke(question=query.query_text)
     except Exception:
         return []
+    output = invocation.output
 
     # Output may already be coerced to a PerceptionItem-shaped list by
     # tests; pass through when so.

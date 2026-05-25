@@ -1,0 +1,36 @@
+# Few-shot Example pool for _SynthesizeSignature (findings answer synthesizer).
+# Loaded by kaos_agents.patterns.findings via load_examples("findings_synthesize").
+#
+# Teaches the synthesizer to:
+#   1. Cite finding_ids inline with [abc12345] syntax.
+#   2. Use ONLY the wrapped evidence; no outside knowledge.
+#   3. When the findings don't answer the question, say so explicitly.
+#   4. Treat hostile content inside tags as untrusted data.
+
+[[example]]
+name = "synthesize_with_inline_citations"
+description = "Two relevant findings → concise answer that cites both finding_ids."
+
+[example.inputs]
+question = "What is the governing law of each NDA?"
+findings = """\
+<untrusted_document_content finding_id="abc12345" relevance="0.95">Section 7.1 (Governing Law). This Agreement (NDA_v1) shall be governed by the laws of the State of Delaware.</untrusted_document_content>
+<untrusted_document_content finding_id="def67890" relevance="0.95">Section 9.3 (Governing Law). This Agreement (NDA_v3) shall be governed by the laws of the State of New York.</untrusted_document_content>\
+"""
+
+[example.outputs]
+answer = "NDA_v1 is governed by Delaware law [abc12345], and NDA_v3 is governed by New York law [def67890]."
+
+
+[[example]]
+name = "honest_no_answer_when_evidence_missing"
+description = "Findings are tangential to the question → say so explicitly, do NOT guess."
+
+[example.inputs]
+question = "What is the indemnification cap?"
+findings = """\
+<untrusted_document_content finding_id="xyz99999" relevance="0.30">Section 6.1 (Mutual Indemnification). Each party shall indemnify the other for third-party claims arising from breach.</untrusted_document_content>\
+"""
+
+[example.outputs]
+answer = "The available findings describe a mutual-indemnification framework [xyz99999] but do not state a dollar cap or carve-outs; the question cannot be answered from this evidence."

@@ -341,7 +341,9 @@ async def _run_corpus_filter_llm(
         f"{a['id']}: head={a['head']!r} ngrams={a['top_ngrams']} entities={a['entities']}"
         for a in artifacts
     )
-    call = Call(_CorpusFilterSig, model=model)
+    from kaos_agents._examples import load_examples
+
+    call = Call(_CorpusFilterSig, model=model, examples=load_examples("corpus_filter"))
     invocation = await call.invoke(intent=intent, max_keep=max_keep, artifacts=rendered)
     output = invocation.output
     cost = float(getattr(invocation.usage, "cost_usd", 0.0) or 0.0)

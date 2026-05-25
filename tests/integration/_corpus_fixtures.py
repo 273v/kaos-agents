@@ -252,6 +252,31 @@ def synth_json(payload: dict[str, Any]) -> bytes:
     return json.dumps(payload, indent=2, sort_keys=True).encode("utf-8")
 
 
+def synth_empty() -> bytes:
+    """Zero-byte payload — exercises the empty-file failure mode.
+
+    Agent tools that try to parse should report a clear error; the
+    agent must then say WHICH file failed rather than fabricating.
+    """
+    return b""
+
+
+def synth_gibberish(n_bytes: int = 256, *, seed: int = 0) -> bytes:
+    """Deterministic random bytes with NO recognizable magic signature.
+
+    Used to plant a "corrupted" document into the corpus. Content-type
+    detectors should fall back to ``application/octet-stream`` and any
+    parser invoked on these bytes should fail loudly — the test then
+    asserts the agent reports the failure rather than fabricating
+    content "from" the unreadable file.
+    """
+    rng = random.Random(seed)
+    # Avoid the first few bytes accidentally hitting a known magic
+    # (e.g. ``%PD`` for PDF). A 4-byte zero prefix is safe — no
+    # production format starts with four NUL bytes.
+    return b"\x00\x00\x00\x00" + bytes(rng.randint(0, 255) for _ in range(n_bytes - 4))
+
+
 # ---------------------------------------------------------------------------
 # Extension spoofing
 # ---------------------------------------------------------------------------

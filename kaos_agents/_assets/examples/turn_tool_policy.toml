@@ -1,0 +1,85 @@
+# Few-shot Example pool for _TurnToolPolicySignature (per-turn tool-group narrowing).
+# Loaded by kaos_agents.planning.policy via load_examples("turn_tool_policy").
+#
+# Examples teach the planner how to narrow a session's tool-group ceiling to
+# what THIS turn needs, with abdicate-broader-on-uncertainty as the safety
+# default.
+
+[[example]]
+name = "web_only_for_current_officeholder"
+description = "Live-fact question → narrow to web only."
+
+[example.inputs]
+user_message = "Who is the current junior US Senator from Illinois?"
+recent_turns = ""
+corpus_headlines = ""
+corpus_kinds = []
+session_intent = "research"
+raw_turn_groups = []
+ceiling_groups = ["web", "documents", "citations", "forensics", "retrieval"]
+available_groups = ["web", "documents", "citations", "forensics", "retrieval", "browser"]
+
+[example.outputs.policy]
+wanted_groups = ["web"]
+rationale = "Web search needed for current US officeholder."
+confidence = 0.9
+
+
+[[example]]
+name = "documents_for_attached_corpus_question"
+description = "Question scoped to attached files → narrow to documents + retrieval."
+
+[example.inputs]
+user_message = "Summarize the governing-law clauses across the NDAs I uploaded."
+recent_turns = ""
+corpus_headlines = "NDA_v1.docx\nNDA_v2.docx\nNDA_v3.docx\nNDA_v4.docx\nNDA_v5.docx"
+corpus_kinds = ["office-docx"]
+session_intent = "drafting"
+raw_turn_groups = []
+ceiling_groups = ["web", "documents", "citations", "forensics", "retrieval"]
+available_groups = ["web", "documents", "citations", "forensics", "retrieval"]
+
+[example.outputs.policy]
+wanted_groups = ["documents", "retrieval", "citations"]
+rationale = "Corpus-scoped review of attached NDAs needs document parsing + retrieval + citation surfaces."
+confidence = 0.9
+
+
+[[example]]
+name = "mixed_web_and_documents_for_external_grounded_corpus_check"
+description = "Cross-reference question (corpus + external fact) → both web and documents."
+
+[example.inputs]
+user_message = "Do any of the uploaded loan agreements include LIBOR fallback language consistent with the ARRC's recommended 2026 wording?"
+recent_turns = ""
+corpus_headlines = "loan_2019.pdf\nloan_2021.pdf\nloan_2024.pdf"
+corpus_kinds = ["pdf"]
+session_intent = "research"
+raw_turn_groups = []
+ceiling_groups = ["web", "documents", "citations", "forensics", "retrieval"]
+available_groups = ["web", "documents", "citations", "forensics", "retrieval"]
+
+[example.outputs.policy]
+wanted_groups = ["documents", "retrieval", "web", "citations"]
+rationale = "Compare corpus clauses against an external ARRC reference; needs both document review and web lookup."
+confidence = 0.85
+
+
+[[example]]
+name = "abdicate_broader_on_uncertainty"
+description = "Short / ambiguous message → broaden, do not narrow. Low confidence triggers ceiling fallback in the caller."
+
+[example.inputs]
+user_message = "What about the last one?"
+recent_turns = ""
+corpus_headlines = ""
+corpus_kinds = []
+session_intent = ""
+raw_turn_groups = ["web", "documents"]
+ceiling_groups = ["web", "documents", "citations", "forensics", "retrieval"]
+available_groups = ["web", "documents", "citations", "forensics", "retrieval"]
+
+[example.outputs.policy]
+wanted_groups = ["web", "documents", "retrieval"]
+rationale = "Ambiguous follow-up reference; preserve prior turn's groups and add retrieval as a safety net."
+confidence = 0.4

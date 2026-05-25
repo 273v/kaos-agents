@@ -1,0 +1,121 @@
+# Few-shot Example pool for ClassifyIntentSignature.
+# Loaded by kaos_agents.context.classify via load_examples("classify_intent").
+#
+# Each row covers one of the 5 routing labels (respond / tool_use / research /
+# plan / clarify). The catalog-aware rules (rule 6 in the Signature docstring)
+# are exercised via available_tool_categories — note how the same factual
+# question routes differently depending on whether a relevant tool category
+# is registered.
+#
+# Anti-regression: session 01KS0R64Q744DTVZ53KCS9VC7M (2026-05-19) routed
+# "current US senator" to `respond` and answered from training memory for
+# three iterations. The `tool_use_current_officeholder_with_web_category`
+# example below pins the fix.
+
+[[example]]
+name = "respond_greeting"
+description = "Pure conversational acknowledgement → respond, no tool needed."
+
+[example.inputs]
+message = "Thanks, that's helpful!"
+conversation_context = "User: Can you help me find the FRCP rule on response deadlines?\nAssistant: FRCP 12(a)(1)(A)(i) gives 21 days from service of the complaint."
+available_tool_categories = """\
+web: web search + page fetch
+source: federal regulations, eCFR, SEC EDGAR retrieval\
+"""
+
+[example.outputs]
+intent = "respond"
+confidence = 0.9
+reasoning = "Conversational acknowledgement of the prior helpful answer; no new request and no entity to verify."
+
+
+[[example]]
+name = "tool_use_current_officeholder_with_web_category"
+description = "Current real-world entity + relevant web category registered → tool_use, NEVER respond. Anti-regression for session 01KS0R64Q744…"
+
+[example.inputs]
+message = "Who is the current junior US Senator from Michigan?"
+conversation_context = "(no prior messages)"
+available_tool_categories = """\
+web: web search + page fetch
+source: federal regulations, eCFR, SEC EDGAR retrieval\
+"""
+
+[example.outputs]
+intent = "tool_use"
+confidence = 0.9
+reasoning = "Current-officeholder question; the web tool category covers it, so verify rather than guessing from training memory."
+
+
+[[example]]
+name = "respond_stable_concept_no_tools_needed"
+description = "Stable concept definition with no live-fact element → respond from knowledge."
+
+[example.inputs]
+message = "What is judicial review?"
+conversation_context = "(no prior messages)"
+available_tool_categories = """\
+web: web search + page fetch
+source: federal regulations\
+"""
+
+[example.outputs]
+intent = "respond"
+confidence = 0.85
+reasoning = "Stable legal concept that does not change over time and needs no live verification; safe to answer from training memory."
+
+
+[[example]]
+name = "research_question_over_attached_corpus"
+description = "Question targets attached documents → research."
+
+[example.inputs]
+message = "Across the NDAs I uploaded, what is the most common governing-law clause?"
+conversation_context = "(corpus of 12 NDAs attached this session)"
+available_tool_categories = """\
+content: search and read attached documents
+office: parse DOCX / PPTX / XLSX
+pdf: parse PDF\
+"""
+
+[example.outputs]
+intent = "research"
+confidence = 0.9
+reasoning = "Question scoped to attached corpus and requires retrieval + reasoning over multiple documents."
+
+
+[[example]]
+name = "plan_multistep_workflow"
+description = "Multi-step workflow with explicit ordering language → plan."
+
+[example.inputs]
+message = "First parse the 10-K I uploaded, then extract every related-party transaction, then summarize the top three in a table."
+conversation_context = "(one 10-K filing attached)"
+available_tool_categories = """\
+content: search and read attached documents
+office: parse DOCX/PPTX/XLSX
+pdf: parse PDF\
+"""
+
+[example.outputs]
+intent = "plan"
+confidence = 0.9
+reasoning = "Explicit multi-step ordering (first / then / then) with discrete sub-deliverables."
+
+
+[[example]]
+name = "clarify_ambiguous_reference"
+description = "Genuinely ambiguous request → clarify."
+
+[example.inputs]
+message = "Can you look into that?"
+conversation_context = "(no prior messages)"
+available_tool_categories = """\
+web: web search + page fetch\
+"""
+
+[example.outputs]
+intent = "clarify"
+confidence = 0.9
+reasoning = "Anaphoric 'that' with no antecedent in the conversation context; no reasonable goal can be proposed."

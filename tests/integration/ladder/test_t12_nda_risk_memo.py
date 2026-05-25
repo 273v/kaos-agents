@@ -87,8 +87,15 @@ async def _judge_memo(memo: str, expected_findings: tuple[str, ...]) -> dict:
         missing: list[int] = OutputField(description="Indices the memo did NOT address.")
         incorrect_claims: list[str] = OutputField(
             description=(
-                "Statements in the memo that are factually wrong or "
-                "unsupported. Empty list if none."
+                "Statements in the memo that DIRECTLY CONTRADICT one or more "
+                "of the expected_findings. Include only contradictions — "
+                "factual claims the memo asserts that are *demonstrably "
+                "wrong* per the expected findings. Do NOT include extra "
+                "observations, over-specifications, or additional "
+                "assertions that go beyond the expected findings without "
+                "contradicting them (those are extensions, not errors — "
+                "senior counsel may surface additional risks). Empty list "
+                "when the memo contradicts nothing in expected_findings."
             )
         )
         reasoning: str = OutputField(description="One short paragraph justifying the score.")

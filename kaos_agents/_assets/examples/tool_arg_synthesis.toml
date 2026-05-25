@@ -1,0 +1,32 @@
+# Few-shot Example pool for _ToolArgSynthesisSignature (plan step → tool args).
+# Loaded by kaos_agents.planning.compose via load_examples("tool_arg_synthesis").
+#
+# Teaches the model to fill the tool's JSON schema using the step description
+# + prior outputs, returning a JSON object (no prose, no code fences).
+
+[[example]]
+name = "fetch_url_from_prior_step_output"
+description = "Tool needs a URL; the URL came from the prior step. Output is the JSON object."
+
+[example.inputs]
+tool_description = "Fetch and parse a web page. Returns the page's main content as ContentDocument."
+tool_schema = '{"type": "object", "properties": {"url": {"type": "string", "format": "uri"}}, "required": ["url"]}'
+step_description = "Fetch the SEC press release identified in step 1."
+prior_outputs = "Step 1 (kaos-web-search): top result URL = https://www.sec.gov/news/press-release/2024-31"
+
+[example.outputs]
+args_json = '{"url": "https://www.sec.gov/news/press-release/2024-31"}'
+
+
+[[example]]
+name = "search_with_query_from_step_description"
+description = "No prior output needed; the query is in the step description itself."
+
+[example.inputs]
+tool_description = "BM25 search across attached documents in the session."
+tool_schema = '{"type": "object", "properties": {"query": {"type": "string"}, "top_k": {"type": "integer", "default": 10}}, "required": ["query"]}'
+step_description = "Search the attached NDAs for governing-law clauses."
+prior_outputs = ""
+
+[example.outputs]
+args_json = '{"query": "governing law", "top_k": 10}'
