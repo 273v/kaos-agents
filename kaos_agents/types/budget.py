@@ -27,6 +27,24 @@ Usage::
     if budget.exceeded:
         runner.emit_budget_exceeded()
         return
+
+Distinction from :class:`kaos_llm_core.optimization.budget.Budget`:
+
+  This type is the **runtime per-turn** cap+accumulator threaded through
+  :class:`~kaos_agents.core.invocation.Invocation` to drive per-step
+  escalation decisions (model downgrade, BudgetExceeded emission). It is
+  frozen, cost-only, and exposes ``fraction_spent`` / ``headroom_usd`` /
+  ``exceeded`` as decision properties.
+
+  ``kaos_llm_core.optimization.budget.Budget`` is the **optimizer-loop**
+  cap: cap-only (mutability lives in a separate ``BudgetTracker``),
+  multi-dimensional (max_trials, max_wall_seconds, max_cost_usd,
+  max_tokens), and exposes ``BudgetTracker.exhausted() -> StopReason``
+  for trial-loop termination.
+
+  They are complementary, not duplicates. Reach for ``Budget`` when
+  capping optimizer trials; reach for ``CostBudget`` when threading a
+  runtime turn's cost-cap through escalation.
 """
 
 from __future__ import annotations
