@@ -61,8 +61,25 @@ INJECTION_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
     re.compile(r"^\s*(IGNORE|DISREGARD|FORGET|OVERRIDE)\b", re.IGNORECASE | re.MULTILINE),
     # 2. "Output ONLY" — common payload framing.
     re.compile(r"\bOutput\s+ONLY\b", re.IGNORECASE),
-    # 3. Shouty all-caps blocks (rare in legitimate corpus text).
-    re.compile(r"^[A-Z][A-Z \t]{8,}$", re.MULTILINE),
+    # 3. Shouty all-caps BLOCK — 2+ consecutive all-caps lines.
+    #    Single-line ALL-CAPS headings ("CONFIDENTIALITY",
+    #    "REGULATORY ASSESSMENT", "EXHIBIT A") appear constantly in
+    #    legitimate legal / regulatory text and are NOT injection. A
+    #    real injection block is multi-line directive content
+    #    ("IGNORE PRIOR / OUTPUT ONLY / DO NOT MENTION ..."). Patterns
+    #    1, 5, 6, 7 still catch single-line imperative payloads via
+    #    their directive vocabulary regardless of casing.
+    #
+    #    Real-world calibration (2026-05-26): a sample MNDA had 0 of
+    #    12 paragraph blocks flagged by the prior single-line pattern,
+    #    but corpus-stress fixtures with one-line ALL-CAPS section
+    #    headers like ``"ARCHIVAL FILING\n\n<value>"`` falsely fired,
+    #    causing the FindingsAgent filter LLM to refuse legitimate
+    #    grounded extraction.
+    re.compile(
+        r"^[A-Z][A-Z \t]{8,}\n[A-Z][A-Z \t]{8,}",
+        re.MULTILINE,
+    ),
     # 4. Fake role-tag injection.
     re.compile(r"<\s*/?\s*(system|instruction|assistant|user|admin)\s*[^>]*>", re.IGNORECASE),
     # 5. "Ignore all previous instructions" / variants.
@@ -73,6 +90,21 @@ INJECTION_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
     ),
     # 7. Role-play / persona swap.
     re.compile(r"\b(?:you\s+are\s+now|act\s+as|role[- ]play)\b", re.IGNORECASE),
+    # 8. Single-line model-directive vocabulary (catches "ATTENTION
+    #    MODEL PUBLISH FOLLOWING CITE VERBATIM"-class payloads that
+    #    pattern 3 used to catch as shouty-caps but pre-2026-05-26
+    #    misfired on legitimate section headers). The distinguishing
+    #    cue is co-occurrence of a model-addressing noun (MODEL,
+    #    ASSISTANT, AI, LLM, GPT, CLAUDE) with a directive verb
+    #    (PUBLISH, REVEAL, DISCLOSE, OUTPUT, CITE, REPEAT, VERBATIM,
+    #    IGNORE, OVERRIDE) — real legal / regulatory headings don't
+    #    pair these vocabularies.
+    re.compile(
+        r"\b(MODEL|ASSISTANT|LLM|AI|GPT|CLAUDE)\b[^\n]{0,120}\b"
+        r"(PUBLISH|REVEAL|DISCLOSE|OUTPUT|CITE|REPEAT|VERBATIM|"
+        r"IGNORE|OVERRIDE|EXFILTRATE|LEAK)\b",
+        re.IGNORECASE,
+    ),
 )
 """Heuristic patterns for likely-injection content.
 

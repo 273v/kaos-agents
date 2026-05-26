@@ -110,6 +110,39 @@ class KaosAgentSettings(ModuleSettings):
         ),
     )
 
+    # Retrieval planner (corpus-narrowing Signature run before
+    # FindingsAgent dispatch). See
+    # ``kaos-modules/docs/plans/2026-05-26-retrieval-planner-and-findings-dispatch.md``
+    # for the design + lineage.
+    retrieval_plan_floor: int = Field(
+        default=5,
+        ge=1,
+        description=(
+            "Minimum DOCUMENTS count that triggers an LLM planner call. "
+            "Below this, the dispatcher emits strategy=NONE without an LLM "
+            "call (FindingsAgent runs on the full view). Default 5 keeps "
+            "the SPA's typical 1-3 doc case free of planner overhead."
+        ),
+    )
+    retrieval_plan_model: str | None = Field(
+        default=None,
+        description=(
+            "Provider:model for the corpus-narrowing planner Signature. "
+            "None resolves to ``default_llm_model`` (the cheap classify-tier "
+            "model). Override when the planner needs stronger reasoning for "
+            "specialized corpora."
+        ),
+    )
+    retrieval_default_top_k: int = Field(
+        default=20,
+        ge=1,
+        description=(
+            "Default top_k used by the applier when the planner emits a "
+            "missing / zero value. Caps how many docs (BM25) or sentences "
+            "(TOKEN/NGRAM/EMBED) survive narrowing."
+        ),
+    )
+
     # Tool execution
     max_tools: int = Field(
         default=100,

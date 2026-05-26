@@ -419,6 +419,110 @@ class ChatAgent(BaseAgent):
         )
         return narrowed
 
+    # ─── Classifier promotion for the attached-corpus case ─────────────
+    #
+    # When the SPA uploads files, they land in ``SessionMemory.DOCUMENTS``
+    # AND the per-turn assembled context. The base classifier reads that
+    # text and — when the redacted / summarized preview happens to look
+    # like a direct answer — picks RESPOND with high confidence. The
+    # SPA's "what is X in the attached file?" question then gets a
+    # hallucinated answer from the preview rather than a grounded answer
+    # from the bytes. (See CS-B2 / CS-B3 corpus-stress regressions.)
+    #
+    # The promotion: when the LLM picked RESPOND or TOOL_USE while
+    # DOCUMENTS are attached AND the message contains fact-lookup
+    # keywords, override to RESEARCH so the FindingsAgent default
+    # (kaos_agents.runtime.agent.BaseAgent._handle_research_streaming)
+    # grounds the answer on the raw bytes via VFS.
+    #
+    # The keyword set is intentionally conservative — "what", "value of",
+    # "find", "json", "file" etc. — to avoid hijacking greetings or
+    # follow-up chitchat. Tune via subclassing if a specific domain has
+    # different signals.
+
+    _CORPUS_FACT_LOOKUP_TOKENS: tuple[str, ...] = (
+        "file",
+        "files",
+        "attached",
+        "attachment",
+        "attachments",
+        "document",
+        "documents",
+        "uploaded",
+        "config",
+        "json",
+        "value of",
+        "value for",
+        "what is",
+        "what's",
+        "what does",
+        "find",
+        "look up",
+        "lookup",
+        "quote",
+        "verbatim",
+        "exact",
+    )
+
+    @staticmethod
+    def _message_looks_like_corpus_lookup(
+        message: str,
+        tokens: tuple[str, ...],
+    ) -> bool:
+        """Cheap keyword screen — does the message look like a doc-grounded ask?"""
+        lowered = message.lower()
+        return any(tok in lowered for tok in tokens)
+
+    async def _classify(
+        self,
+        message: str,
+        memory: SessionMemory,
+        context_items: dict[MemoryType, list[Any]] | None = None,
+    ) -> IntentResult:
+        """Promote RESPOND/TOOL_USE → RESEARCH when DOCUMENTS attached
+        AND the prompt asks for a file-grounded fact.
+
+        See module-level commentary for rationale (CS-B2 / CS-B3).
+        Leaves RESEARCH / PLAN / CLARIFY verdicts alone — only
+        promotes the two intents that don't grant the FindingsAgent
+        path a chance to run.
+
+        Subclasses can broaden / narrow the fact-lookup vocabulary by
+        overriding ``_CORPUS_FACT_LOOKUP_TOKENS``.
+        """
+        result = await super()._classify(message, memory, context_items)
+
+        if result.intent not in (IntentType.RESPOND, IntentType.TOOL_USE):
+            return result
+
+        # Count attached DOCUMENTS in this turn's context, falling back
+        # to the section count when the per-turn assembler trimmed it.
+        docs_in_context = 0
+        if context_items is not None:
+            docs_in_context = len(context_items.get(MemoryType.DOCUMENTS, []) or [])
+        if docs_in_context == 0 and memory.has_section(MemoryType.DOCUMENTS):
+            docs_in_context = memory.section_item_count(MemoryType.DOCUMENTS)
+
+        if docs_in_context == 0:
+            return result
+        if not self._message_looks_like_corpus_lookup(message, self._CORPUS_FACT_LOOKUP_TOKENS):
+            return result
+
+        promoted_reason = (
+            f"corpus_attached_promotion: {docs_in_context} DOCUMENTS attached "
+            f"+ fact-lookup keywords; classifier said "
+            f"{result.intent.value} ({result.confidence:.2f}); promoted to "
+            "RESEARCH so FindingsAgent grounds the answer on bytes "
+            "rather than redacted context."
+        )
+        logger.debug("chat_agent._classify: %s", promoted_reason)
+        return IntentResult(
+            intent=IntentType.RESEARCH,
+            confidence=1.0,
+            reasoning=promoted_reason,
+            usage=result.usage,
+        )
+
     async def _dispatch_streaming(
         self,
         intent: IntentResult,
