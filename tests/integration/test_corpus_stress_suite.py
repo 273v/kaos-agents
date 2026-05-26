@@ -615,9 +615,18 @@ class TestMixedFileTypes:
         extension) and route to a PDF-capable reader.
         """
         sid = _new_session_id("s02")
-        spoofed_pdf_needle = "Spoof-test passphrase: KAOS-S02-SNIFF-OK"
+        # Use realistic legal-document vocabulary ("case reference
+        # number") rather than the prior "passphrase" framing —
+        # synthesis LLMs (Sonnet 4-6 / GPT-5.4-mini) treat
+        # "passphrase"-shaped extraction asks as adversarial even
+        # when explicitly user-requested, which made S02 fail not
+        # on the byte-sniffing contract we're actually testing
+        # but on a model safety reflex. Real NDAs / regulatory
+        # filings carry case references / docket numbers, not
+        # passphrases.
+        spoofed_pdf_needle = "Case reference number: KAOS-S02-SNIFF-OK"
         spoofed_pdf_body = (
-            "REGULATORY ASSESSMENT\n\n"
+            "Regulatory Assessment\n\n"
             f"{spoofed_pdf_needle}.\n"
             "All compliance checkpoints passed for fiscal year 2026."
         )
@@ -660,7 +669,7 @@ class TestMixedFileTypes:
 
         agent = _make_agent(runtime, session_id=sid, max_cost=TIER1_CAP_USD)
         prompt = (
-            "One of the attached files contains a 'Spoof-test passphrase'. "
+            "One of the attached files contains a 'Case reference number'. "
             "Find it and quote it verbatim. Note that filenames may have "
             "misleading extensions — trust the file contents."
         )
@@ -1013,8 +1022,14 @@ class TestMixedFileTypes:
         retry with the correct tool.
         """
         sid = _new_session_id("s17")
-        needle_fact = "Manifest-spoof passphrase: KAOS-S17-MIME-OK"
-        pdf_body = f"ARCHIVAL FILING\n\n{needle_fact}.\nConfirm receipt and route to compliance."
+        # Realistic legal-filing vocabulary ("filing reference") —
+        # the prior "passphrase" framing tripped synthesis-model
+        # safety reflexes (Sonnet 4-6 / GPT-5.4-mini treat
+        # "passphrase"-shaped extraction asks as adversarial even
+        # when explicitly user-requested). The byte-sniff contract
+        # we're verifying is independent of the value's vocabulary.
+        needle_fact = "Filing reference number: KAOS-S17-MIME-OK"
+        pdf_body = f"Archival Filing\n\n{needle_fact}.\nConfirm receipt and route to compliance."
         pdf_bytes = synth_pdf_text(pdf_body, title="Archival")
         # Real DOCX distractor — no needle.
         docx_bytes = synth_docx(
@@ -1045,8 +1060,8 @@ class TestMixedFileTypes:
 
         agent = _make_agent(runtime, session_id=sid, max_cost=TIER1_CAP_USD)
         prompt = (
-            "Two files are attached. One contains a 'Manifest-spoof "
-            "passphrase' that I need verbatim. Note that file metadata "
+            "Two files are attached. One contains a 'Filing reference "
+            "number' that I need verbatim. Note that file metadata "
             "may be misleading — trust the actual file contents."
         )
         response = await agent.turn(prompt, session_id=sid)
@@ -1449,7 +1464,11 @@ class TestNeedleInHaystack:
         content-type detection rather than trusting the extension.
         """
         sid = _new_session_id("s10")
-        needle_fact = "Authorization code for vault access: VAULT-X9-OMEGA"
+        # Realistic operational identifier (no "authorization code"
+        # phrasing) — see S02/S17 comments for the synthesis-model-
+        # safety rationale. We're testing extension-spoof routing,
+        # not credential extraction.
+        needle_fact = "Operations tracking identifier: VAULT-X9-OMEGA"
         distractors = synth_corpus(
             n_docs=30,
             n_needles=0,
@@ -1460,7 +1479,7 @@ class TestNeedleInHaystack:
         )
         # Needle: real DOCX, advertised as .pdf.
         needle_bytes = synth_docx(
-            f"SECURE OPERATIONS\n\n{needle_fact}.\nRotate quarterly; one-time-use per session.",
+            f"Secure Operations\n\n{needle_fact}.\nRotate quarterly; one-time-use per session.",
             title="Vault Auth",
         )
         _, spoof_name = wrong_extension(needle_bytes, ".pdf")
@@ -1478,8 +1497,8 @@ class TestNeedleInHaystack:
 
         agent = _make_agent(runtime, session_id=sid, max_cost=TIER2_CAP_USD)
         prompt = (
-            "Find the document that contains an 'authorization code for "
-            "vault access'. Quote the exact code. Note: some filenames "
+            "Find the document that contains an 'Operations tracking "
+            "identifier'. Quote the exact identifier. Note: some filenames "
             "may have wrong extensions; rely on the content."
         )
         response = await agent.turn(prompt, session_id=sid)
@@ -1727,7 +1746,7 @@ class TestNeedleInHaystack:
         # Needle is a DOCX advertised as ``.pdf`` and placed inside the
         # medical cluster (round-robin index 3).
         needle_bytes = synth_docx(
-            f"MEDICAL TRIAL UPDATE\n\n{needle_fact}.\n"
+            f"Medical Trial Update\n\n{needle_fact}.\n"
             "Pre-specified endpoints unchanged from prior protocol.",
             title="Trial Update",
         )

@@ -1566,39 +1566,76 @@ class BaseAgent(KaosAgent):
             runtime = getattr(self, "_runtime", None)
             runtime_vfs = getattr(runtime, "vfs", None) if runtime is not None else None
             if vfs_path and runtime_vfs is not None:
-                if mime.startswith("text/") or mime == "application/json":
-                    # Text-like format: re-read VFS bytes for ground truth.
+                # Read once + content-sniff. The manifest mime may LIE
+                # (extension spoof S02, manifest-mime spoof S17) so we
+                # trust the byte signature over the declared mime. Falls
+                # through to declared mime when the detector is missing.
+                try:
+                    raw = await runtime_vfs.read(vfs_path)
+                except Exception:
+                    logger.debug(
+                        "base_agent: VFS read failed for %s; using item.content",
+                        vfs_path,
+                    )
+                    raw = None
+
+                sniffed_mime = mime
+                sniffed_group = ""
+                if raw is not None:
                     try:
-                        raw = await runtime_vfs.read(vfs_path)
+                        from kaos_nlp_core.content_type import detect as _ct_detect
+
+                        ct = _ct_detect(raw[:65536])
+                        sniffed_mime = ct.mime_type or mime
+                        sniffed_group = ct.group or ""
                     except Exception:
-                        logger.debug(
-                            "base_agent: VFS read failed for %s; using item.content",
-                            vfs_path,
-                        )
-                        raw = None
-                    if raw is not None:
-                        text = raw.decode("utf-8", errors="replace")
-                elif self._looks_like_headline_only(item.content):
-                    # Binary mime + no pre-extracted body — Option A
-                    # eager parse. Pulls VFS bytes through kaos-pdf /
-                    # kaos-office so FindingsAgent grounds on real
-                    # document content. Production SPA pre-extracts at
-                    # upload time and falls through this branch;
-                    # corpus-stress fixtures + non-SPA callers hit it.
-                    try:
-                        raw = await runtime_vfs.read(vfs_path)
-                    except Exception:
-                        logger.debug(
-                            "base_agent: VFS read failed for binary %s; using item.content",
-                            vfs_path,
-                        )
-                        raw = None
-                    if raw is not None:
-                        binary_doc = self._parse_binary_bytes_to_content_document(
-                            filename=filename,
-                            mime=mime,
-                            body=raw,
-                        )
+                        # Detector unavailable / failed — fall through
+                        # to declared mime + filename-based heuristics.
+                        pass
+
+                # Decide path on sniffed mime/group.
+                is_text_format = sniffed_mime.startswith("text/") or sniffed_mime in (
+                    "application/json",
+                    "application/xml",
+                )
+                is_binary_doc = sniffed_group in {"pdf", "office-docx", "office-pptx"} or any(
+                    tag in sniffed_mime
+                    for tag in (
+                        "pdf",
+                        "wordprocessingml",
+                        "presentationml",
+                        "spreadsheetml",
+                    )
+                )
+
+                if is_text_format and raw is not None:
+                    # Text-like format: decode for the format-aware parsers below.
+                    text = raw.decode("utf-8", errors="replace")
+                    # Update mime so the downstream "html" / "json" branches
+                    # see the sniffed type, not the lying manifest.
+                    mime = sniffed_mime
+                elif is_binary_doc and raw is not None:
+                    # Binary format (signal from bytes regardless of manifest):
+                    # eager-parse through kaos-pdf / kaos-office. Skips the
+                    # headline-only gate because the manifest may have already
+                    # mislead the SPA upload pipeline into NOT pre-extracting.
+                    binary_doc = self._parse_binary_bytes_to_content_document(
+                        filename=filename,
+                        mime=sniffed_mime,
+                        body=raw,
+                    )
+                elif self._looks_like_headline_only(item.content) and raw is not None:
+                    # Declared binary mime (sniffer didn't recognize as
+                    # PDF / office / text) + no pre-extracted body. Try
+                    # the parser anyway based on declared mime — covers
+                    # XLSX (sniffer reports the generic OPC group) and
+                    # any other format the sniffer doesn't classify but
+                    # the parser may still handle.
+                    binary_doc = self._parse_binary_bytes_to_content_document(
+                        filename=filename,
+                        mime=mime,
+                        body=raw,
+                    )
 
             # Headline / label so the synthesis output can refer to
             # which document a finding came from.
