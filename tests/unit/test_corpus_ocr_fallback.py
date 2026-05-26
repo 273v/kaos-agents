@@ -22,7 +22,7 @@ from kaos_agents.runtime.agent import BaseAgent
 
 def _has_ocr() -> bool:
     try:
-        import pytesseract  # noqa: F401
+        import pytesseract  # noqa: F401  # ty: ignore[unresolved-import]
     except ImportError:
         return False
     return shutil.which("tesseract") is not None
