@@ -15,7 +15,7 @@ so operators can see what got dropped per turn.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from kaos_core.logging import get_logger
 
@@ -24,10 +24,6 @@ from kaos_agents.patterns.retrieval.types import (
     RetrievalPlanResult,
     RetrievalStrategy,
 )
-
-if TYPE_CHECKING:
-
-    pass
 
 logger = get_logger(__name__)
 
