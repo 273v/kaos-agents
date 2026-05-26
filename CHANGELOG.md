@@ -7,6 +7,106 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.19] — 2026-05-26
+
+Corpus-grounded dispatch becomes the default. ChatAgent now picks
+up DOCUMENTS-attached fact-lookup questions and routes them through a
+FindingsAgent pipeline gated by an LLM retrieval planner instead of
+the silent-fall-through-to-respond bug that closed CS-B4 in 0.1.18
+but left CS-B2 / CS-B3 open.
+
+Closes #640 (CS-B2 hallucination), #641 (CS-B3 give-up cliff). Plan:
+`kaos-modules/docs/plans/2026-05-26-retrieval-planner-and-findings-dispatch.md`.
+
+### Added — corpus dispatch
+
+* `BaseAgent._handle_research_streaming` — yields `Span(SUBAGENT,
+  "research.findings_dispatch")`, one `CitationFound` per surviving
+  finding, the synthesized `TextDelta`, and a synthetic
+  `Span(TOOL_CALL, "kaos-agent-findings-dispatch")` so the SPA
+  Activity panel + Opus-as-judge tool-trace contract reflect the
+  retrieval that actually ran.
+* `BaseAgent._handle_research` — non-streaming wrapper that returns
+  `(answer, [], usage)` for legacy callers; drives the streaming form.
+* `BaseAgent._resolve_corpus_view_with_document` — VFS-byte resolver
+  with format-aware re-parse for HTML / JSON / plain text AND eager
+  pre-flight extraction for PDF / DOCX / PPTX / XLSX through
+  `kaos_pdf.parse_pdf_bytes` and `kaos_office.parse_{docx,pptx,xlsx}`.
+  Triggers only when `item.content` looks headline-only (production
+  SPA pre-extracts at upload time and bypasses the eager parse).
+* `ChatAgent._classify` — corpus-attached + fact-lookup-keywords
+  promotion. When the underlying classifier picks `RESPOND` /
+  `TOOL_USE` while DOCUMENTS are populated AND the message contains
+  fact-lookup tokens, promote to `RESEARCH` so the FindingsAgent
+  default runs. Preserves the underlying classifier's `usage` so
+  cost telemetry still attributes correctly.
+
+### Added — retrieval planner primitive
+
+* `kaos_agents.patterns.retrieval` package — LLM-driven planner +
+  mechanical applier composing existing kaos-content / kaos-nlp-core
+  primitives. Mirrors `kaos_llm_core.programs.query_expander.LLMQueryExpander`
+  shape; Phase 2 of the plan lifts this verbatim to
+  `kaos_llm_core/programs/retrieval_planner.py`.
+
+  * `RetrievalStrategy` (`StrEnum`) — `NONE` / `TOKEN` / `NGRAM` /
+    `BM25` / `EMBEDDING`.
+  * `PlanRetrieval` (`Signature`) — typed I/O contract for the LLM.
+  * `RetrievalPlanner` (`Protocol`, `@runtime_checkable`) — swap in
+    heuristic / cached planners without touching consumers.
+  * `LLMRetrievalPlanner` — `Call(PlanRetrieval, model, examples,
+    core_settings)` wrapper. Single LLM call per `plan()`; returns
+    `RetrievalPlanResult` with `usage` carried through.
+  * `apply_retrieval_plan` — pure-mechanical strategy dispatch.
+    Composes `kaos_content.search.search_document` for TOKEN / NGRAM
+    / EMBEDDING; doc-level BM25 narrowing via `kaos_nlp_core.search.Searcher`
+    over the parsed merged corpus (not the redacted in-memory
+    DOCUMENTS section).
+  * Telemetry: `RetrievalApplyResult(strategy, kept, dropped,
+    fallback_reason, warnings)` for `Span(SUBAGENT, ...)` attributes.
+
+### Settings
+
+* `KAOS_AGENT_RETRIEVAL_PLAN_FLOOR=5` — corpus size below which the
+  planner Signature is skipped (strategy=NONE without an LLM call).
+* `KAOS_AGENT_RETRIEVAL_PLAN_MODEL=None` — defaults to
+  `default_llm_model` (cheap classify-tier model).
+* `KAOS_AGENT_RETRIEVAL_DEFAULT_TOP_K=20` — default narrowing cap.
+
+### Changed
+
+* `BaseAgent._detect_pattern_mismatch` no longer flags RESEARCH
+  intent as silently-degrading — the new `_handle_research` is the
+  real default, so the redirect-to-tool-use safety net is unnecessary
+  for that intent. PLAN still falls through as before.
+* `_dispatch_streaming` routes RESEARCH directly into
+  `_handle_research_streaming` (bypassing the non-streaming wrap so
+  `CitationFound` events reach SSE consumers).
+
+### Tests
+
+* `tests/unit/test_retrieval_planner.py` — 11 unit tests covering
+  strategy coercion, value-type defaults, applier mechanics per
+  strategy, and fallback semantics on empty probes / empty corpus.
+* `tests/integration/test_findings_dispatch_live.py` — 2 live tests
+  for the SPA happy path (S05 fixture) and the no-corpus fall-through.
+* `tests/unit/test_pattern_mismatch.py` — updated 2 assertions for
+  the RESEARCH-no-longer-redirects contract.
+
+### Migration
+
+No API removal. Existing callers see new dispatch behavior on
+corpus-attached fact-lookup turns; the legacy `respond` path still
+runs for non-corpus turns.
+
+### Package responsibilities (full DAG context)
+
+`kaos-nlp-core` (BM25), `kaos-nlp-transformers` (embeddings),
+`kaos-content` (`search_document` + DocumentView), `kaos-pdf`,
+`kaos-office`, `kaos-llm-client` (transport) consumed as-is — no
+new work in those packages. `kaos-llm-core` Phase 2 lift of the
+planner primitive is deferred to a follow-up release.
+
 ## [0.1.18] — 2026-05-25
 
 A+ multi-axis cleanup + MultiChainComparison adoption + cross-org

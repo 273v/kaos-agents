@@ -162,16 +162,19 @@ class TestDetectPatternMismatch:
         assert mismatch.fallback_handler == "_handle_tool_use"
         assert "silently degraded to _handle_respond" in mismatch.rationale
 
-    def test_research_intent_on_chat_agent_emits_mismatch_and_redirects(self) -> None:
+    def test_research_intent_no_longer_triggers_mismatch(self) -> None:
+        # RESEARCH used to fall through the same silent-degradation path
+        # as PLAN. As of the FindingsAgent-backed default
+        # (kaos-modules/docs/plans/2026-05-26-retrieval-planner-and-findings-dispatch.md),
+        # BaseAgent._handle_research is a real grounding pipeline —
+        # no redirect, no PatternMismatch.
         agent = _StubChatAgent()
         redirect, mismatch = agent._detect_pattern_mismatch(
             _intent(IntentType.RESEARCH), _emitter()
         )
 
-        assert redirect.__func__ is type(agent)._handle_tool_use
-        assert isinstance(mismatch, PatternMismatch)
-        assert mismatch.classified_intent == "research"
-        assert mismatch.recommended_pattern == "research"
+        assert redirect is None
+        assert mismatch is None
 
     def test_plan_intent_on_plan_agent_no_mismatch(self) -> None:
         # _StubPlanAgent overrides _handle_plan → no fall-through → no
@@ -182,17 +185,18 @@ class TestDetectPatternMismatch:
         assert redirect is None
         assert mismatch is None
 
-    def test_research_intent_on_plan_agent_emits_mismatch(self) -> None:
-        # _StubPlanAgent only overrides _handle_plan; _handle_research is
-        # still the default → research intent should redirect.
+    def test_research_intent_on_plan_agent_no_longer_triggers_mismatch(self) -> None:
+        # _StubPlanAgent overrides _handle_plan but not _handle_research.
+        # Pre-FindingsAgent default this redirected to _handle_tool_use; the
+        # FindingsAgent-backed BaseAgent._handle_research now grounds via the
+        # planner + applier, so no PatternMismatch fires on RESEARCH.
         agent = _StubPlanAgent()
         redirect, mismatch = agent._detect_pattern_mismatch(
             _intent(IntentType.RESEARCH), _emitter()
         )
 
-        assert redirect.__func__ is type(agent)._handle_tool_use
-        assert isinstance(mismatch, PatternMismatch)
-        assert mismatch.agent_pattern == "plan"
+        assert redirect is None
+        assert mismatch is None
 
     def test_respond_intent_no_mismatch(self) -> None:
         # IntentType.RESPOND has a real BaseAgent handler — no silent
