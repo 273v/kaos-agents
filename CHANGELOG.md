@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.20] — 2026-05-26
+
+Corpus-stress residuals: verbatim quoting for regulatory/legal text.
+The plan
+`kaos-modules/docs/plans/2026-05-26-corpus-stress-5-failure-resolution.md`
+identified five live failures after 0.1.19; this release closes
+Failure 4 (S20 — synthesis paraphrasing instead of quoting CFR text)
+through a Signature-level policy change. Failures 1 (S19 XLSX) and 3
+(S03 OCR) ship in kaos-office 0.1.3 and kaos-pdf 0.1.4 respectively —
+no kaos-agents change required; their pins are already permissive
+(`<0.2`). Failures 2 (S16 partial-success refusal wording) and 5
+(S22 confidence collapse) are deferred to a follow-up release pending
+trace inspection per the plan's risk-rollback policy.
+
+### Changed — synthesis verbatim-quote policy (S20 / Failure 4)
+
+* `FindingsAgent._SynthesizeSignature.answer.OutputField` description
+  now carries a "VERBATIM QUOTING POLICY" sub-section that requires
+  the model to include the verbatim text of a cited authority in a
+  blockquote whenever the question asks for "the regulation", "the
+  clause", "the section", "the exact language", "the verbatim text",
+  "the operative text", or quotes a section number pattern (e.g.
+  `17 CFR § 240.10b-5`, `15 U.S.C. § 78j(b)`, `Section 4.2(a)`).
+  Paraphrasing in lieu of the verbatim text is labeled a P0 product
+  failure. If the verbatim text is not present in retrieved findings,
+  the model must say so explicitly and stop — not paraphrase from
+  outside knowledge.
+* Per `feedback_kaos_oss_legal_research_bar.md`: 273v ships products
+  real users trust on legal-research workflows. Section-number
+  surfaces without operative-text quotes are a class-3 failure
+  ("correct citation, wrong specificity") — this policy promotes such
+  responses to class-4 ("correct + cited verbatim").
+
+### Deferred to follow-up
+
+* S16 partial-success refusal wording (Failure 2). The core
+  contribution to S16 is the S19 XLSX fix in kaos-office 0.1.3; once
+  that lands, S16's needle count moves from 4/5 → 5/5 for the formats
+  the agent already attempts. The remaining HTML/JSON loader-routing
+  improvement does not require a kaos-agents release.
+* S22 confidence collapse (Failure 5). Needs `ConsistencyChecked`
+  trace inspection from a fresh S22 run to confirm whether the M2
+  critic or the synthesis prompt is the cause; the plan documents
+  both hypotheses with different fix paths. Picking the wrong fix
+  could over-tighten the critic and regress S05 / S07. Will ship in a
+  follow-up release after trace evidence is in hand.
+
 ## [0.1.19] — 2026-05-26
 
 Corpus-grounded dispatch becomes the default. ChatAgent now picks
