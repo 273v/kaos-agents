@@ -2128,7 +2128,19 @@ async def _synthesize(
                 "Concise answer to the question, citing finding_ids "
                 "inline with the syntax ``[abc12345]``. When the "
                 "findings don't actually answer the question, say so "
-                "explicitly rather than guessing."
+                "explicitly rather than guessing.\n\n"
+                "VERBATIM QUOTING POLICY: When the question asks for "
+                "'the regulation', 'the clause', 'the section', 'the "
+                "exact language', 'the verbatim text', 'the operative "
+                "text', or quotes a section number "
+                "(e.g. '17 CFR § 240.10b-5', '15 U.S.C. § 78j(b)', "
+                "'Section 4.2(a)'), you MUST include the verbatim text "
+                "of the cited authority enclosed in a blockquote "
+                "(``> text``). Paraphrasing or summarizing in lieu of "
+                "the verbatim text is a P0 product failure. If the "
+                "verbatim text is not present in the retrieved "
+                "findings, say so explicitly and stop — do not "
+                "paraphrase or substitute outside knowledge."
             ),
         )
 
