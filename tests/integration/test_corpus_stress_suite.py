@@ -297,6 +297,8 @@ def _assert_retrieval_tool(response: AgentResponse) -> None:
         "filter-sentences",
         "chat",
         "plan",
+        "ocr",
+        "classify",
     )
     matched = [n for n in names if any(f in n for f in families)]
     if not matched:

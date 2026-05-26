@@ -1398,6 +1398,88 @@ class BaseAgent(KaosAgent):
         return "size_bytes:" in content and len(content) < 500
 
     @staticmethod
+    def _ocr_pdf_bytes_to_content_document(
+        filename: str,
+        body: bytes,
+    ) -> Any | None:
+        """OCR fallback for image-only PDFs that yield no text layer.
+
+        Used when ``parse_pdf_bytes`` returns a ContentDocument with an
+        empty body — i.e. the PDF is scanned and has no extractable
+        text. Renders each page via kaos-pdf + Tesseract and emits one
+        Paragraph per OCR line plus a ``[page N]`` marker between pages
+        so the FindingsAgent dispatch has real text to enumerate over.
+
+        Returns ``None`` when (a) kaos-pdf isn't installed, (b)
+        Tesseract isn't on the host, or (c) OCR yields no text. The
+        caller falls back to the empty parse result.
+        """
+        import tempfile
+        from pathlib import Path
+
+        try:
+            from kaos_content.model.blocks import Paragraph
+            from kaos_content.model.document import ContentDocument
+            from kaos_content.model.inlines import Text
+            from kaos_pdf import (
+                TesseractEngine,
+                TesseractNotInstalledError,
+                get_page_count,
+                render_page,
+            )
+        except ImportError:
+            return None
+
+        try:
+            engine = TesseractEngine()
+        except TesseractNotInstalledError:
+            logger.debug(
+                "base_agent._ocr_pdf_bytes: tesseract not installed; "
+                "skipping OCR fallback for filename=%r",
+                filename,
+            )
+            return None
+
+        blocks: list[Any] = []
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=True) as tmp:
+                tmp.write(body)
+                tmp.flush()
+                path = Path(tmp.name)
+                n_pages = get_page_count(path)
+                for page_idx in range(n_pages):
+                    image = render_page(path, page_idx, dpi=300)
+                    ocr = engine.extract_sync(image)
+                    page_text = (ocr.text or "").strip()
+                    if not page_text:
+                        continue
+                    blocks.append(Paragraph(children=(Text(value=f"[page {page_idx + 1}]"),)))
+                    for raw_line in page_text.splitlines():
+                        line = raw_line.strip()
+                        if line:
+                            blocks.append(Paragraph(children=(Text(value=line),)))
+        except TesseractNotInstalledError:
+            # pytesseract / system tesseract missing — install via
+            # `kaos-pdf[ocr]` to enable this fallback. Treat as a
+            # configuration miss rather than an exception.
+            logger.debug(
+                "base_agent._ocr_pdf_bytes: pytesseract not installed; "
+                "skipping OCR fallback for filename=%r (install kaos-pdf[ocr])",
+                filename,
+            )
+            return None
+        except Exception:
+            logger.exception(
+                "base_agent._ocr_pdf_bytes: OCR fallback raised on filename=%r — skipping",
+                filename,
+            )
+            return None
+
+        if not blocks:
+            return None
+        return ContentDocument(body=tuple(blocks))
+
+    @staticmethod
     def _parse_binary_bytes_to_content_document(
         filename: str,
         mime: str,
@@ -1427,7 +1509,19 @@ class BaseAgent(KaosAgent):
             if "pdf" in mime:
                 from kaos_pdf import parse_pdf_bytes
 
-                return parse_pdf_bytes(body, filename=filename)
+                doc = parse_pdf_bytes(body, filename=filename)
+                # Scanned PDFs (no text layer) yield an empty body.
+                # Without an OCR fallback the FindingsAgent dispatch
+                # enumerates 0 candidates and synthesis emits "(empty)"
+                # (corpus-stress S03). Try OCR before returning.
+                if not getattr(doc, "body", None):
+                    ocr_doc = BaseAgent._ocr_pdf_bytes_to_content_document(
+                        filename=filename,
+                        body=body,
+                    )
+                    if ocr_doc is not None:
+                        return ocr_doc
+                return doc
             if (
                 "wordprocessingml" in mime
                 or "officedocument.wordprocessingml" in mime

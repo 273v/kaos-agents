@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.21] — 2026-05-26
+
+S03 cascade fix: OCR fallback in the FindingsAgent corpus pre-parse
+path. The SPA Chrome MCP acceptance matrix on 0.1.20 surfaced a new
+bug — the dispatch eager-parses uploaded PDFs via `parse_pdf_bytes`,
+which returns an empty body for scanned (image-only) PDFs. The
+enumeration step then finds 1 candidate (empty), the filter rejects
+it, and synthesis emits `(empty)`. The `kaos-pdf-ocr-page` tool
+shipped in kaos-pdf 0.1.4 was never reached because corpus-grounded
+dispatch bypasses the ReAct tool surface. This release plumbs OCR
+into the corpus pre-parse so the FindingsAgent gets real text to
+ground on.
+
+### Added — OCR fallback for scanned PDFs (S03 / WI5)
+
+* New `BaseAgent._ocr_pdf_bytes_to_content_document` static helper
+  (`kaos_agents/runtime/agent.py`) that, when `parse_pdf_bytes`
+  returns a ContentDocument with empty body, renders each page via
+  `kaos_pdf.render_page` and runs the `TesseractEngine` to recover
+  the text. Emits one `Paragraph` per OCR line plus a `[page N]`
+  marker between pages so synthesis can cite per page.
+* `_parse_binary_bytes_to_content_document` PDF branch now calls
+  the fallback before returning. Text-layer PDFs are unaffected —
+  the helper is only invoked when the parse result is empty.
+* Graceful degradation when pytesseract / system tesseract isn't
+  installed: the gate returns the empty parse result and the
+  dispatch falls back to the existing "(empty)" path. Hosts that
+  want OCR-active scanned-PDF handling should install
+  `kaos-pdf[ocr]` in their backend environment (e.g. the SPA's
+  agent venv).
+
+### Tests
+
+* `tests/unit/test_corpus_ocr_fallback.py` — 4 unit tests covering
+  scanned-PDF OCR recovery, page-marker emission, text-layer PDF
+  bypass, and the empty-PDF / OCR-not-available graceful path.
+  Skips cleanly when tesseract isn't available (same gate
+  `_has_ocr()` as the corpus-stress integration suite uses).
+
+### Deferred to follow-up
+
+* S22 confidence collapse fix (WI2). The single-document SPA
+  fixture didn't reproduce the original 50-document flip-flop;
+  fix needs a true 50-doc S22 trace before picking the M2-rubric
+  vs synthesis-prompt remediation per the residuals plan.
+* S16 partial-success refusal-wording structural refactor (WI3).
+  The current gate already returns `refuse=False` for partial
+  success (`no_evidence_gate.py:280-283`); the universal-claim
+  wording in the refusal path only fires when every tool failed.
+  Plumbing successful-call counts through the gate is a future
+  defensive refactor and not an active failure in the 0.1.20 SPA
+  matrix.
+
 ## [0.1.20] — 2026-05-26
 
 Corpus-stress residuals: verbatim quoting for regulatory/legal text.
