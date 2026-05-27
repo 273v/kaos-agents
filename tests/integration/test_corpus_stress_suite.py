@@ -309,10 +309,25 @@ def _assert_retrieval_tool(response: AgentResponse) -> None:
 
 def _assert_needle_present(response: AgentResponse, needle_substr: str) -> None:
     if needle_substr.lower() not in response.text.lower():
+        # Verbose failure: dump every tool call's is_error + result_summary
+        # so the CI log shows WHICH parsers failed and WHY. Cheap (only
+        # fires on failure) and the existing `tools: [...]` line only
+        # carries names, not error envelopes. 2026-05-27 — added while
+        # diagnosing scenario_16's 0-of-3-tool-call refusals; agent was
+        # passing placeholder filenames to format parsers and the test
+        # error message buried the root cause behind the WI3 refusal text.
+        tc_dump = []
+        for tc in getattr(response, "tool_calls", []) or []:
+            tc_dump.append(
+                f"\n  - {getattr(tc, 'tool_name', '?')} "
+                f"is_error={getattr(tc, 'is_error', '?')} "
+                f"summary[:400]={(getattr(tc, 'result_summary', '') or '')[:400]!r}"
+            )
         raise AssertionError(
             f"planted needle {needle_substr!r} missing from response. "
             f"response head: {response.text[:300]!r} "
             f"tools: {_tool_names(response)}"
+            f"\ntool_calls detail:{''.join(tc_dump)}"
         )
 
 
