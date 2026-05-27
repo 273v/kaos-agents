@@ -277,7 +277,9 @@ def evaluate_no_evidence_gate(
         return NoEvidenceVerdict(refuse=False)
 
     failed = [o for o in obs_tuple if o.is_error]
-    if len(failed) != len(obs_tuple):
+    total = len(obs_tuple)
+    succeeded = total - len(failed)
+    if succeeded > 0:
         # At least one tool succeeded — the agent has SOME evidence.
         # Don't refuse; the LLM can ground on what worked.
         return NoEvidenceVerdict(refuse=False)
@@ -310,10 +312,15 @@ def evaluate_no_evidence_gate(
 
     failed_tools = tuple(o.tool_name for o in failed)
     error_excerpts = tuple(_excerpt_error(o.result_preview) for o in failed)
+    # Quantified shape: explicit ratio rather than the universal
+    # "All N" pattern. Same path as before — gate still only fires
+    # when 0/N tools succeeded — but the wording exposes the
+    # denominator so readers don't have to infer it (closes WI3 of
+    # 2026-05-26 corpus-stress residuals plan).
     reason = (
-        f"All {len(failed)} tool call(s) attempted in this turn returned errors, "
-        f"and the user referenced {len(referenced_unique)} file(s) "
-        "that the agent therefore did not read"
+        f"0 of {total} tool call(s) attempted in this turn returned usable "
+        f"results ({len(failed)} errored), and the user referenced "
+        f"{len(referenced_unique)} file(s) that the agent therefore did not read"
     )
     return NoEvidenceVerdict(
         refuse=True,
@@ -355,14 +362,13 @@ def render_refusal_text(verdict: NoEvidenceVerdict, *, max_files: int = 5) -> st
             break
 
     parts: list[str] = []
+    n_failed = verdict.failed_tool_count
     parts.append(
-        "I tried to read the file(s) you referenced "
-        f"({file_list}) but every tool call returned an error, "
-        "so I have no evidence to answer your question from."
+        f"I tried to read the file(s) you referenced ({file_list}) but "
+        f"0 of {n_failed} tool call(s) returned usable results — every "
+        "attempt errored — so I have no evidence to answer your question from."
     )
-    parts.append(
-        f"Tools attempted: {tool_list}. ({verdict.failed_tool_count} call(s), all failed.)"
-    )
+    parts.append(f"Tools attempted: {tool_list}. ({n_failed} call(s), {n_failed} failed.)")
     if excerpt_lines:
         parts.append("Errors I saw:\n" + "\n".join(excerpt_lines))
     parts.append(
