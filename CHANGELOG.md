@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.23] — 2026-05-27
+
+Bug fix for the stuck "running…" tool card UI artifact in downstream
+SPAs. The findings-dispatch synthetic tool_call/start was emitting
+`attrs.call_id = research_span.span_id` (the parent SUBAGENT span's
+id) while the matching span_complete omitted `call_id` entirely — so
+downstream recorders that key on `attrs.call_id or payload.span_id`
+saw start under one key (the parent span) and complete under another
+(the TOOL_CALL span's own id), and rendered two cards: one stuck
+"running…", one done. Fix removes the misset `call_id` from start so
+both events resolve to the same TOOL_CALL span_id via the recorder's
+fallback.
+
+### Fixed
+
+- `BaseAgent` synthetic findings-dispatch tool_call span: removed the
+  wrong `attrs.call_id = research_span.span_id` from the start
+  event. Start and complete now resolve to the same TOOL_CALL
+  `span_id` via the recorder fallback, so downstream UIs render one
+  card per call instead of one running + one done. Closes the
+  upstream half of the SPA stuck-card bug; the SPA-side dedup ships
+  as belt-and-braces in `kaos-ui` `tool_call_recorder.py`.
+
+### Acceptance
+
+- `tests/scratch/spa_chrome_acceptance_notes/WUK_2026-05-27_RESULTS.md`
+  documents the 20-case WU-K Chrome MCP matrix run on the 0.1.22 +
+  this-fix stack: 17/19 effectively-tested PASS (89%), zero
+  orphan-running across ~80 tool dispatches across 6 buckets
+  (multi-turn corpus / persona scenarios / cost-guard / anti-bot /
+  pattern×model / UX invariants).
+- `tests/scratch/spa_chrome_acceptance_notes/MATRIX_2026-05-27_v1_RESULTS.md`
+  documents the prior surface-area matrix (23/25 PASS) that
+  surfaced the stuck-card bug originally.
+
 ## [0.1.22] — 2026-05-26
 
 Quantified-ratio refusal wording in `evaluate_no_evidence_gate`
