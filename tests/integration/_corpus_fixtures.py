@@ -380,7 +380,15 @@ _CLUSTER_VOCAB: dict[str, list[str]] = {
         "Patient cohort A showed a 38% response rate at 12-week follow-up.",
         "Adverse event grades stayed below CTCAE grade 3 throughout the arm.",
         "PK/PD modeling indicates a 14-hour half-life in healthy volunteers.",
-        "The dose-escalation phase enrolled 24 patients across three cohorts.",
+        # NOTE: removed the prior "dose-escalation phase enrolled 24 patients"
+        # sentence — it carries the same `<verb> <integer> patients` shape as
+        # S22's planted "Combined-stress fact: medical-trial cohort N=2486
+        # enrolled" needle, which let the agent prefer the smaller (and
+        # canonical-sounding) distractor over the needle and produced the
+        # "rejects 2486, reports 24" judge-partial verdict the residuals plan
+        # tracks. Replaced with a non-numeric medical phrase so the fixture
+        # is unambiguous about which doc carries the enrollment count.
+        "Bioavailability assessments leveraged dried blood spot sampling.",
         "Pre-specified secondary endpoints reached statistical significance.",
         "Concomitant medication restrictions excluded strong CYP3A4 inhibitors.",
         "Stratification factors included age, ECOG status, and prior therapy.",
