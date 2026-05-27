@@ -1122,13 +1122,16 @@ class BaseAgent(KaosAgent):
             name="tool.kaos-agent-findings-dispatch",
             attributes={
                 "tool_name": "kaos-agent-findings-dispatch",
-                "call_id": research_span.span_id,
                 "arguments": (
                     ("question", message[:200]),
                     ("selector", "every_sentence_selector"),
                 ),
             },
         )
+        # Set the call_id to the TOOL_CALL span's own span_id so the matching
+        # span_complete below resolves to the same id (the recorder falls back
+        # to payload.span_id when attrs.call_id is absent; span_complete reuses
+        # tc_span.span_id, so omitting attrs.call_id on both sides merges them).
         yield tc_span
 
         # Findings path — emit one CitationFound per surviving finding.
