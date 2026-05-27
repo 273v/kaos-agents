@@ -249,6 +249,56 @@ def test_render_includes_file_list_and_tools() -> None:
     assert "NOT fabricate" in text
 
 
+def test_render_uses_quantified_ratio_not_universal_claim() -> None:
+    """Closes WI3 of 2026-05-26 corpus-stress residuals plan.
+
+    The refusal text MUST use a quantified ratio (``0 of N``) so the
+    reader sees the denominator, not a bare universal claim (``every``
+    / ``all N``). The gate only fires when every attempted tool errored,
+    but the rendered text exposes the count explicitly — that's what
+    distinguishes "every tool fired and failed" (load-bearing) from
+    "no tools fired at all" (different failure mode entirely).
+    """
+    verdict = NoEvidenceVerdict(
+        refuse=True,
+        reason="all-failed",
+        referenced_files=("nda.docx",),
+        failed_tool_count=3,
+        failed_tools=("kaos-office-parse-docx",) * 3,
+        error_excerpts=(),
+    )
+    text = render_refusal_text(verdict)
+    # Quantified shape — closes the WI3 wording fix.
+    assert "0 of 3" in text, text
+    # The legacy universal-claim wording must NOT reappear.
+    assert "every tool call returned an error" not in text, text
+
+
+def test_evaluate_reason_uses_quantified_ratio() -> None:
+    """The ``reason`` field on the verdict mirrors the rendered text:
+    explicit ratio rather than ``All N``. Logging / debug consumers
+    read this directly, so the wording must match.
+    """
+    from kaos_agents.grounding.no_evidence_gate import (
+        ToolObservationSummary,
+        evaluate_no_evidence_gate,
+    )
+
+    failing = ToolObservationSummary(
+        tool_name="kaos-office-parse-docx",
+        is_error=True,
+        result_preview='{"what": "vfs read failed", "path": "nda.docx"}',
+        arguments_preview='{"path": "nda.docx"}',
+    )
+    verdict = evaluate_no_evidence_gate(
+        observations=[failing, failing],
+        user_message="What does nda.docx say?",
+    )
+    assert verdict.refuse is True
+    assert "0 of 2" in verdict.reason, verdict.reason
+    assert "all " not in verdict.reason.lower() or "all" not in verdict.reason.split()[0:2]
+
+
 def test_render_truncates_long_file_lists() -> None:
     files = tuple(f"file{i}.docx" for i in range(20))
     verdict = NoEvidenceVerdict(
