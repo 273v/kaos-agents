@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.22] — 2026-05-26
+
+Quantified-ratio refusal wording in `evaluate_no_evidence_gate`
+(WI3 of the corpus-stress residuals plan). Replaces the universal-
+claim shape ("All N tool call(s)" / "every tool call returned an
+error") with an explicit ratio ("0 of N tool call(s) returned
+usable results, N errored"). Same code path; clearer denominator
+in both the verdict's `reason` field and the rendered refusal
+text.
+
+### Changed
+
+* `evaluate_no_evidence_gate()` reason field now reads
+  "0 of {total} tool call(s) attempted in this turn returned
+  usable results ({len(failed)} errored), and the user
+  referenced {N} file(s) that the agent therefore did not read".
+* `render_refusal_text()` body now reads "0 of {N} tool call(s)
+  returned usable results — every attempt errored —" instead of
+  "every tool call returned an error".
+
+### Tests
+
+* Two new regression tests in `tests/unit/test_no_evidence_gate.py`
+  lock in the quantified shape and forbid the legacy universal-
+  claim wording from reappearing.
+
 ## [0.1.21] — 2026-05-26
 
 S03 cascade fix: OCR fallback in the FindingsAgent corpus pre-parse
