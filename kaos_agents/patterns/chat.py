@@ -635,6 +635,61 @@ class ChatAgent(BaseAgent):
             recent = memory.get_recent(MemoryType.MESSAGES, FALLBACK_RECENT_MESSAGES)
             context_text = "\n".join(item.content for item in recent) if recent else ""
 
+        # 2026-05-27 S16 fix — surface session corpus filenames to the worker.
+        #
+        # The planner (`plan_turn_tool_policy`) receives `corpus_headlines`
+        # and uses them to pick the right tool family, but the WORKER (the
+        # ReAct loop that actually dispatches the picked tools) never sees
+        # the filename list. The `context_text` built above carries only
+        # the body chunks of DOCUMENTS items — no `### filename` headers.
+        # When the worker decides to call e.g. `kaos-pdf-extract-parse`, it
+        # has to invent a `path=` argument from what's in its prompt; with
+        # no filename ground truth, the model defaults to plausible
+        # placeholders like `document.pdf`. The format parsers resolve
+        # those via `kaos-core` `resolve_input_path`, the VFS lookup fails,
+        # and the no-evidence gate fires with a "0 of N tool calls
+        # returned usable results" refusal. This is the architectural
+        # mismatch surfaced by scenario_16 of the corpus-stress integration
+        # suite (S16, "5-format pile").
+        #
+        # Fix: prepend a small manifest of session filenames to
+        # `context_text` so the model sees the actual files before it
+        # decides which parser to invoke. The cost is ~50-150 tokens per
+        # turn when corpus is attached; the alternative is a 100% failure
+        # rate on prompts that name files by format without naming them
+        # explicitly.
+        #
+        # We read from `memory.get(MemoryType.DOCUMENTS)` directly rather
+        # than `context_items[DOCUMENTS]` because the assembled context
+        # may be trimmed by budget — and a partial manifest is worse than
+        # no manifest (the agent confidently asserts "only 2 of 5 files
+        # are attached" when 5 are actually present, observed locally on
+        # scenario_16 with budget-trimmed context_items).
+        doc_items = (
+            memory.get(MemoryType.DOCUMENTS) if memory.has_section(MemoryType.DOCUMENTS) else []
+        )
+        if doc_items:
+            file_list: list[str] = []
+            for item in doc_items:
+                metadata = getattr(item, "metadata", None) or {}
+                name = (
+                    metadata.get("filename") or metadata.get("source_uri") or metadata.get("name")
+                )
+                if name and name not in file_list:
+                    file_list.append(str(name))
+            if file_list:
+                manifest = (
+                    f"=== SESSION FILES ({len(file_list)}) ===\n"
+                    + "\n".join(f"- {f}" for f in file_list)
+                    + "\n\nWhen calling a file-parser tool (kaos-pdf-*, "
+                    "kaos-office-*, kaos-core-vfs-read, etc.), use one of "
+                    "the EXACT filenames listed above as the `path` "
+                    "argument. Do NOT invent generic names like "
+                    "'document.pdf'. If you need to discover available "
+                    "files at runtime, call `kaos-core-vfs-list` first.\n"
+                )
+                context_text = f"{manifest}\n{context_text}" if context_text else manifest
+
         # WS-0.4: compose the caller's instructions (if any) with the
         # pattern-specific default so user-supplied identity survives
         # into the ReAct prompt. Caller instructions first — they are

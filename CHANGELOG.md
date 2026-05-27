@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.24] — 2026-05-27
+
+Worker-side corpus-filename awareness for `ChatAgent` ReAct turns.
+
+### Fixed
+
+- `ChatAgent._handle_tool_use_streaming` now prepends a SESSION FILES
+  manifest (the list of filenames currently in
+  `SessionMemory.DOCUMENTS`) to the ReAct worker's `context` input.
+  The manifest is built directly from `memory.get(MemoryType.DOCUMENTS)`
+  (not the assembled `context_items`) so all attached files appear
+  even when the assembled context is budget-trimmed.
+
+  Without this manifest the ReAct worker only saw the DOCUMENTS
+  section body chunks — no filename headers — so when the LLM
+  decided to invoke a format-specific parser
+  (e.g. `kaos-pdf-extract-parse`), it had to invent a `path=`
+  argument from what was in its prompt. With no filename ground
+  truth it defaulted to plausible placeholders like
+  `document.pdf` / `document.docx`, the VFS lookup failed, and the
+  no-evidence gate fired with a "0 of N tool call(s) returned
+  usable results" refusal.
+
+  Verified on the kaos-agents corpus-stress `scenario_16` test
+  ("5-format pile"): before the fix the agent dispatched 3 format
+  parsers with placeholder names and all 3 errored; after the fix
+  the same prompt produces real filename arguments
+  (`pile-revenue.pdf`, `pile-counsel.docx`, `pile-lineitems.xlsx`)
+  and the parsers return real artifacts. The scenario's downstream
+  needles (PDF `$93.14M`, DOCX `Hannah Brueggeman`) are now
+  reachable; the remaining `LI-PILE-9001` XLSX-row needle requires
+  a separate kaos-office/kaos-tabular tool-chain change to extract
+  cell-level data from a parsed XLSX artifact, and the suite still
+  hits iteration-cap variance on multi-needle synthesis — both
+  tracked as follow-ups.
+
+  Cost of the manifest: ~50-150 tokens per turn when corpus is
+  attached. No cost when DOCUMENTS section is empty.
+
+### Architectural note
+
+The planner (`plan_turn_tool_policy`) has always received
+`corpus_headlines` and uses them to pick the right tool family.
+The worker, until this release, did not — two separate code paths,
+two different inputs, and the worker was the one whose `path=`
+arguments were getting hallucinated. Closing that gap is the real
+fix; the kaos-core 0.1.4 path-resolver sibling-files hint released
+earlier today is belt-and-braces error recovery for agents that
+retry.
+
 ## [0.1.23] — 2026-05-27
 
 Bug fix for the stuck "running…" tool card UI artifact in downstream
