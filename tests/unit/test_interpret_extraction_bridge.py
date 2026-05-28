@@ -196,7 +196,7 @@ class TestSuccess:
 
         seen_inputs: dict[str, Any] = {}
 
-        async def capture(self_, inputs: dict[str, Any], *, context: Any = None) -> Any:  # noqa: ARG001
+        async def capture(self_, inputs: dict[str, Any], *, context: Any = None) -> Any:
             seen_inputs.update(inputs)
             return _fake_tool_result()
 
@@ -228,7 +228,7 @@ class TestSuccess:
 
         seen_inputs: dict[str, Any] = {}
 
-        async def capture(self_, inputs: dict[str, Any], *, context: Any = None) -> Any:  # noqa: ARG001
+        async def capture(self_, inputs: dict[str, Any], *, context: Any = None) -> Any:
             seen_inputs.update(inputs)
             return _fake_tool_result()
 
@@ -250,7 +250,7 @@ class TestSuccess:
 
         seen_inputs: dict[str, Any] = {}
 
-        async def capture(self_, inputs: dict[str, Any], *, context: Any = None) -> Any:  # noqa: ARG001
+        async def capture(self_, inputs: dict[str, Any], *, context: Any = None) -> Any:
             seen_inputs.update(inputs)
             return _fake_tool_result()
 
