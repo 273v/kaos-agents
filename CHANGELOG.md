@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`kaos-agent-design-extraction` tool (PR-1a of dynamic-deliverable-
+  schema architecture).** New tool the ReAct loop can call when the
+  user's question fits a structured extraction shape (table, list,
+  per-document attribute, comparison). Body invokes
+  `kaos_llm_core.programs.designers.design_schema` to ask the LLM
+  to propose a typed `ExtractionSchema` for the deliverable, then
+  returns the proposal as `structuredContent` for the agent to
+  inspect. PR-1a covers DESIGN only — PR-1b will add per-document
+  fan-out + the `stamp_source_uri` JOIN so the same tool also
+  executes the schema and returns typed rows. Splitting these
+  steps follows the plan §7 iteration discipline: measure designer
+  quality on real persona prompts before wiring in the fan-out.
+
+  Tool surface:
+  - inputs: `question: str`, `artifact_ids: list[str]`,
+    optional `domain_hint: str`, optional `model: str`
+    (defaults to `anthropic:claude-sonnet-4-6`)
+  - output: `structuredContent` with `schema_id`, `schema_version`,
+    `columns` (list of typed column proposals), `artifacts_sampled`,
+    `artifacts_requested`, `cost_usd`, `total_tokens`
+  - annotations: `readOnlyHint=False` (single LLM call spends
+    money), `destructiveHint=False`, `idempotentHint=False`
+
+  Registered via the standard `register_agent_tools(runtime)` path.
+  The SPA's `denied_tools` / `allowed_groups` policy controls
+  per-session availability.
+
+  Plan: `kaos-modules/docs/plans/2026-05-28-dynamic-deliverable-schema-architecture.md`.
+
 ### Changed
 
 - **User-visible refusal / footer text rewrites (PR-C of

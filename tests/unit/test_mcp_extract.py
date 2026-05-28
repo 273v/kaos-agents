@@ -277,11 +277,13 @@ class TestExtractVerifyTool:
 
 class TestRegistrationCount:
     def test_register_agent_tools_count(self) -> None:
-        """Registering tools yields 14: 6 original + 3 WS-TR.PR-4 + 3 B3 graph + K7 + K8."""
+        """Registering tools yields 15: 6 original + 3 WS-TR.PR-4 + 3 B3
+        graph + K7 + K8 + PR-1a kaos-agent-design-extraction.
+        """
         from kaos_core.registry.container import KaosRuntime
 
         from kaos_agents.tools import register_agent_tools
 
         runtime = KaosRuntime()
         count = register_agent_tools(runtime)
-        assert count == 14
+        assert count == 15

@@ -1506,6 +1506,7 @@ def register_agent_tools(runtime: KaosRuntime) -> int:
         default_tool_group_registry.register(group, force=True)
 
     from kaos_agents.tools.corpus_filter import AgentCorpusFilterTool
+    from kaos_agents.tools.design_extraction import AgentDesignExtractionTool
     from kaos_agents.tools.findings import AgentFindingsTool
 
     tools: list[KaosTool] = [
@@ -1528,6 +1529,12 @@ def register_agent_tools(runtime: KaosRuntime) -> int:
         # K8 — LLM-aided corpus precision filter (pairs with
         # kaos-content-corpus-narrow as a two-stage funnel).
         AgentCorpusFilterTool(),
+        # PR-1a (2026-05-28 dynamic-schema architecture) — LLM-driven
+        # extraction-schema design. Returns a typed ExtractionSchema
+        # proposal for a user question + corpus. PR-1b will add the
+        # per-document fan-out + stamp_source_uri JOIN so the same
+        # tool also executes the schema and returns typed rows.
+        AgentDesignExtractionTool(),
     ]
     for tool in tools:
         runtime.tools.register_tool(tool)
