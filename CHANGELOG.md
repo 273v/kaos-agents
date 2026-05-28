@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **LLM-visible Signature prose cleanup (PR-A of prompt-smell audit).**
+  Removed ~5,000 tokens per CHAT turn of "incident anecdote" prose
+  from four high-traffic Signature docstrings that ship verbatim
+  into the runtime LLM prompt. Every imperative rule survives;
+  every dated session reference, plan-doc path, coined-jargon tag,
+  and "P0 honesty failure" internal severity label is dropped.
+  Files: `kaos_agents/planning/goal_check.py` (`_GoalCheckerSignature`,
+  ~200 → ~70 lines), `kaos_agents/intent/signature.py`
+  (`IntentSignature`, ~120 → ~60 lines),
+  `kaos_agents/planning/tool_fitness.py` (`ToolFitnessSignature`
+  anti-patterns + composite/atomic blocks rewritten),
+  `kaos_agents/context/classify.py` (`ClassifyIntentSignature`
+  current-entity bullet stripped of the 2026-05-19 regression
+  anecdote). Verified end-to-end: 15/15 live tests across
+  `test_classify_intent_live.py`, `test_goal_check_live.py`,
+  `test_tool_fitness_live.py` pass in ~30s — all three rewritten
+  Signatures still produce the same structured output. Two unit
+  tests that pinned the old smelly phrasing as anchor strings
+  ("intent classifier" / "kaos-web-domain-profile") were updated
+  to assert rule SHAPE instead of magic strings; the tests
+  themselves were validating the smell rather than the rule. See
+  `kaos-modules/docs/plans/2026-05-27-kaos-agents-prompt-smell-audit.md`
+  §4.1-§4.5 for the full Before/After + rationale.
+
 ### Fixed
 
 - `FindingsAgent` cross-document attribution: synthesis now sees

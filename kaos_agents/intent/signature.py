@@ -27,122 +27,69 @@ from kaos_agents.intent.types import Ambiguity, Constraint, Goal
 class IntentSignature(Signature):
     """Extract typed intent from a trigger payload.
 
-    You are an intent classifier for an agentic system. Read the user's
-    message and prior context, then produce a typed intent.
-
-    Decision rules:
+    Read the user's message and prior context, produce a typed intent.
 
     1. Set ``requires_clarification=true`` ONLY when the message is so
-       ambiguous you cannot reasonably propose a goal. Otherwise propose
-       a best-effort goal and surface ambiguities for the agent to
-       handle later.
-    2. Be conservative on ``confidence`` — a confident wrong
-       classification is worse than a tentative correct one. Reserve
-       ``confidence>=0.9`` for unambiguous, single-goal messages.
+       ambiguous you cannot propose a goal. Otherwise propose a
+       best-effort goal and surface ambiguities in ``ambiguities``.
+
+    2. Be conservative on ``confidence``. Reserve ``confidence>=0.9``
+       for unambiguous single-goal messages.
+
     3. Pick ``pattern`` from the message shape, not the topic:
        conversational small-talk → ``CHAT``; "do X then Y then Z" →
        ``PLAN``; "what does the corpus say about X" → ``RESEARCH``.
-    4. Surface every ambiguity you detect in ``ambiguities``, even when
-       ``requires_clarification=false``. Downstream code uses these
-       hints to resolve references from memory.
-    5. Constraints are about *how the goal must be satisfied*: deadlines,
-       budgets, jurisdictions, output format, style, scope. Goal restating
-       does not count.
-    6. When ``corpus_attached=true`` (the session has documents in
-       memory) and the message refers to those documents indirectly
-       (pronouns like "that", "those", "these", "it"; or "the file",
-       "the document", "that PDF", "the attached", "the corpus"; or
-       short follow-ups like "summarize" / "what does it say" /
-       "extract terms") → set ``pattern=RESEARCH`` (grounded
-       Q&A / extraction over the corpus). The downstream agent will
-       route to ``search_memory(DOCUMENTS)`` and produce cited
-       findings. Do NOT pick ``CHAT`` for such references — the
-       previous SPA regression (R1-REAL UX-C2, 2026-05-17) was
-       exactly this: a follow-up "summarize that" with an attached
-       PDF routed to CHAT, the agent had no corpus context in the
-       prompt, and confidently answered from training data instead
-       of the attached document.
-    7. Populate ``targets`` with the corpus items the message points
-       at, drawn VERBATIM from ``corpus_headlines``. The downstream
-       planner uses this to scope work and the critic uses it to
-       verify the answer covered the right files. Rules:
 
-       - Specific named files (``"compare EMNA and Acme"``) →
-         ``targets=["EMNA Mutual NDA.docx", "MNDA - Acme.docx"]``.
-         Just the files the user named, not everything attached.
-       - General reference to the attached set (``"summarize these"``,
-         ``"what's in the documents?"``, ``"GL on these 5"``) →
-         expand ``targets`` to the full ``corpus_headlines`` list.
-         No sentinels — emit the actual filenames.
-       - Anaphora alone with no specific file (``"summarize that"``
-         when prior turn touched one document) → ``targets`` is the
-         single file the anaphor resolves to, when resolvable from
-         ``recent_messages``; empty list otherwise.
-       - No corpus reference (``"what's 2+2?"``) → ``targets=[]``
-         AND ``corpus_attached=false``.
-       - Corpus-adjacent but no specific target (``"draft me an
-         employment agreement"`` in a session with NDAs attached) →
-         ``targets=[]`` with ``corpus_attached=true``. The planner
-         decides whether the corpus is in scope.
+    4. Surface every ambiguity in ``ambiguities``, even when
+       ``requires_clarification=false``.
+
+    5. Constraints describe HOW the goal must be satisfied: deadlines,
+       budgets, jurisdictions, output format, style, scope.
+
+    6. When ``corpus_attached=true`` AND the message refers to attached
+       documents (pronouns "that/those/these/it"; phrases "the file",
+       "the document", "that PDF", "the attached", "the corpus"; short
+       follow-ups "summarize", "what does it say", "extract terms") →
+       set ``pattern=RESEARCH``. Do NOT pick ``CHAT``.
+
+    7. Populate ``targets`` with corpus items the message points at,
+       drawn VERBATIM from ``corpus_headlines``:
+
+       - Named files ("compare EMNA and Acme") → just those files.
+       - General reference ("summarize these", "what's in the docs",
+         "GL on these 5") → the full ``corpus_headlines`` list.
+       - Anaphora resolvable from ``recent_messages`` → the one file.
+       - No corpus reference → ``targets=[]`` AND
+         ``corpus_attached=false``.
+       - Corpus-adjacent but no specific target → ``targets=[]`` with
+         ``corpus_attached=true``.
 
        Every value in ``targets`` MUST appear verbatim in
-       ``corpus_headlines``. Do not paraphrase, abbreviate, or
-       invent filenames; the extractor rejects unknown filenames.
-       Surfacing anaphora resolution as a typed output makes it
-       inspectable, lets the planner scope tool calls, and gives
-       the critic a verification handle. See
-       ``kaos-modules/docs/plans/persona-matrix-followups.md`` §6.
+       ``corpus_headlines``.
+
     8. Factual-external-entity bias. When the user asks about a
-       *factual external entity* — a regulation, statute, case,
-       agency rule, public filing, public-company fact, current
-       status of a real-world thing — ALWAYS set
-       ``requires_clarification=false`` and propose a best-effort
-       goal that the downstream planner can route to whichever
-       tool group in ``available_tool_groups`` covers the
-       entity's domain. The downstream agent owns the
-       verification step — it is NOT this classifier's job to
-       extract every parameter up-front, and it is NOT this
-       classifier's job to enumerate which specific tool to use.
-       Even when jurisdiction / version / time-frame is genuinely
-       ambiguous, propose the most likely reading (latest version,
-       U.S. federal scope unless the prompt suggests otherwise,
-       current status as of today) and surface alternatives via
-       ``ambiguities``. The 2026-05-19 ``what is the latest diesel
-       emission reg`` session is the canonical anti-pattern: 6
-       rounds of clarification before the agent finally answered
-       from training memory with zero tool calls. The
-       2026-05-19 senator-question regression (session
-       01KS0R64Q744DTVZ53KCS9VC7M) was the corollary failure:
-       the classifier never saw ``available_tool_groups`` so it
-       treated a current-fact question as conversational
-       small-talk and routed to CHAT-with-no-tools. When
-       ``available_tool_groups`` lists a group whose description
-       covers the entity's domain, pick the most plausible
-       reading, dispatch with ``pattern=CHAT`` (single-turn
-       tool-using ReAct) or ``pattern=RESEARCH`` (when the group
-       is about reasoning over loaded documents), and let the
-       answer carry its own caveat instead of ping-ponging on
-       clarification.
-    9. Clarification-loop ceiling. If ``recent_messages`` already
-       contains an assistant turn that asked for clarification on
-       this same goal in the prior turn, do NOT ask again. Set
-       ``requires_clarification=false`` and propose the strongest
-       reading. Two rounds of clarification is the ceiling; any
-       further round wastes the user's turn and is a documented
-       UX-regression mode. (Companion rule to GoalCheckSignature
-       clarification-loop ceiling.)
-    10. Domain-conventional shorthand. When the user uses a
-       domain-conventional abbreviation in context (e.g., "GL" in
-       a contracts / M&A setting → governing law; "DD" in
-       transactions → due diligence; "RFI" in procurement →
-       request for information; "10-K" in finance → annual SEC
-       filing), prefer the conventional reading and propose the
-       goal. Only set ``requires_clarification=true`` if the
-       candidate readings are genuinely incompatible. The
-       2026-05-18 persona run had an agent refuse to interpret
-       "GL on these 5" as governing-law review of attached NDAs —
-       that's an unnecessary over-refusal when the domain context
-       is unambiguous.
+       regulation, statute, case, agency rule, public filing,
+       public-company fact, or current status of a real-world thing,
+       ALWAYS set ``requires_clarification=false`` and propose a
+       best-effort goal. Even when jurisdiction / version / time-frame
+       is ambiguous, propose the most likely reading (latest version,
+       U.S. federal scope unless otherwise indicated, current status
+       as of today) and surface alternatives via ``ambiguities``. When
+       ``available_tool_groups`` lists a fitting group, dispatch with
+       ``pattern=CHAT`` (single-turn tool-using) or
+       ``pattern=RESEARCH`` (when the group reasons over loaded
+       documents).
+
+    9. Clarification ceiling. If ``recent_messages`` shows an
+       assistant turn already asked for clarification on this same
+       goal, do NOT ask again. Set ``requires_clarification=false``
+       and propose the strongest reading.
+
+    10. Domain-conventional shorthand. Interpret in context: "GL" in
+        contracts → governing law; "DD" in deals → due diligence;
+        "RFI" in procurement → request for information; "10-K" →
+        annual SEC filing. Only set ``requires_clarification=true``
+        when the candidate readings are genuinely incompatible.
     """
 
     # inputs

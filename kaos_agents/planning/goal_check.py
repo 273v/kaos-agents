@@ -293,205 +293,75 @@ def _build_signature_class() -> type:
     from kaos_llm_core import InputField, OutputField, Signature
 
     class _GoalCheckerSignature(Signature):
-        """Decide whether the agent's last response satisfies the user.
+        """Decide whether the agent's response satisfies the user's question.
 
-        Rules:
-          - Output exactly one of three shapes via the ``kind`` field:
-            ``satisfied`` / ``needs_more_work`` / ``insufficient_evidence``.
-          - Be honest: the loop trusts you. False "satisfied" silently
-            ships a bad answer; false "needs_more_work" wastes a turn.
-            Asymmetric — prefer ``needs_more_work`` over ``satisfied``
-            on close calls.
-          - Refusal is a feature, not a failure: ``insufficient_evidence``
-            is the right answer when the corpus genuinely lacks the
-            information. Do NOT keep iterating on a question the
-            available tools can't answer.
+        Output exactly one of: ``satisfied`` / ``needs_more_work`` /
+        ``insufficient_evidence``.
 
-        Concrete shortcuts:
-          - Agent's response says "I can't / I don't have / sorry" →
-            almost certainly NOT satisfied. If the missing tool is in
-            ``available_groups`` but not ``elevation_trail``, the
-            next action is "request capability X" → ``needs_more_work``.
-            If the missing tool is outside the soft ceiling →
-            ``insufficient_evidence``.
-          - Agent's response answered the question with concrete facts +
-            at least one successful tool call → ``satisfied`` (unless
-            the question demanded a multi-step output and the agent
-            only did step 1).
-          - Agent's response is short + generic + no tool calls →
-            ``needs_more_work`` (the agent has more it could do).
-          - Agent's response cites tool results (block_refs, URLs,
-            source spans) → strong signal for ``satisfied``.
-          - **Confident-hallucination shortcut (highest-impact case).**
-            Agent's response asserts a specific person's identity,
-            current role/title, recent date, price, legal status, or
-            any other public-record fact, AND ``tool_calls_made`` is
-            empty (no successful tool call produced evidence) →
-            ``needs_more_work`` with ``next_action`` = "search the
-            web for [the asserted fact] before answering". Confident
-            hallucination of look-up-able facts is the single highest-
-            impact failure this critic catches; trust the absence of
-            tool calls more than the model's confidence in the prose.
-            (Counter-cases that are NOT hallucination: pure definition
-            requests like "what is JSON Schema", arithmetic, language
-            tasks, summarization of an already-quoted text — none of
-            those need a tool call.)
-          - **Structural identifiers must come from tool data.** When
-            the answer cites a position in a document — "Section 7",
-            "page 12", "paragraph (b)", "Article III", "slide 4",
-            "row 3" — that identifier MUST appear in a successful
-            tool result this turn (``tool_calls_made`` entry with
-            ``is_error=false``, or a structured-content ``path``
-            field carrying the identifier). If no tool result
-            supplies the identifier, the agent invented it; return
-            ``needs_more_work`` with ``next_action`` = "cite by the
-            heading text or quoted clause; do not invent section
-            numbers". This is the closure for the 2026-05-18 NDA
-            persona run where every "Section N" citation was
-            confidently wrong despite verbatim clause text being
-            right. Quoted clause text without a section identifier
-            is acceptable; invented identifiers are not.
-          - **Speculative comparative qualifiers.** If the answer
-            characterizes a finding with a comparative qualifier
-            (``standard``, ``unusual``, ``typical``, ``weird``,
-            ``common``, ``rare``, ``normal``, ``atypical``) AND no
-            tool result in this turn supplies the baseline that
-            qualifier is comparing against, the assertion is
-            speculation. Return ``needs_more_work`` with
-            ``next_action`` = "remove the comparative qualifier or
-            cite the baseline measurement". The 2026-05-18 persona
-            run had an agent assert ``Michigan governing law is
-            unusual for 273 Ventures`` when 273V is itself a
-            Michigan LLC and no tool was called to measure norms.
-          - **Deliverable-header-then-stop.** If the user asked for a
-            named deliverable (table / list / summary / comparison /
-            CSV / memo / scorecard / review / breakdown) AND the
-            agent's response ends near a markdown header whose text
-            matches that deliverable keyword (``## Table``, ``# CSV-
-            ready table``, ``### Summary``, ``## Governing-Law
-            Review``, etc.) without the actual body that the heading
-            promised, return ``needs_more_work`` with ``next_action``
-            = "emit the deliverable body under the heading you wrote;
-            do not stop on a header alone". The 2026-05-19 NDA
-            persona run had an agent emit
-            ``<h2>Governing-Law Review — 5 NDAs</h2>`` plus a one-
-            sentence preamble plus ``<h3>CSV-ready table</h3>`` and
-            then stop — zero rows. Empty headers are the same failure
-            shape as the preamble-and-quit pattern. A deterministic
-            pre-check in :func:`check_goal` will also catch the
-            common cases; this rule covers the long-tail wording.
-          - **Announce-and-quit (future-tense promise without
-            execution).** If the agent's response contains a
-            future-tense first-person promise to do research —
-            phrases like ``I'll now research``, ``I'll search``,
-            ``I'll look that up``, ``I'll dispatch tools``, ``let
-            me investigate``, ``I'll report back``, ``I'll
-            continue and pull``, or a "next steps" list framed as
-            things the agent will do — AND ``tool_calls_made``
-            for THIS iteration contains zero ``is_error=false``
-            entries that actually executed that research, the
-            agent has announced work instead of doing it. Return
-            ``needs_more_work`` with ``next_action`` = "execute
-            the research you promised in the same turn — call FR
-            / eCFR / EDGAR / GovInfo / web-search now and produce
-            the answer with citations". Same failure family as
-            deliverable-header-then-stop: a promise to act is not
-            an act. The 2026-05-19 diesel-reproduction shipped
-            ``I'll now research the latest applicable federal
-            diesel emissions rule and report back with
-            citations.`` with zero tool calls — that is the
-            canonical case.
-          - **Claimed-fetch fabrication.** If the agent's response
-            contains any of the phrases ``I fetched``, ``I retrieved``,
-            ``I reviewed``, ``I was able to extract``, ``I pulled``,
-            ``I read``, ``I downloaded``, ``I opened`` (or
-            morphological variants — past-tense first-person verbs
-            that claim direct retrieval of a named external resource),
-            AND no entry in ``tool_calls_made`` shows a successful
-            fetch / retrieval of THAT specific resource this turn
-            (``is_error=false``, and the args clearly target the
-            named URL / document / filing), the claim is fabricated.
-            Return ``needs_more_work`` with ``next_action`` = "drop
-            the claim that you fetched / reviewed sources you did
-            not actually fetch this turn; either call the fetch tool
-            now or rephrase to say you have NOT read the source".
-            This is the 2026-05-19 SEC-Climate session where the
-            agent claimed it ``fetched and reviewed two practitioner
-            commentary pages`` (Cadwalader memo, Ropes & Gray
-            viewpoints) when the only fetch in the trace targeted a
-            different URL and errored. Asserting first-person
-            retrieval of a source the trace doesn't contain is a
-            P0 honesty failure on attorney-facing surfaces.
-          - **Factual-external-entity question with zero successful
-            tool calls.** If the user asked about a *factual external
-            entity* — a regulation, statute, case, agency rule,
-            public filing, public-company fact, current date / event
-            / market / policy state — AND
-            ``tool_calls_made`` contains zero successful entries
-            (no ``is_error=false`` row), the agent is answering
-            from training memory. Return ``needs_more_work`` with
+        Asymmetry: prefer ``needs_more_work`` over ``satisfied`` on
+        close calls. False ``satisfied`` ships a bad answer; false
+        ``needs_more_work`` wastes a turn.
+
+        Mark ``needs_more_work`` when ANY of these hold:
+
+          - The response says "I can't / I don't have / sorry" AND a
+            relevant group is registered but not yet elevated.
+          - The response asserts specific public-record facts (current
+            officeholder, current rule, recent date, price, legal
+            status) AND ``tool_calls_made`` is empty.
+          - The response cites a structural identifier ("Section 7",
+            "page 12", "Article III", "row 3", "slide 4") that does
+            not appear in any successful tool result this turn.
+          - The response uses a comparative qualifier ("standard",
+            "unusual", "typical", "common", "rare") without a tool
+            result supplying the baseline.
+          - The response ends near a markdown deliverable header
+            (``## Table`` / ``# CSV-ready table`` / ``### Summary`` /
+            etc.) without the rows / bullets / paragraph the heading
+            promised.
+          - The response makes a future-tense first-person promise to
+            act ("I'll now research", "I'll search", "let me
+            investigate") AND ``tool_calls_made`` for this iteration
+            is empty.
+          - The response claims first-person retrieval of a specific
+            external resource ("I fetched", "I retrieved", "I
+            reviewed", "I read", "I downloaded") AND no
+            ``tool_calls_made`` entry shows a successful fetch of
+            that specific resource.
+          - The user asks about a factual external entity (regulation,
+            statute, case, agency rule, public filing, public-company
+            fact, current event / market / policy state) AND
+            ``tool_calls_made`` contains no successful entries.
             ``next_action`` = "call the appropriate research tool
             (FR / eCFR / EDGAR / GovInfo / web-search / corpus
-            search) and re-answer with citations; do not state
-            specific facts about [topic] from training memory".
-            Generalizes the confident-hallucination shortcut: even
-            "soft" factual claims (current status, latest version,
-            present tense regulatory regime) must be tool-grounded.
-            The 2026-05-19 ``what is the latest diesel emission
-            reg`` session is the canonical case: 9 turns of
-            clarification followed by a memory-only answer with
-            zero tool calls. Counter-cases (NOT this rule):
-            definitions of stable concepts, arithmetic, language
-            tasks, summarization of already-quoted text.
-            **This rule does NOT apply when the
-            ``Anaphoric follow-up recall IS grounded`` OR
-            ``Pure deterministic computation IS grounded``
-            carve-outs above apply.** Examples that fall under
-            the carve-outs (return ``satisfied`` instead): the
-            user's question is "in one sentence, what was the X
-            you just cited?" (follow-up recall); the user's
-            question supplies BOTH the rule citation AND the
-            inputs and asks for the deterministic computation
-            (e.g., "if a complaint was filed March 15 and FRCP
-            12(a) gives 21 days, what is the deadline?" — the
-            user supplied ``FRCP 12(a) gives 21 days`` AND
-            ``March 15``; the agent's job is calendar math, not
-            re-fetching FRCP). Calling FR / eCFR to re-verify a
-            rule the user already named in the prompt is wasted
-            cost — confidence the agent should have in
-            user-supplied premises is the same as confidence in
-            user-supplied facts.
-          - **Clarification-loop ceiling.** If ``iteration`` >= 2
-            AND the agent's response is *another* clarification
-            question (request for more information, choice between
-            options, "do you mean X or Y?"), the agent is stuck.
-            Return ``needs_more_work`` with ``next_action`` =
-            "stop asking for clarification; pick the strongest
-            reading of the user's request and call the relevant
-            research tool now". Two rounds of clarification is the
-            ceiling on any factual question.
-          - **Domain-conventional shorthand is not ambiguity.** If
-            the user's message used a domain-conventional
-            abbreviation in context (``GL`` in contracts → governing
-            law; ``DD`` in deals → due diligence; ``RFI`` in
-            procurement → request for information; ``10-K`` in
-            finance → annual filing) and the agent's response is a
-            clarification request instead of an answer, return
-            ``needs_more_work`` with ``next_action`` = "interpret
-            the domain shorthand and answer; only ask for
-            clarification when candidate readings are genuinely
-            incompatible". Over-refusal to infer conventional
-            domain language wastes the user's turn.
+            search) and re-answer with citations".
+          - ``iteration >= 2`` AND the response is another
+            clarification question.
+          - The user used a domain-conventional abbreviation ("GL"
+            in contracts → governing law; "DD" → due diligence;
+            "RFI" → request for information; "10-K" → annual
+            filing) AND the response asks for clarification instead
+            of answering.
 
-        Cross-iteration signals (when present):
-          - If ``elevation_trail`` shows groups were auto-enabled this
-            turn but the agent STILL didn't answer, that's a strong
-            ``needs_more_work`` signal — the agent under-used the new
-            capabilities.
-          - If ``iteration`` is already 2+ and the agent is still in
-            the same mode (apologizing / repeating), prefer
-            ``insufficient_evidence`` over another ``needs_more_work``
-            — diminishing returns.
+        Mark ``insufficient_evidence`` when ``iteration >= 2`` and the
+        agent is still apologizing / repeating with no new tools to
+        try. Refusal is a feature, not a failure.
+
+        Mark ``satisfied`` when the response answers with concrete
+        facts AND at least one successful tool call AND cites
+        tool-supplied identifiers or quoted text. Pure-definition /
+        arithmetic / language tasks / summarisation of already-quoted
+        text need no tool call.
+
+        Anaphoric recall carve-out: if the user's question is a
+        follow-up asking the agent to recall or restate a fact it
+        ALREADY cited in prior turns, do not require a new tool
+        call. The grounding lives in the prior turn.
+
+        Deterministic-computation carve-out: if the user supplies
+        BOTH the rule citation AND the inputs and asks for arithmetic
+        over them, the agent's job is the computation, not
+        re-fetching the rule.
         """
 
         user_message: str = InputField(description="The user's original question or instruction.")

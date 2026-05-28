@@ -65,19 +65,12 @@ class ClassifyIntentSignature(Signature):
       Memory-only ``respond`` is unsafe when a relevant category
       is in the catalog — the catalog exists precisely so you can
       verify rather than guess from training data.
-    * When the question is about a CURRENT real-world entity —
-      current person / role, current law / rule / case status,
-      current price / market, current event, current public
-      filing, current organizational fact — AND any relevant tool
-      category is listed in ``available_tool_categories``, prefer
-      ``tool_use`` over ``respond``. Do NOT classify as
-      ``respond`` and answer from training memory in this case;
-      that is unsafe and is the documented 2026-05-19 regression
-      mode (session 01KS0R64Q744DTVZ53KCS9VC7M: "who is the
-      current US federal senator for Lansing Michigan?" routed
-      to ``respond`` and answered from training memory for three
-      iterations while the critic kept asking the agent to call a
-      registered verification category).
+    * When the question is about a CURRENT real-world entity
+      (current officeholder, price, market, rule status, filing,
+      organizational fact) AND any relevant tool category is
+      listed in ``available_tool_categories``, prefer
+      ``tool_use`` over ``respond``. Answering from training
+      memory is unsafe for current-state questions.
     * When relevant catalog categories exist and documents are
       also loaded, and the question relates to those documents'
       content, prefer ``research`` — the document-retrieval
