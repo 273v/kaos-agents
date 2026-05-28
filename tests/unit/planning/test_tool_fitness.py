@@ -17,8 +17,10 @@ pytestmark = pytest.mark.unit
 
 
 class TestRubricShape:
-    """The rubric must enumerate every documented decision rule + the
-    0.1.1 atomic-over-composite carve-out (#549.A)."""
+    """The rubric must enumerate every documented decision rule and
+    the atomic-over-composite preference. Anchor on rule SHAPE, not
+    on specific tool-name strings — tool names are catalog data, not
+    rubric content."""
 
     @staticmethod
     def _flat() -> str:
@@ -30,24 +32,32 @@ class TestRubricShape:
         assert "domain fit" in flat or "domain match" in flat
 
     def test_rubric_calls_out_atomic_over_composite_pattern(self) -> None:
-        # 0.1.1 (#549.A): atomic-over-composite carve-out.
+        # The rubric must (a) name the atomic-vs-composite axis,
+        # (b) tell the model to prefer atomic for single-axis
+        # questions, and (c) tell the model how to identify a
+        # composite from its description. Tool-name examples in the
+        # rubric are catalog-coupled and brittle — the rule body
+        # is what we pin.
         flat = self._flat()
         assert "atomic" in flat and "composite" in flat
-        # Worked example exemplar — Meridian-style, anchors the rule
-        # to a concrete scenario the model can pattern-match on.
-        assert "kaos-web-domain-profile" in flat
-        assert "kaos-web-dns-enumerate" in flat
-        # The carve-out must say "prefer atomic" affirmatively, not
-        # bury the rule in caveats.
         assert "prefer the atomic" in flat or "prefer atomic" in flat
+        assert "single-axis" in flat or "single axis" in flat
 
     def test_rubric_documents_composite_identification(self) -> None:
         # The rubric must give the model a deterministic way to spot
-        # composite tools — keyword list + axis-count heuristic.
+        # composite tools — keyword markers, or an axis-count
+        # heuristic. Wildcard tool-shape references like
+        # ``*-domain-profile`` are acceptable; named-tool anchors
+        # are not.
         flat = self._flat()
         # Keyword markers
         assert "profile" in flat and "snapshot" in flat
-        # The "≥2 axes" carve-out exists so the model doesn't over-
-        # narrow on cases where the composite is genuinely the right
-        # call (a "security snapshot" query needs DNS + WHOIS + TLS).
-        assert "snapshot" in flat or "security snapshot" in flat
+        # Either keyword markers OR an axis-count heuristic must be
+        # documented so the model has a deterministic signal.
+        has_axis_count = "axes" in flat or "axis" in flat
+        has_keyword_list = (
+            "profile" in flat
+            and "summary" in flat
+            and ("snapshot" in flat or "intel" in flat or "overview" in flat)
+        )
+        assert has_axis_count or has_keyword_list

@@ -103,8 +103,13 @@ class TestIntentExtractorConstruction:
 
     def test_instructions_default_to_signature_docstring(self):
         ex = IntentExtractor()
-        # Without an override the Call lifts the IntentSignature docstring.
-        assert "intent classifier" in ex._call.instructions.lower()
+        # Without an override the Call lifts the IntentSignature
+        # docstring. Anchor on the typed-intent contract that uniquely
+        # identifies this Signature, not on any one specific phrase —
+        # phrasing is allowed to evolve as long as the contract holds.
+        instructions = ex._call.instructions.lower()
+        assert "extract typed intent" in instructions
+        assert "requires_clarification" in instructions
 
 
 class TestIntentExtractorForward:

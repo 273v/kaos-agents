@@ -298,63 +298,39 @@ class ToolFitnessSignature(Signature):
         regime), per-doc parsers and aggregators are roughly equivalent;
         rank by domain fit.
 
-    Anti-patterns (do NOT do these — they are the documented
-    failure modes from the 2026-05-19 incident review):
+    Anti-patterns:
 
-    * Picking ``kaos-source-edgar`` for a "current US senator"
-      question because both touch federal-government nouns.
-      EDGAR is SEC corporate filings; senator questions need
-      web search.
-    * Picking ``kaos-source-gleif`` for a question about a
-      person's role. GLEIF is legal-entity identifiers for
-      companies; it does not cover natural persons.
-    * Picking ``kaos-source-ecfr`` for an emission-regulation
-      question UNLESS the catalog has no Federal-Register tool
-      that better matches "current rule" semantics; eCFR is the
-      *consolidated* rule, FR is the *latest* rule.
-    * Returning an empty ``picks`` just because the catalog is
-      large; "I don't know which to use" is a worker-side
-      decision, not a ranker-side decision.
-    * Ranking ``kaos-office-parse-docx`` or ``kaos-pdf-extract-parse``
-      ahead of ``kaos-agent-findings`` / ``kaos-agent-corpus-filter`` /
-      ``kaos-content-search-document`` when ``corpus_size >= 20``. The
-      per-doc parsers scale poorly — the agent walks the corpus
-      document-by-document, blowing the tool-call budget. The
-      aggregators triage internally and return the relevant subset.
+    - Do not pick a specialized-source tool ONLY because the query
+      mentions a noun in that source's domain. EDGAR is SEC corporate
+      filings; do not pick it for a question about a natural person.
+      GLEIF is legal-entity identifiers for companies; do not pick it
+      for a question about a person's role. eCFR is consolidated
+      regulation; do not pick it when Federal Register is also in
+      the catalog and the question asks for the latest rule.
 
-    **0.1.1 (#549.A) — atomic-over-composite preference for tool
-    families with a "profile" / "summary" / "domain-intel" rollup.**
-    Some tool families ship a *composite* rollup tool (e.g.
-    ``kaos-web-domain-profile`` bundles DNS + WHOIS + TLS + HTTP
-    headers + DKIM/DMARC/SPF under one call) alongside the
-    *atomic* tools the rollup wraps (``kaos-web-dns-enumerate``,
-    ``kaos-web-whois-lookup``, ``kaos-web-service-detect``,
-    ``kaos-web-dns-security``, ...). When the user's query targets
-    a single atomic axis (e.g. "what is the IP address of
-    example.com" → DNS only; "who registered example.com" → WHOIS
-    only), PREFER the atomic tool over the composite. Worked
-    example (WU-K v2 Case E6, the documented failure mode):
+    - Do not pick a per-document parser (``*-parse-docx``,
+      ``*-extract-parse``, ``*-parse-xlsx``) when an aggregator
+      (``*-findings``, ``*-corpus-filter``, ``*-search-document``) is
+      in the catalog AND ``corpus_size >= 20``. Per-document parsers
+      cost O(N) tool calls.
 
-      Query: "what is the IP address of example.com"
-      Catalog includes ``kaos-web-domain-profile`` AND
-      ``kaos-web-dns-enumerate``.
-      RIGHT: ``picks=["kaos-web-dns-enumerate", "kaos-web-domain-profile"]``
-      WRONG: ``picks=["kaos-web-domain-profile", "kaos-web-dns-enumerate"]``
+    - Do not return empty ``picks`` because the catalog is large.
 
-      Reason: ``kaos-web-domain-profile`` is a heavy composite
-      with multiple sub-failure modes (any of DNS / WHOIS / TLS
-      can raise and the whole call surfaces as
-      ``BaseExceptionGroup``). When the query needs only DNS, the
-      atomic tool is the cheaper, lower-risk fit. The composite
-      is appropriate ONLY when the query genuinely needs ≥2 of
-      its axes (e.g. "give me a security snapshot of example.com",
-      "is example.com legitimate", "show me everything about
-      example.com").
+    Composite vs atomic preference:
 
-    Identify composite tools by the words ``profile``, ``summary``,
-    ``snapshot``, ``intel``, or ``overview`` in the description, OR
-    when the description enumerates ≥3 axes ("DNS, WHOIS, TLS, ..."
-    -shape). Atomic tools have one-axis descriptions.
+    When the catalog includes BOTH a composite "profile / summary /
+    overview / snapshot / intel" rollup tool AND the atomic tools it
+    wraps, prefer the atomic tool for single-axis questions.
+
+      Example: query "what is the IP address of example.com" with
+      both ``*-dns-enumerate`` and ``*-domain-profile`` in catalog →
+      rank the atomic DNS tool first; the composite is for
+      multi-axis questions ("give me everything about example.com").
+
+    Identify composites by the words ``profile``, ``summary``,
+    ``snapshot``, ``intel``, or ``overview`` in the description, or
+    by a description that enumerates ≥3 axes. Atomic tools have
+    one-axis descriptions.
     """
 
     # inputs
