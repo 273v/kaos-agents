@@ -54,6 +54,15 @@ _S8_DEFERRED_FILES: frozenset[str] = frozenset(
         # pairs at runtime, but the static pre-load model doesn't
         # apply. Plan §6.1 + §7.
         "kaos_agents/tools/design_extraction.py",
+        # PR-2 (2026-05-28 dynamic-deliverable-schema architecture):
+        # the synthesizer Call uses ``InterpretExtractionSignature``
+        # which IS a static Signature (in kaos-llm-core), but the
+        # inputs ``extracted_rows`` are JSON-shaped extraction output
+        # whose schema is determined by the runtime design step — so
+        # a static (extracted_rows, memo) TOML pair would not transfer
+        # across schemas. Deferred until we have a generic
+        # rows-shape-agnostic example pool design. Plan §6.2.
+        "kaos_agents/tools/interpret_extraction.py",
     }
 )
 

@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`kaos-agent-interpret-extraction` tool — iterative Extract↔Synthesize
+  loop (PR-2 of dynamic-deliverable-schema architecture).** The
+  user-facing endpoint of the dynamic-schema architecture. Composes
+  `AgentDesignExtractionTool` (typed extraction) with
+  `kaos_llm_core.programs.interpret_extraction.InterpretExtractionSignature`
+  (synthesizer) in a ReAct loop: extract typed rows → synthesize
+  memo → if synthesizer reports `needs_more_extraction=true` with
+  `requested_columns=[...]`, augment the schema and re-extract →
+  re-synthesize. Loop terminates on `needs_more_extraction=false`
+  (convergence), `max_iters` cap (default 3), or `budget_usd` cap
+  (default $1.50). Returns the final memo (user-facing deliverable),
+  cumulative typed extraction (for the Citations panel), and a
+  per-iteration trace (for cost auditing + UX display of "the agent
+  decided to look for X next"). Bounded by the typed extraction —
+  the synthesizer cannot fabricate facts that aren't in the rows.
+  Bumps `kaos-llm-core>=0.1.6`. Pinned by 18 unit tests covering
+  convergence, max_iters cap, budget cap, schema augmentation across
+  iterations, cumulative row merging, and error handling.
+
 - **`kaos-agent-design-extraction` tool — per-document fan-out + dispatcher-
   owned source_uri stamping (PR-1b of dynamic-deliverable-schema
   architecture).** Extends the PR-1a design-only tool to complete the

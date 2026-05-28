@@ -11,7 +11,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-05-25T16:16:12.462800338Z"
+exclude-newer = "2026-05-25T18:55:48.316706285Z"
 exclude-newer-span = "PT72H"
 
 [options.exclude-newer-package]
@@ -1101,8 +1101,8 @@ requires-dist = [
     { name = "kaos-graph", specifier = ">=0.1.0,<0.2" },
     { name = "kaos-llm-client", marker = "extra == 'full'", specifier = ">=0.1.0,<0.2" },
     { name = "kaos-llm-client", marker = "extra == 'llm'", specifier = ">=0.1.0,<0.2" },
-    { name = "kaos-llm-core", marker = "extra == 'full'", specifier = ">=0.1.5,<0.2" },
-    { name = "kaos-llm-core", marker = "extra == 'llm'", specifier = ">=0.1.5,<0.2" },
+    { name = "kaos-llm-core", marker = "extra == 'full'", specifier = ">=0.1.7,<0.2" },
+    { name = "kaos-llm-core", marker = "extra == 'llm'", specifier = ">=0.1.7,<0.2" },
     { name = "kaos-mcp", marker = "extra == 'full'", specifier = ">=0.1.0,<0.2" },
     { name = "kaos-mcp", marker = "extra == 'mcp'", specifier = ">=0.1.0,<0.2" },
     { name = "kaos-nlp-core", specifier = ">=0.1.0,<0.2" },
@@ -1134,7 +1134,7 @@ dev = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "kaos-citations", specifier = ">=0.1.0,<0.2" },
     { name = "kaos-llm-client", specifier = ">=0.1.0,<0.2" },
-    { name = "kaos-llm-core", specifier = ">=0.1.5,<0.2" },
+    { name = "kaos-llm-core", specifier = ">=0.1.7,<0.2" },
     { name = "kaos-mcp", specifier = ">=0.1.0,<0.2" },
     { name = "kaos-ml-core", specifier = ">=0.1.0,<0.2" },
     { name = "kaos-nlp-transformers", extras = ["torch"], specifier = ">=0.1.0,<0.2" },
@@ -1247,7 +1247,7 @@ wheels = [
 
 [[package]]
 name = "kaos-llm-core"
-version = "0.1.5"
+version = "0.1.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "kaos-content" },
@@ -1256,9 +1256,9 @@ dependencies = [
     { name = "kaos-nlp-core" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5f/b3/013e30a6ec245c3932426c199bdf28d1bee7a2c9c4e6d97dee0af7169aa9/kaos_llm_core-0.1.5.tar.gz", hash = "sha256:7bce9cc460c5370ad0c4963c3e6bfc53333cf1ee277630376c6e4bfc55d10ba9", size = 709781, upload-time = "2026-05-28T16:15:18.636Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/99/eb/f0b98806d1c65b523ec3111b5cc12622bb0e5d81f90b45a5f1a71d8dfec6/kaos_llm_core-0.1.7.tar.gz", hash = "sha256:369f78b9baba41994639bdc81bfeb92aea83a2cb4046d337e960201a2d8ec76b", size = 713681, upload-time = "2026-05-28T18:54:57.459Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/cd/ef/bff4dc50b1ae947ca17340da9384693265b2ab0c31d270c5c5eb00f83b2c/kaos_llm_core-0.1.5-py3-none-any.whl", hash = "sha256:95a377bd2f6b45e60951de4731269a10c6d5a0f10b8e7f77d86c14887fd3cb98", size = 559194, upload-time = "2026-05-28T16:15:16.799Z" },
+    { url = "https://files.pythonhosted.org/packages/e9/4a/ad3d312dba029b800777f57dc85c5d98a22bf37ba5b89969dab0bee2a17d/kaos_llm_core-0.1.7-py3-none-any.whl", hash = "sha256:b5573d5ae9fbf0a02392a3c4b525208ef821764909c0d588fa1f282f4e86f007", size = 561463, upload-time = "2026-05-28T18:54:55.74Z" },
 ]
 
 [[package]]
