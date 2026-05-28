@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `FindingsAgent` cross-document attribution: synthesis now sees
+  the originating filename for every candidate via the new
+  `FindingCandidate.source_uri` field. The 2026-05-27 NDA persona
+  matrix surfaced a class-1 confidently-wrong file→fact swap (P3:
+  "EMNA references Michigan" when ground truth is EMNA=Delaware,
+  Acme=Michigan) because citations rendered as bare content-hashes
+  with no filename — the synthesis LLM had to *infer* which file
+  each clause came from and got it backwards across a 2-doc
+  comparative question. Fixed via:
+  - New `FindingCandidate.source_uri: str | None` field
+  - `BaseAgent._resolve_corpus_view_with_document` returns an
+    `id(block) → source_uri` map at merge time, keyed by block
+    identity so the lookup survives `apply_retrieval_plan`
+    narrowing (which renumbers positional indices but preserves
+    block object identity by reference)
+  - New `_selector_with_source_uri` adapter wraps the pure
+    `every_sentence_selector` to back-fill the JOIN per candidate;
+    pure selectors stay pure (kaos-content unaware of multi-doc
+    provenance)
+  - `_wrap_untrusted_text` / `_render_synthesis_findings` emit
+    `source_uri="..."` as an XML attribute on the
+    `<untrusted_document_content>` envelope when present
+  - `_SynthesizeSignature.findings` docstring instructs the LLM
+    to use `source_uri` (not the candidate text) when attributing
+    facts to files in cross-doc questions
+  - `CitationFound.source_uri` now emits the composite form
+    `"{filename}#{block_ref}"` when the merger resolved a uri,
+    else falls back to the legacy `block_ref or finding_id`
+
+  Single-doc / literal-string call paths are unchanged
+  (`source_uri=None` omits the attribute and short-circuits the
+  composite form).
+
+### Security
+
+- `FindingsAgent` envelope rendering switched from
+  `xml.sax.saxutils.escape` to `xml.sax.saxutils.quoteattr` for
+  the new `source_uri` attribute value. `escape` only handles
+  `& / < / >`; a hostile `source_uri` containing `"` could
+  otherwise close the attribute and inject a synthetic
+  `</untrusted_document_content>` envelope close, breaking the
+  data-vs-instructions framing. `quoteattr` handles all five XML
+  attribute-special chars (`& < > " '`) and returns the value
+  already wrapped in matching quotes.
+
 ## [0.1.24] — 2026-05-27
 
 Worker-side corpus-filename awareness for `ChatAgent` ReAct turns.

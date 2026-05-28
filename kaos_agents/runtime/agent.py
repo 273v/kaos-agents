@@ -1147,14 +1147,27 @@ class BaseAgent(KaosAgent):
         for finding in findings_result.findings:
             candidate = finding.candidate
             block_ref = candidate.block_ref or ""
-            # Best-effort: the block_ref is a JSON pointer like
-            # /body/3, not a filename. We surface block_ref as the
-            # citation key; consumers join it with the DOCUMENTS
-            # metadata downstream.
+            # The selector wraps each candidate with a resolved
+            # ``source_uri`` (originating-doc filename) from the
+            # merge-time block_idx→source_uri map. Prefer it so the
+            # CitationFound event carries human-readable file
+            # identity instead of bare AST anchors / hex hashes.
+            # Composite form ``"filename#block_ref"`` keeps both
+            # human-readable doc identity AND the AST-level back-link
+            # the SPA Citations panel uses to navigate. Falls back to
+            # the legacy ``block_ref or finding_id`` behavior when
+            # the merger could not resolve a source_uri (single-doc
+            # / literal-string call paths).
+            if candidate.source_uri:
+                citation_uri = (
+                    f"{candidate.source_uri}#{block_ref}" if block_ref else candidate.source_uri
+                )
+            else:
+                citation_uri = block_ref or candidate.finding_id
             yield emitter.emit(
                 CitationFound,
                 claim=candidate.text,
-                source_uri=block_ref or candidate.finding_id,
+                source_uri=citation_uri,
                 confidence=float(finding.relevance),
                 verified=True,
             )
@@ -1244,7 +1257,7 @@ class BaseAgent(KaosAgent):
                 "falling through to simple respond"
             )
             return None, None, ZERO_USAGE
-        full_view, full_document, segmenter = bundle
+        full_view, full_document, segmenter, block_id_to_source_uri = bundle
 
         # Retrieval planner: pick the narrowing strategy + typed probes.
         # Skip the LLM call for tiny corpora (the planner would pick
@@ -1314,6 +1327,7 @@ class BaseAgent(KaosAgent):
 
         require_llm_core()
         from kaos_agents.patterns.findings import (
+            FindingCandidate,
             FindingsAgent,
             every_sentence_selector,
         )
@@ -1321,8 +1335,56 @@ class BaseAgent(KaosAgent):
         filter_model = getattr(self._settings, "default_llm_model", None) or self._model
         synthesis_model = self._model or filter_model
 
+        # Adapter: wrap the pure selector so each emitted candidate
+        # carries its originating-doc source_uri. The selector itself
+        # remains a pure view-function (kaos-content stays unaware of
+        # multi-doc provenance). The join is via the top-level body
+        # index extracted from the candidate's block_ref JSON pointer
+        # (e.g. ``#/body/12/children/3`` → 12), used to index into
+        # ``view.document.body`` for the actual block object, whose
+        # ``id()`` is the lookup key in the block_id_to_source_uri
+        # map built at merge time. ``id()`` keying lets the lookup
+        # survive ``apply_retrieval_plan`` narrowing — which rebuilds
+        # ``view.document`` with a SUBSET of blocks at NEW positional
+        # indices but reuses the same immutable block objects by
+        # reference. Without this join the synthesis LLM can't tell
+        # which file a finding came from across a multi-doc corpus
+        # (NDA-matrix P3 regression, 2026-05-27).
+        import re as _re
+
+        _BODY_IDX_RE = _re.compile(r"^#/body/(\d+)")
+
+        def _block_to_uri(narrowed_view: Any, block_ref: str | None) -> str | None:
+            if not block_ref:
+                return None
+            m = _BODY_IDX_RE.match(block_ref)
+            if m is None:
+                return None
+            idx = int(m.group(1))
+            body = getattr(getattr(narrowed_view, "document", None), "body", ())
+            if idx < 0 or idx >= len(body):
+                return None
+            return block_id_to_source_uri.get(id(body[idx]))
+
+        def _selector_with_source_uri(view: Any, question: str) -> Any:
+            for cand in every_sentence_selector(view, question):
+                uri = _block_to_uri(view, cand.block_ref)
+                if uri is None:
+                    yield cand
+                else:
+                    yield FindingCandidate(
+                        finding_id=cand.finding_id,
+                        text=cand.text,
+                        block_ref=cand.block_ref,
+                        char_span=cand.char_span,
+                        section_title=cand.section_title,
+                        page=cand.page,
+                        injection_suspected=cand.injection_suspected,
+                        source_uri=uri,
+                    )
+
         agent = FindingsAgent(
-            selector=every_sentence_selector,
+            selector=_selector_with_source_uri,
             filter_model=filter_model,
             synthesis_model=synthesis_model,
             chunk_size=20,
@@ -1607,13 +1669,13 @@ class BaseAgent(KaosAgent):
         Returns ``None`` when no usable content was assembled.
         """
         bundle = await self._resolve_corpus_view_with_document(docs_items)
-        return bundle[0] if bundle is not None else None
+        return bundle[0] if bundle is not None else None  # type: ignore[index]
 
     async def _resolve_corpus_view_with_document(
         self,
         docs_items: list[Any],
-    ) -> tuple[Any, Any, Any] | None:
-        """Merge ``DOCUMENTS`` items into ``(view, document, segmenter)``.
+    ) -> tuple[Any, Any, Any, dict[int, str]] | None:
+        """Merge ``DOCUMENTS`` items into ``(view, document, segmenter, block_id_to_source_uri)``.
 
         Single-pass builder used by both the legacy view-only accessor
         and the retrieval-planner applier (which needs the document
@@ -1626,6 +1688,31 @@ class BaseAgent(KaosAgent):
         ``item.content`` unless they look headline-only, in which case
         kaos-pdf / kaos-office parse the VFS bytes (Option A eager
         pre-flight extraction).
+
+        ``block_id_to_source_uri`` maps the ``id()`` of each
+        top-level merged-body block object to a stable identifier
+        for the originating document. The identifier is, in priority
+        order: ``ContentDocument.metadata.source.uri`` (rendered as
+        the bare filename) if present, else
+        ``ContentDocument.metadata.title``, else the DOCUMENTS-item
+        filename / uri, else ``"(unnamed)"``. The lookup key is
+        ``id(block)`` rather than the body index because the
+        :mod:`kaos_agents.patterns.retrieval.apply` narrowing step
+        rebuilds the merged document with a SUBSET of the original
+        blocks at NEW positional indices, but it reuses the same
+        immutable block objects by reference — so ``id()`` stays
+        stable across narrowing where positional indices do not.
+
+        This map is the join key the FindingsAgent dispatch uses to
+        back-fill :attr:`FindingCandidate.source_uri` after the
+        per-doc merge flattens the originating metadata into a
+        single ``ContentDocument`` (which has empty top-level
+        metadata because ``ContentDocument`` is the wrong place to
+        encode "stitched from N source documents" provenance —
+        that's a boundary concern owned here in the dispatch).
+        Without this map the synthesis LLM cannot tell which file a
+        candidate sentence came from across a multi-doc corpus
+        (NDA-matrix P3 regression, 2026-05-27).
 
         Returns ``None`` when no usable content was assembled.
         """
@@ -1649,6 +1736,46 @@ class BaseAgent(KaosAgent):
         # for HTML; Paragraph + List for plain text). The downstream
         # ContentDocument constructor and DocumentView accept any block type.
         blocks: list[Any] = []
+        # Per-block source-uri map: id(block) → originating doc id.
+        # Built incrementally as each item contributes blocks; consumed by
+        # the FindingsAgent dispatch to back-fill
+        # FindingCandidate.source_uri (NDA-matrix P3 fix, 2026-05-27).
+        # Keyed by ``id(block)`` instead of positional index so the
+        # lookup survives the apply_retrieval_plan narrowing step
+        # (which renumbers positions but preserves block identity).
+        block_id_to_source_uri: dict[int, str] = {}
+
+        def _source_uri_for_item(_item: Any, _filename: str, parsed: Any | None) -> str:
+            """Pick the most descriptive originating-document identifier.
+
+            Priority: parsed ContentDocument.metadata.source.uri →
+            parsed.metadata.title → DOCUMENTS-item filename/uri →
+            ``"(unnamed)"``. Keeps the choice local to the adapter
+            so kaos-content internals stay out of FindingsAgent.
+            """
+            if parsed is not None:
+                pmeta = getattr(parsed, "metadata", None)
+                psrc = getattr(pmeta, "source", None) if pmeta is not None else None
+                puri = getattr(psrc, "uri", None) if psrc is not None else None
+                if puri:
+                    # Use the bare filename rather than the full
+                    # file:// URI — the synthesis prompt benefits
+                    # from a human-readable identifier and the URI
+                    # may leak local-filesystem paths.
+                    short = puri.rsplit("/", 1)[-1]
+                    # urllib-style unquote so "MNDA%20-%20Acme.docx" → "MNDA - Acme.docx"
+                    try:
+                        from urllib.parse import unquote
+
+                        short = unquote(short)
+                    except Exception:
+                        pass
+                    return short or _filename
+                ptitle = getattr(pmeta, "title", None) if pmeta is not None else None
+                if ptitle:
+                    return str(ptitle)
+            return _filename
+
         for item in docs_items:
             meta = item.metadata
             filename = meta.get("filename") or meta.get("uri") or "(unnamed)"
@@ -1734,13 +1861,31 @@ class BaseAgent(KaosAgent):
                         body=raw,
                     )
 
+            # Resolve the originating-doc identifier for this item.
+            # ``binary_doc`` / parsed text path may set a richer
+            # identifier from kaos-content metadata; default is the
+            # upload filename.
+            item_source_uri = _source_uri_for_item(item, filename, binary_doc)
+
             # Headline / label so the synthesis output can refer to
-            # which document a finding came from.
-            blocks.append(Paragraph(children=(Text(value=f"=== {filename} ==="),)))
+            # which document a finding came from. Also stamp the
+            # header block with the resolved source uri so candidates
+            # the selector emits from this paragraph (e.g. the
+            # "=== filename.docx ===" line) carry the right
+            # source_uri instead of being orphan-attributed.
+            header_block = Paragraph(children=(Text(value=f"=== {filename} ==="),))
+            blocks.append(header_block)
+            block_id_to_source_uri[id(header_block)] = item_source_uri
+
+            def _stamp_blocks(start: int, end_exclusive: int, uri: str) -> None:
+                for blk in blocks[start:end_exclusive]:
+                    block_id_to_source_uri[id(blk)] = uri
 
             if binary_doc is not None:
                 # Parsed binary → extend blocks with the real body.
+                body_start = len(blocks)
                 blocks.extend(binary_doc.body)
+                _stamp_blocks(body_start, len(blocks), item_source_uri)
                 continue
 
             if text is not None:
@@ -1750,7 +1895,14 @@ class BaseAgent(KaosAgent):
                 if "html" in mime:
                     try:
                         parsed_doc = parse_html(text)
+                        body_start = len(blocks)
                         blocks.extend(parsed_doc.body)
+                        # Re-resolve in case the HTML parser gave us
+                        # a richer title than the raw filename.
+                        item_source_uri = _source_uri_for_item(item, filename, parsed_doc)
+                        # Also stamp the header block we already added.
+                        block_id_to_source_uri[id(header_block)] = item_source_uri
+                        _stamp_blocks(body_start, len(blocks), item_source_uri)
                         continue
                     except Exception:
                         logger.debug("base_agent: parse_html failed for %s", filename)
@@ -1762,32 +1914,40 @@ class BaseAgent(KaosAgent):
                         pretty = _json.dumps(obj, indent=2)
                     except Exception:
                         pretty = text
+                    body_start = len(blocks)
                     for line in pretty.splitlines():
                         if line.strip():
                             blocks.append(Paragraph(children=(Text(value=line),)))
+                    _stamp_blocks(body_start, len(blocks), item_source_uri)
                     continue
                 try:
                     parsed_doc = parse_plain_text(text)
+                    body_start = len(blocks)
                     blocks.extend(parsed_doc.body)
+                    _stamp_blocks(body_start, len(blocks), item_source_uri)
                     continue
                 except Exception:
+                    body_start = len(blocks)
                     blocks.append(Paragraph(children=(Text(value=text),)))
+                    _stamp_blocks(body_start, len(blocks), item_source_uri)
                     continue
 
             # Fallback: use the already-extracted item.content as-is.
             body_text = item.content or ""
             if body_text:
+                body_start = len(blocks)
                 # Split on lines so the segmenter has paragraph boundaries.
                 for line in body_text.splitlines():
                     if line.strip():
                         blocks.append(Paragraph(children=(Text(value=line),)))
+                _stamp_blocks(body_start, len(blocks), item_source_uri)
 
         if not blocks:
             return None
         document = ContentDocument(body=tuple(blocks))
         segmenter = get_default_punkt_tokenizer()
         view = DocumentView(document, sentence_segmenter=segmenter)
-        return view, document, segmenter
+        return view, document, segmenter, block_id_to_source_uri
 
     async def _handle_plan(
         self,
