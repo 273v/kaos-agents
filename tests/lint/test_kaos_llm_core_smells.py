@@ -45,6 +45,15 @@ _S8_DEFERRED_FILES: frozenset[str] = frozenset(
         # round-trip cleanly through hand-written TOML — deferred per
         # the audit doc, Iteration 5 row 25.
         "kaos_agents/intent/extractor.py",
+        # PR-1b (2026-05-28 dynamic-deliverable-schema architecture):
+        # the ``Extract_<schema_id>_v<n>`` Signature is RUNTIME-BUILT
+        # from whatever schema the LLM designer proposes for the
+        # current user question + corpus. There's no fixed Signature
+        # class to author static TOML examples against. A future
+        # iteration may add examples keyed on (column_type, label)
+        # pairs at runtime, but the static pre-load model doesn't
+        # apply. Plan §6.1 + §7.
+        "kaos_agents/tools/design_extraction.py",
     }
 )
 
