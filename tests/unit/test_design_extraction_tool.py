@@ -377,6 +377,30 @@ class TestBlockText:
         block = type("_B", (), {"children": ()})()
         assert _block_text(block) == ""
 
+    def test_numbering_label_prepended_to_direct_text(self) -> None:
+        """list_items with ``numbering_label`` must render as ``"12. GOVERNING LAW…"``.
+
+        Without this prefix, the LLM extractor sees "GOVERNING LAW" and
+        cannot answer prompts that ask for "EXACT section number" — the
+        numeral lives in the docx numbering.xml, not in the run text.
+        Verified end-to-end on the P4 NDA persona (2026-05-28 head-to-head).
+        """
+        b = type("_B", (), {"numbering_label": "12.", "text": "GOVERNING LAW. ..."})()
+        assert _block_text(b) == "12. GOVERNING LAW. ..."
+
+    def test_numbering_label_prepended_to_walked_children(self) -> None:
+        child = type("_Text", (), {"value": "GOVERNING LAW. ..."})()
+        block = type("_B", (), {"numbering_label": "11.", "children": (child,)})()
+        assert _block_text(block) == "11. GOVERNING LAW. ..."
+
+    def test_no_label_means_no_prefix(self) -> None:
+        b = type("_B", (), {"numbering_label": None, "text": "hello"})()
+        assert _block_text(b) == "hello"
+
+    def test_empty_label_string_does_not_prepend_space(self) -> None:
+        b = type("_B", (), {"numbering_label": "", "text": "hello"})()
+        assert _block_text(b) == "hello"
+
 
 # ---------------------------------------------------------------------
 # Metadata sanity — registration contract

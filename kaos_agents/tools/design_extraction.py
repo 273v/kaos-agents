@@ -453,16 +453,25 @@ def _doc_head_text(doc: Any, max_chars: int) -> str:
 def _block_text(block: Any) -> str:
     """Best-effort plain-text rendering of one block.
 
+    Prepends ``numbering_label`` when present so the LLM sees the
+    visible section numeral (e.g. ``"12. GOVERNING LAW…"``) instead of
+    just the heading text. kaos-office's default text serialization
+    strips the numeral; for typed-extraction prompts that ask for
+    "EXACT section number", this prefix is the difference between
+    "GOVERNING LAW" (heading) and "12." (number).
+
     Defers to ``block.text`` when the block exposes it; else walks
     ``children`` looking for ``Text.value``. Returns empty string when
     no text content is recoverable (e.g. image-only blocks).
     """
+    label = getattr(block, "numbering_label", None)
+    prefix = f"{label} " if isinstance(label, str) and label else ""
     direct = getattr(block, "text", None)
     if isinstance(direct, str):
-        return direct
+        return prefix + direct
     children = getattr(block, "children", None)
     if not children:
-        return ""
+        return prefix
     pieces: list[str] = []
     for child in children:
         value = getattr(child, "value", None)
@@ -472,4 +481,7 @@ def _block_text(block: Any) -> str:
             nested = _block_text(child)
             if nested:
                 pieces.append(nested)
-    return "".join(pieces)
+    rendered = "".join(pieces)
+    if rendered or prefix:
+        return prefix + rendered
+    return ""
