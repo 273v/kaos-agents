@@ -112,6 +112,43 @@ def _generate_run_id() -> str:
     return f"run_{uuid.uuid4().hex[:12]}"
 
 
+def _build_citation_uri(
+    *,
+    source_uri: str | None,
+    block_ref: str,
+    finding_id: str,
+) -> str:
+    """Build the ``CitationFound.source_uri`` string for a finding.
+
+    Pure helper extracted so the IRI-safety contract is unit-testable
+    without standing up a FindingsAgent run.
+
+    Format precedence:
+
+    * ``source_uri`` + ``block_ref`` -> ``"{source_uri}{block_ref}"``
+      (composite filename + JSON-pointer fragment). ``block_ref`` is
+      ALREADY a JSON-pointer string that starts with ``#`` (e.g.
+      ``"#/body/3"``), so the composite is simply concatenated — NOT
+      ``f"{source_uri}#{block_ref}"``. A naive ``#``-joined form
+      produces ``"filename##/body/3"`` (double-hash), which the
+      kaos-graph Turtle exporter rejects with
+      ``ValueError: Invalid IRI code point '#'`` because IRIs may
+      carry at most one fragment-identifier ``#`` (RFC 3987 §2.2 /
+      RFC 3986 §3). That was the corpus-stress regression introduced
+      by the first version of the citation source_uri JOIN —
+      ``tests/unit/test_citation_uri_format.py`` pins the contract.
+    * ``source_uri`` without a ``block_ref`` -> ``source_uri`` alone.
+    * No ``source_uri`` -> ``block_ref`` if present (legacy path),
+      else ``finding_id`` (last-resort opaque hex anchor).
+
+    The single-hash composite is also what the SPA Citations panel
+    parses (``split('#', 1)`` for label/back-link).
+    """
+    if source_uri:
+        return f"{source_uri}{block_ref}" if block_ref else source_uri
+    return block_ref or finding_id
+
+
 class BaseAgent(KaosAgent):
     """Core agent with the 8-step turn loop.
 
@@ -1147,23 +1184,11 @@ class BaseAgent(KaosAgent):
         for finding in findings_result.findings:
             candidate = finding.candidate
             block_ref = candidate.block_ref or ""
-            # The selector wraps each candidate with a resolved
-            # ``source_uri`` (originating-doc filename) from the
-            # merge-time block_idx→source_uri map. Prefer it so the
-            # CitationFound event carries human-readable file
-            # identity instead of bare AST anchors / hex hashes.
-            # Composite form ``"filename#block_ref"`` keeps both
-            # human-readable doc identity AND the AST-level back-link
-            # the SPA Citations panel uses to navigate. Falls back to
-            # the legacy ``block_ref or finding_id`` behavior when
-            # the merger could not resolve a source_uri (single-doc
-            # / literal-string call paths).
-            if candidate.source_uri:
-                citation_uri = (
-                    f"{candidate.source_uri}#{block_ref}" if block_ref else candidate.source_uri
-                )
-            else:
-                citation_uri = block_ref or candidate.finding_id
+            citation_uri = _build_citation_uri(
+                source_uri=candidate.source_uri,
+                block_ref=block_ref,
+                finding_id=candidate.finding_id,
+            )
             yield emitter.emit(
                 CitationFound,
                 claim=candidate.text,
