@@ -225,8 +225,6 @@ class IntentSignature(Signature):
             "Corpus item filenames the intent points at, drawn VERBATIM "
             "from ``corpus_headlines``. Empty when the question is "
             "non-corpus or when there is no specific corpus reference. "
-            "See rule 7 in the class docstring for the full semantics. "
-            "Downstream the extractor validates each entry against "
-            "``corpus_headlines`` and rejects unknown filenames."
+            "See rule 7 in the class docstring for the full semantics."
         ),
     )

@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **LLM-visible Signature residual strips (PR-B of prompt-smell
+  audit).** Three small residual strips remaining after PR-A:
+  - `kaos_agents/intent/signature.py` — `IntentSignature.targets`
+    field description: dropped the trailing duplicate "Downstream
+    the extractor validates each entry against ``corpus_headlines``
+    and rejects unknown filenames" sentence (rule 7 in the class
+    docstring already states the verbatim requirement). Audit §4.11.
+  - `kaos_agents/planning/m2_consistency.py` —
+    `M2_REASONING_ACTION_RUBRIC`: dropped the trailing "regardless
+    of how high the surface-level confidence ... this rubric is
+    being tightened to prevent" author-to-author meta-sentence;
+    kept the confidence calibration above it. Audit §4.12.
+  - `kaos_agents/patterns/findings.py` —
+    `_SynthesizeSignature.answer` description: replaced the
+    "is a P0 product failure" internal severity tag with
+    "is not acceptable". Audit §4.14.
+
+  Verified: full unit tier 3305 passed / 0 failed; 7/7 live tests
+  in `test_m2_consistency_live.py` pass — rule shapes survive the
+  strips.
+
+  PR-A's full Signature rewrites had already wiped the §4.6-§4.10
+  and §4.13.a-e strip targets (those audit items lived inside
+  `IntentSignature` and `_GoalCheckerSignature` docstrings which
+  PR-A collapsed wholesale), so PR-B is the small residual pass.
+
 - **LLM-visible Signature prose cleanup (PR-A of prompt-smell audit).**
   Removed ~5,000 tokens per CHAT turn of "incident anecdote" prose
   from four high-traffic Signature docstrings that ship verbatim

@@ -2186,7 +2186,7 @@ async def _synthesize(
                 "'Section 4.2(a)'), you MUST include the verbatim text "
                 "of the cited authority enclosed in a blockquote "
                 "(``> text``). Paraphrasing or summarizing in lieu of "
-                "the verbatim text is a P0 product failure. If the "
+                "the verbatim text is not acceptable. If the "
                 "verbatim text is not present in the retrieved "
                 "findings, say so explicitly and stop — do not "
                 "paraphrase or substitute outside knowledge."
