@@ -1508,6 +1508,7 @@ def register_agent_tools(runtime: KaosRuntime) -> int:
     from kaos_agents.tools.corpus_filter import AgentCorpusFilterTool
     from kaos_agents.tools.design_extraction import AgentDesignExtractionTool
     from kaos_agents.tools.findings import AgentFindingsTool
+    from kaos_agents.tools.interpret_extraction import AgentInterpretExtractionTool
 
     tools: list[KaosTool] = [
         AgentChatTool(),
@@ -1535,6 +1536,12 @@ def register_agent_tools(runtime: KaosRuntime) -> int:
         # per-document fan-out + stamp_source_uri JOIN so the same
         # tool also executes the schema and returns typed rows.
         AgentDesignExtractionTool(),
+        # PR-2 — user-facing endpoint of the dynamic-schema
+        # architecture. Wraps the design_extraction tool + the
+        # InterpretExtractionSignature synthesizer in an iterative
+        # loop so the agent can request additional columns when the
+        # initial extraction misses something the deliverable needs.
+        AgentInterpretExtractionTool(),
     ]
     for tool in tools:
         runtime.tools.register_tool(tool)

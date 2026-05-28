@@ -48,13 +48,12 @@ dependencies = [
 
 [project.optional-dependencies]
 # LLM transport + typed Programs (Call, ReAct, RAG, Refine, BestOfN, ...)
-# kaos-llm-core>=0.1.5 ships the dynamic deliverable schema
-# primitives (design_schema auto-derives schema_id from
-# (question, corpus_sample, model); stamp_source_uri overrides
-# every Cited span's source_uri with the dispatcher's
-# authoritative artifact_id). The kaos-agent-design-extraction
-# tool composes both into per-document typed fan-out.
-llm = ["kaos-llm-client>=0.1.0,<0.2", "kaos-llm-core>=0.1.5,<0.2"]
+# kaos-llm-core>=0.1.7 adds InterpretExtractionSignature, the
+# synthesizer half of the dynamic deliverable-schema architecture
+# (kaos-agent-interpret-extraction tool wraps it in the iterative
+# Extract↔Synthesize loop). 0.1.5 shipped the extraction half
+# (design_schema with auto schema_id, stamp_source_uri).
+llm = ["kaos-llm-client>=0.1.0,<0.2", "kaos-llm-core>=0.1.7,<0.2"]
 # MCP server bridge (kaos-agents-serve --http and --stdio)
 mcp = ["kaos-mcp>=0.1.0,<0.2"]
 # FastAPI HTTP API surface (kaos-agents-serve --api)
@@ -98,7 +97,7 @@ full = [
 [dependency-groups]
 dev = [
   "kaos-llm-client>=0.1.0,<0.2",
-  "kaos-llm-core>=0.1.5,<0.2",
+  "kaos-llm-core>=0.1.7,<0.2",
   "kaos-mcp>=0.1.0,<0.2",
   "kaos-pdf>=0.1.0,<0.2",
   # WU-J does not cut kaos-office / kaos-web / kaos-tabular / kaos-ml-core.

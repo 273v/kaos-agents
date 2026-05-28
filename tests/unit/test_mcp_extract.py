@@ -286,4 +286,4 @@ class TestRegistrationCount:
 
         runtime = KaosRuntime()
         count = register_agent_tools(runtime)
-        assert count == 15
+        assert count == 16
