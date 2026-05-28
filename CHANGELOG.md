@@ -9,6 +9,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`kaos-agent-design-extraction` tool — per-document fan-out + dispatcher-
+  owned source_uri stamping (PR-1b of dynamic-deliverable-schema
+  architecture).** Extends the PR-1a design-only tool to complete the
+  end-to-end pipeline: after the designer proposes an
+  `ExtractionSchema`, the tool now compiles a runtime
+  `Extract_<schema_id>` Signature via
+  `ExtractionSchema.to_signature(provenance="cited")`, fans out
+  per-document `Call(Extract_<schema_id>).invoke()` in parallel
+  under a configurable concurrency cap (default 5), and applies
+  `kaos_llm_core.signatures.stamp_source_uri` to every non-null cell
+  so the dispatcher — NOT the LLM — owns the `source_uri` field on
+  every returned `Cited[T]` value. This closes the P3 class-1
+  attribution-swap failure mode from the 2026-05-27 NDA persona
+  matrix at the type-system level (the LLM cannot fabricate a
+  citation identity because the dispatcher overwrites every span's
+  `source_uri` with the authoritative `artifact_id` it passed to
+  the extract Call).
+
+  Result shape (`structuredContent`):
+  - `schema_id`, `schema_version`, `columns` (the designed schema)
+  - `rows` (one dict per artifact: `{artifact_id, cells}` where
+    each cell is a serialized `Cited[T]` or `None`; failed docs
+    carry `{artifact_id, error, cells: {col: None, ...}}`)
+  - `execution_mode` (`"full"` or `"design_only"`)
+  - `row_count`, `failed_doc_count`, `null_cell_count`
+  - cost: `cost_usd` (total), `designer_cost_usd`,
+    `extraction_cost_usd`, `total_tokens` (sum across all calls)
+
+  New inputs:
+  - `extract_model` (defaults to `anthropic:claude-sonnet-4-6`;
+    separate from `designer_model` so callers can use a cheaper
+    extractor with a stronger designer)
+  - `design_only` (default false; true skips the fan-out and only
+    returns the schema — preserves PR-1a's inspection-only mode)
+  - `max_concurrency` (default 5; cap on simultaneous per-doc
+    extract calls)
+  - `model` (PR-1a back-compat alias for `designer_model`)
+
+  Live verification: P3 NDA-matrix prompt (EMNA + Acme comparison)
+  produced a 10-column schema, 2 rows, 0 null cells, 0 failed docs,
+  $0.11 total cost; every span's `source_uri` equals the
+  dispatcher-assigned `artifact_id` (the P3 class-1 bug is
+  structurally closed). Pinned by 5 new fan-out tests in
+  `tests/unit/test_design_extraction_tool.py` (32 cases total).
+
+  Lint hold-out (`tests/lint/test_kaos_llm_core_smells.py`): the
+  runtime-built `Extract_<schema_id>` Signature has no static
+  pre-loadable example pool, so the S8 `examples=load_examples(...)`
+  rule does not apply. Documented in `_S8_DEFERRED_FILES`.
+
 - **`kaos-agent-design-extraction` tool (PR-1a of dynamic-deliverable-
   schema architecture).** New tool the ReAct loop can call when the
   user's question fits a structured extraction shape (table, list,

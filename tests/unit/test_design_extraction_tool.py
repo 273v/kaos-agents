@@ -35,9 +35,15 @@ def _err_text(result: Any) -> str:
 
 
 def _ok_inputs(**overrides: Any) -> dict[str, Any]:
+    """Default-good inputs for the tool. By default ``design_only=True``
+    so unit tests can exercise the designer leg without mocking the
+    per-document fan-out's ``Call(Extract_<schema>).invoke``. Fan-out
+    behavior is tested explicitly in :class:`TestFanOut`.
+    """
     base: dict[str, Any] = {
         "question": "What is the governing law of each contract?",
         "artifact_ids": ["doc-1", "doc-2", "doc-3"],
+        "design_only": True,
     }
     base.update(overrides)
     return base
@@ -371,6 +377,30 @@ class TestBlockText:
         block = type("_B", (), {"children": ()})()
         assert _block_text(block) == ""
 
+    def test_numbering_label_prepended_to_direct_text(self) -> None:
+        """list_items with ``numbering_label`` must render as ``"12. GOVERNING LAW…"``.
+
+        Without this prefix, the LLM extractor sees "GOVERNING LAW" and
+        cannot answer prompts that ask for "EXACT section number" — the
+        numeral lives in the docx numbering.xml, not in the run text.
+        Verified end-to-end on the P4 NDA persona (2026-05-28 head-to-head).
+        """
+        b = type("_B", (), {"numbering_label": "12.", "text": "GOVERNING LAW. ..."})()
+        assert _block_text(b) == "12. GOVERNING LAW. ..."
+
+    def test_numbering_label_prepended_to_walked_children(self) -> None:
+        child = type("_Text", (), {"value": "GOVERNING LAW. ..."})()
+        block = type("_B", (), {"numbering_label": "11.", "children": (child,)})()
+        assert _block_text(block) == "11. GOVERNING LAW. ..."
+
+    def test_no_label_means_no_prefix(self) -> None:
+        b = type("_B", (), {"numbering_label": None, "text": "hello"})()
+        assert _block_text(b) == "hello"
+
+    def test_empty_label_string_does_not_prepend_space(self) -> None:
+        b = type("_B", (), {"numbering_label": "", "text": "hello"})()
+        assert _block_text(b) == "hello"
+
 
 # ---------------------------------------------------------------------
 # Metadata sanity — registration contract
@@ -393,7 +423,10 @@ class TestMetadata:
         tool = AgentDesignExtractionTool()
         by_name = {p.name: p for p in tool.metadata.input_schema}
         assert by_name["domain_hint"].required is False
-        assert by_name["model"].required is False
+        assert by_name["designer_model"].required is False
+        assert by_name["extract_model"].required is False
+        assert by_name["design_only"].required is False
+        assert by_name["max_concurrency"].required is False
 
     def test_annotations_lock_destructive_off(self) -> None:
         tool = AgentDesignExtractionTool()
@@ -402,3 +435,311 @@ class TestMetadata:
         assert ann.destructiveHint is False
         # readOnlyHint=False because this spends money on an LLM call
         assert ann.readOnlyHint is False
+
+
+# ---------------------------------------------------------------------
+# Fan-out — per-document extracts + stamp_source_uri JOIN
+# ---------------------------------------------------------------------
+
+
+class TestFanOut:
+    """PR-1b: the tool fans out per-document Call(Extract_<schema>) in
+    parallel and stamps source_uri on every Cited cell. These tests
+    mock Call.invoke so the suite stays fast + deterministic; the
+    live integration test that exercises the real fan-out on real
+    NDA fixtures is the §7 step-4 gate.
+    """
+
+    @staticmethod
+    def _make_invocation(cells: dict[str, Any], *, cost: float = 0.01, tokens: int = 500) -> Any:
+        """Build a fake Invocation-shaped object matching what
+        Call.invoke returns: ``.output`` is an attribute bag of the
+        runtime Extract Signature's output fields; ``.usage`` carries
+        cost + tokens.
+        """
+        output_obj = type("_Output", (), cells)()
+        usage_obj = type("_Usage", (), {"cost_usd": cost, "total_tokens": tokens})()
+        return type("_Inv", (), {"output": output_obj, "usage": usage_obj})()
+
+    @staticmethod
+    def _cited(value: str, *, source_uri: str = "LLM-FABRICATED.docx") -> Any:
+        """Build a Cited[str] with an LLM-emitted source_uri the
+        dispatcher should override."""
+        from kaos_llm_core.signatures.grounding import Cited, Span
+
+        return Cited[str](
+            value=value,
+            spans=[
+                Span(
+                    source_uri=source_uri,
+                    char_span=(0, len(value)),
+                    quote=value,
+                ),
+            ],
+        )
+
+    @pytest.mark.asyncio
+    async def test_fan_out_returns_one_row_per_doc(self) -> None:
+        fake_doc = type("_Doc", (), {"body": ()})()
+        schema = _fake_schema(n_cols=2)
+        cited = self._cited("Delaware")
+        inv = self._make_invocation({"col_0": cited, "col_1": cited})
+
+        async def fake_invoke(*_args: Any, **_kwargs: Any) -> Any:
+            return inv
+
+        from kaos_llm_core.programs.call import Call
+
+        with (
+            patch(
+                "kaos_content.artifacts.load_document",
+                new=AsyncMock(return_value=fake_doc),
+            ),
+            patch(
+                "kaos_llm_core.programs.designers.design_schema",
+                new=AsyncMock(return_value=schema),
+            ),
+            patch.object(Call, "invoke", new=fake_invoke),
+        ):
+            tool = AgentDesignExtractionTool()
+            result = await tool.execute(
+                _ok_inputs(
+                    artifact_ids=["doc-A", "doc-B", "doc-C"],
+                    design_only=False,
+                ),
+                context=_make_context(),
+            )
+
+        assert not result.isError, _err_text(result)
+        sc = result.structuredContent
+        assert sc is not None
+        assert sc["execution_mode"] == "full"
+        assert sc["row_count"] == 3
+        assert len(sc["rows"]) == 3
+        for row in sc["rows"]:
+            assert row["artifact_id"] in ("doc-A", "doc-B", "doc-C")
+            assert set(row["cells"].keys()) == {"col_0", "col_1"}
+
+    @pytest.mark.asyncio
+    async def test_source_uri_is_stamped_from_artifact_id(self) -> None:
+        """The dispatcher MUST override the LLM-emitted source_uri
+        with the artifact_id the dispatcher passed to the Call.
+        This is the central P3-class fix from the plan §3.6.
+        """
+        fake_doc = type("_Doc", (), {"body": ()})()
+        schema = _fake_schema(n_cols=1)
+        cited = self._cited(
+            "Delaware governs",
+            source_uri="LLM-FABRICATED-NOT-REAL.docx",
+        )
+        inv = self._make_invocation({"col_0": cited})
+
+        async def fake_invoke(*_args: Any, **_kwargs: Any) -> Any:
+            return inv
+
+        from kaos_llm_core.programs.call import Call
+
+        with (
+            patch(
+                "kaos_content.artifacts.load_document",
+                new=AsyncMock(return_value=fake_doc),
+            ),
+            patch(
+                "kaos_llm_core.programs.designers.design_schema",
+                new=AsyncMock(return_value=schema),
+            ),
+            patch.object(Call, "invoke", new=fake_invoke),
+        ):
+            tool = AgentDesignExtractionTool()
+            result = await tool.execute(
+                _ok_inputs(
+                    artifact_ids=["EMNA Mutual NDA.docx"],
+                    design_only=False,
+                ),
+                context=_make_context(),
+            )
+
+        sc = result.structuredContent
+        assert sc is not None
+        row = sc["rows"][0]
+        cell = row["cells"]["col_0"]
+        # Every span carries the dispatcher-assigned source_uri,
+        # NOT the LLM-emitted one.
+        for span in cell["spans"]:
+            assert span["source_uri"] == "EMNA Mutual NDA.docx"
+            assert span["source_uri"] != "LLM-FABRICATED-NOT-REAL.docx"
+        # The Cited value itself is preserved.
+        assert cell["value"] == "Delaware governs"
+
+    @pytest.mark.asyncio
+    async def test_null_cells_counted_when_field_optional(self) -> None:
+        """When the extraction returns None for an optional field, the
+        tool surfaces it as None in the row dict and bumps
+        null_cell_count so the agent can decide whether to retry.
+        """
+        fake_doc = type("_Doc", (), {"body": ()})()
+        schema = _fake_schema(n_cols=3)
+        # Two cells valid, one None
+        cited = self._cited("X")
+        inv = self._make_invocation({"col_0": cited, "col_1": None, "col_2": cited})
+
+        async def fake_invoke(*_args: Any, **_kwargs: Any) -> Any:
+            return inv
+
+        from kaos_llm_core.programs.call import Call
+
+        with (
+            patch(
+                "kaos_content.artifacts.load_document",
+                new=AsyncMock(return_value=fake_doc),
+            ),
+            patch(
+                "kaos_llm_core.programs.designers.design_schema",
+                new=AsyncMock(return_value=schema),
+            ),
+            patch.object(Call, "invoke", new=fake_invoke),
+        ):
+            tool = AgentDesignExtractionTool()
+            result = await tool.execute(
+                _ok_inputs(artifact_ids=["doc-A"], design_only=False),
+                context=_make_context(),
+            )
+
+        sc = result.structuredContent
+        assert sc is not None
+        assert sc["null_cell_count"] == 1
+        assert sc["rows"][0]["cells"]["col_1"] is None
+        assert sc["rows"][0]["cells"]["col_0"] is not None
+        assert sc["rows"][0]["cells"]["col_2"] is not None
+
+    @pytest.mark.asyncio
+    async def test_extract_failure_per_doc_surfaces_error_row(self) -> None:
+        """One doc's extract failing must not abort the whole run.
+        The failure becomes a row with all-null cells + ``error``."""
+        fake_doc = type("_Doc", (), {"body": ()})()
+        schema = _fake_schema(n_cols=2)
+        good_cited = self._cited("OK")
+        good_inv = self._make_invocation({"col_0": good_cited, "col_1": good_cited})
+
+        # Per-doc dispatch decides return-vs-raise based on call order.
+        call_n = {"n": 0}
+
+        async def fake_invoke(*_args: Any, **_kwargs: Any) -> Any:
+            call_n["n"] += 1
+            if call_n["n"] == 2:
+                raise RuntimeError("provider 500 on doc-B")
+            return good_inv
+
+        from kaos_llm_core.programs.call import Call
+
+        with (
+            patch(
+                "kaos_content.artifacts.load_document",
+                new=AsyncMock(return_value=fake_doc),
+            ),
+            patch(
+                "kaos_llm_core.programs.designers.design_schema",
+                new=AsyncMock(return_value=schema),
+            ),
+            patch.object(Call, "invoke", new=fake_invoke),
+        ):
+            tool = AgentDesignExtractionTool()
+            result = await tool.execute(
+                _ok_inputs(
+                    artifact_ids=["doc-A", "doc-B", "doc-C"],
+                    design_only=False,
+                    max_concurrency=1,  # force deterministic order
+                ),
+                context=_make_context(),
+            )
+
+        sc = result.structuredContent
+        assert sc is not None
+        assert sc["row_count"] == 3
+        assert sc["failed_doc_count"] == 1
+        # 2 null cells (from the failed doc) + 0 from the good docs
+        assert sc["null_cell_count"] == 2
+        failed_rows = [r for r in sc["rows"] if "error" in r]
+        assert len(failed_rows) == 1
+        assert "provider 500" in failed_rows[0]["error"]
+
+    @pytest.mark.asyncio
+    async def test_cost_aggregated_across_doc_extracts(self) -> None:
+        """The result's ``extraction_cost_usd`` is the sum of per-doc
+        usage; ``cost_usd`` is designer + extraction."""
+        fake_doc = type("_Doc", (), {"body": ()})()
+        schema = _fake_schema(n_cols=1)
+        cited = self._cited("X")
+        inv = self._make_invocation({"col_0": cited}, cost=0.05, tokens=1234)
+
+        async def fake_invoke(*_args: Any, **_kwargs: Any) -> Any:
+            return inv
+
+        from kaos_llm_core.programs.call import Call
+
+        with (
+            patch(
+                "kaos_content.artifacts.load_document",
+                new=AsyncMock(return_value=fake_doc),
+            ),
+            patch(
+                "kaos_llm_core.programs.designers.design_schema",
+                new=AsyncMock(return_value=schema),
+            ),
+            patch.object(Call, "invoke", new=fake_invoke),
+        ):
+            tool = AgentDesignExtractionTool()
+            result = await tool.execute(
+                _ok_inputs(
+                    artifact_ids=["a", "b", "c", "d"],
+                    design_only=False,
+                ),
+                context=_make_context(),
+            )
+
+        sc = result.structuredContent
+        assert sc is not None
+        # 4 docs at $0.05 each = $0.20 extraction
+        assert abs(sc["extraction_cost_usd"] - 0.20) < 1e-6
+        assert abs(sc["total_tokens"] - 4 * 1234) < 1
+        # designer is still 0.0 (design_schema doesn't expose usage today)
+        assert sc["designer_cost_usd"] == 0.0
+        # total = designer + extraction
+        assert abs(sc["cost_usd"] - 0.20) < 1e-6
+
+    @pytest.mark.asyncio
+    async def test_design_only_skips_fan_out(self) -> None:
+        """``design_only=True`` returns the schema with rows=[] and
+        execution_mode="design_only". No Call.invoke happens."""
+        fake_doc = type("_Doc", (), {"body": ()})()
+        schema = _fake_schema(n_cols=2)
+        invoke_called = {"n": 0}
+
+        async def fake_invoke(*_args: Any, **_kwargs: Any) -> Any:
+            invoke_called["n"] += 1
+            return self._make_invocation({"col_0": self._cited("X"), "col_1": self._cited("Y")})
+
+        from kaos_llm_core.programs.call import Call
+
+        with (
+            patch(
+                "kaos_content.artifacts.load_document",
+                new=AsyncMock(return_value=fake_doc),
+            ),
+            patch(
+                "kaos_llm_core.programs.designers.design_schema",
+                new=AsyncMock(return_value=schema),
+            ),
+            patch.object(Call, "invoke", new=fake_invoke),
+        ):
+            tool = AgentDesignExtractionTool()
+            result = await tool.execute(
+                _ok_inputs(artifact_ids=["doc-A"], design_only=True),
+                context=_make_context(),
+            )
+
+        sc = result.structuredContent
+        assert sc is not None
+        assert sc["execution_mode"] == "design_only"
+        assert sc["rows"] == []
+        assert invoke_called["n"] == 0
