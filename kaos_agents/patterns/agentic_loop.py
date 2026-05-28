@@ -948,32 +948,27 @@ async def run_agentic_turn(
 
 _REFUSAL_LEAD_BY_REASON: dict[str, str] = {
     "max_iterations": (
-        "I was unable to answer this within the {iterations}-iteration "
-        "budget. The critic kept flagging my attempts as ungrounded or "
-        "incomplete:"
+        "I tried {iterations} times and could not produce a grounded "
+        "answer. Each attempt was flagged for the reason below:"
     ),
     "stuck_no_progress": (
-        "I stopped after {iterations} iteration(s) because my responses "
-        "were no longer making progress (identical or near-identical "
-        "text with no new tool calls). The critic's last diagnosis:"
+        "I stopped after {iterations} attempt(s) — I was repeating "
+        "myself without finding new evidence. Last issue:"
     ),
     "cost_exceeded": (
-        "I stopped after {iterations} iteration(s) because the loop's "
-        "cost budget was exhausted. The critic's last diagnosis:"
+        "I stopped after {iterations} attempt(s) — this request hit "
+        "its spending limit before I could finish. Last issue:"
     ),
     "wall_clock_exceeded": (
-        "I stopped after {iterations} iteration(s) because the loop's "
-        "wall-clock budget was exhausted. The critic's last diagnosis:"
+        "I stopped after {iterations} attempt(s) — this request hit "
+        "its time limit before I could finish. Last issue:"
     ),
     "circuit_breaker_tripped": (
-        "I stopped after {iterations} iteration(s) because a single "
-        "tool kept failing or returning no usable result (circuit "
-        "breaker tripped). The critic's last diagnosis:"
+        "I stopped after {iterations} attempt(s) — a tool I needed kept failing. Last issue:"
     ),
     "tool_call_cap_exceeded": (
-        "I stopped after {iterations} iteration(s) because I hit the "
-        "per-iteration tool-call cap before finishing. The orchestrator "
-        "preferred returning what I had over a runaway tool-storm:"
+        "I stopped after {iterations} attempt(s) — I ran out of tool "
+        "calls before I could finish. Last issue:"
     ),
 }
 
@@ -999,7 +994,7 @@ def _build_budget_footer(
     the work-in-progress + the caveat, not 400 chars of generic
     boilerplate that throws away the work.
     """
-    reason_phrase = _BUDGET_REASON_PHRASE.get(reason, "the iteration budget was exhausted")
+    reason_phrase = _BUDGET_REASON_PHRASE.get(reason, "I ran out of attempts")
     return (
         "\n\n---\n"
         f"_Note: I stopped after {iterations} iteration(s) because "
@@ -1014,19 +1009,12 @@ def _build_budget_footer(
 # from ``_REFUSAL_LEAD_BY_REASON`` because the footer is rendered AFTER
 # the worker draft (not as a replacement) and uses different grammar.
 _BUDGET_REASON_PHRASE: dict[str, str] = {
-    "max_iterations": "the iteration budget was exhausted",
-    "stuck_no_progress": (
-        "the loop's stuck-detection fired — my last few iterations were no longer making progress"
-    ),
-    "cost_exceeded": "the cost budget was exhausted",
-    "wall_clock_exceeded": "the wall-clock budget was exhausted",
-    "circuit_breaker_tripped": (
-        "a single tool kept failing or returning no usable result (circuit breaker tripped)"
-    ),
-    "tool_call_cap_exceeded": (
-        "I hit the per-iteration tool-call cap before finishing — the loop "
-        "preferred returning what I have over a runaway tool-storm"
-    ),
+    "max_iterations": "I ran out of attempts",
+    "stuck_no_progress": "my last few attempts were not making progress",
+    "cost_exceeded": "this request hit its spending limit",
+    "wall_clock_exceeded": "this request hit its time limit",
+    "circuit_breaker_tripped": "a tool I needed kept failing",
+    "tool_call_cap_exceeded": "I ran out of tool calls",
 }
 
 

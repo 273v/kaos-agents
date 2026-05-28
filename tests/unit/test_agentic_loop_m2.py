@@ -1037,13 +1037,26 @@ async def test_max_iterations_emits_clean_refusal_not_last_worker_text() -> None
     turn_summaries = [e for e in events if isinstance(e, TurnSummary)]
     assert text_deltas, "expected at least one TextDelta for the refusal"
     final_delta = text_deltas[-1]
-    assert "3-iteration budget" in final_delta.content, (
+    # Refusal must surface the iteration count so the user knows how
+    # much was tried. Anchor on the numeral itself, not on a specific
+    # phrase that ages out (the audit's §7.2 plain-English rewrite
+    # dropped the literal "3-iteration budget" wording).
+    assert "3" in final_delta.content, (
         f"refusal text must reference iteration count, got: {final_delta.content!r}"
     )
-    assert (
-        "hallucination" in final_delta.content.lower()
-        or "ungrounded" in final_delta.content.lower()
-    ), f"refusal must surface the critic's diagnosis, got: {final_delta.content!r}"
+    # Refusal must surface the critic's diagnosis. The diagnosis line
+    # itself (the fixture's "Asserted 4.25%-4.50% upper bound without
+    # tool grounding") is what proves it. Anchor on the structural
+    # marker the template uses ("Critic's diagnosis") plus the
+    # diagnosis substring — not on the legacy template's "ungrounded"
+    # adjective that the audit's §7.2 plain-English rewrite dropped.
+    assert "critic's diagnosis" in final_delta.content.lower(), (
+        f"refusal must surface the critic's diagnosis structural marker, "
+        f"got: {final_delta.content!r}"
+    )
+    assert "tool grounding" in final_delta.content.lower(), (
+        f"refusal must echo the diagnosis text, got: {final_delta.content!r}"
+    )
     # The refusal MUST NOT carry the hallucinated branch headline.
     assert "Branch taken: upper bound >= 5.0%" not in final_delta.content
     # TurnSummary must mirror the refusal text.

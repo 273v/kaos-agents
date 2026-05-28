@@ -9,6 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **User-visible refusal / footer text rewrites (PR-C of
+  prompt-smell audit).** Three chat-surface jargon leaks rewritten
+  for attorney readability:
+  - `kaos_agents/grounding/no_evidence_gate.py::render_refusal_text`
+    (§7.1) — dropped the `kaos-modules/docs/plans/vfs-blind-tools-
+    audit-and-fix-plan.md` plan-doc path leak; replaced with plain
+    English that tells the user (a) the failure is server-side
+    (not their upload), (b) retry, (c) include the error excerpts
+    if escalating.
+  - `kaos_agents/patterns/agentic_loop.py::_REFUSAL_LEAD_BY_REASON`
+    (§7.2) — six-entry map rewritten. Removed internal vocabulary:
+    "stuck-no-progress" → "repeating myself without finding new
+    evidence"; "cost budget" → "spending limit"; "wall-clock
+    budget" → "time limit"; "circuit breaker tripped" → "a tool
+    I needed kept failing"; "tool-call cap" → "ran out of tool
+    calls"; "runaway tool-storm" removed entirely. Each lead is
+    also roughly half the chars.
+  - `kaos_agents/patterns/agentic_loop.py::_BUDGET_REASON_PHRASE`
+    (§7.3) — six-entry map rewritten with the same substitutions;
+    fallback string updated to match.
+
+  Five unit tests pinned the OLD jargon as anchor strings ("NOT
+  fabricate", "circuit breaker", "3-iteration budget", "cost
+  budget", "I was unable") — they were validating the very smell
+  the audit fixes. Updated to assert behavioral contracts (the
+  refusal declines to answer from memory, conveys that a tool
+  kept failing, surfaces the iteration count, etc.) instead of
+  specific magic strings.
+
+  Verified: full unit tier 3305 passed / 0 failed.
+
 - **LLM-visible Signature residual strips (PR-B of prompt-smell
   audit).** Three small residual strips remaining after PR-A:
   - `kaos_agents/intent/signature.py` — `IntentSignature.targets`
