@@ -245,8 +245,14 @@ def test_render_includes_file_list_and_tools() -> None:
     assert text.count("kaos-office-parse-docx") == 1
     # Calls out the absolute count so the user knows the scale of the failure.
     assert "2 call" in text
-    # Has the load-bearing "I will NOT fabricate" line.
-    assert "NOT fabricate" in text
+    # Refusal must (a) decline to answer from memory and (b) tell the
+    # user the failure is server-side, not in their upload. Anchor on
+    # the user-actionable contract, not on a specific phrase that ages
+    # out (the audit's §7.1 plain-English rewrite dropped the literal
+    # "NOT fabricate" wording).
+    lower = text.lower()
+    assert "training memory" in lower or "fabricate" in lower
+    assert "not a problem with your upload" in lower or "tool" in lower
 
 
 def test_render_uses_quantified_ratio_not_universal_claim() -> None:

@@ -270,9 +270,12 @@ async def test_circuit_breaker_trips_on_consecutive_uninformative_results() -> N
     )
     # The budget footer must explain the circuit-breaker exit reason
     # so the user understands the caveat (not just the worker draft).
-    assert any("circuit breaker" in td.content.lower() for td in text_deltas), (
-        "refusal text should mention circuit breaker"
-    )
+    # Anchor on the user-visible meaning ("a tool kept failing"), not
+    # on the internal "circuit breaker" jargon that the audit's §7.3
+    # plain-English rewrite replaced.
+    assert any(
+        "tool" in td.content.lower() and "fail" in td.content.lower() for td in text_deltas
+    ), "refusal text must convey that a tool kept failing"
     # The final TurnSummary intent is ``respond_with_caveat`` for the
     # preserve-worker-draft path (was ``refuse`` pre-R0.1 — that
     # behavior is now reserved for the case where the worker text was

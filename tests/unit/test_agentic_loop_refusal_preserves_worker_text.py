@@ -292,9 +292,12 @@ async def test_cost_exceeded_preserves_substantive_worker_draft() -> None:
     assert "Meridian Financial" in final_summary.text, (
         "worker draft must survive into final TurnSummary.text (R0.1)"
     )
-    # Footer must mention the budget reason so the user understands
-    # the caveat.
-    assert "cost budget" in final_summary.text.lower(), (
+    # Footer must convey the cost-cap exit reason so the user
+    # understands the caveat. Anchor on the user-visible meaning
+    # ("spending limit"), not on internal "cost budget" jargon that
+    # the audit's §7.3 plain-English rewrite replaced.
+    lower = final_summary.text.lower()
+    assert "spending limit" in lower or "cost" in lower, (
         "budget footer must explain the cost-cap exit reason"
     )
     # Intent reflects the new "answer with caveat" contract, not the
@@ -411,8 +414,14 @@ async def test_max_iterations_with_needs_more_work_clobbers_worker_draft() -> No
     )
     # Legacy template fires; intent must be "refuse".
     assert final.intent == "refuse", "needs_more_work exit must keep the refuse intent + template"
-    assert "I was unable" in final.text or "I stopped after" in final.text, (
-        "legacy refusal template must be the persisted text"
+    # The refusal template must convey that the agent tried + stopped.
+    # Anchor on the structural signal (a stop-condition phrase + the
+    # iteration count) rather than specific wording that ages out —
+    # the audit's §7.2 plain-English rewrite replaced "I was unable"
+    # / "I stopped after" with "I tried N times" / "I stopped after
+    # N attempt(s)".
+    assert "tried" in final.text.lower() or "stopped" in final.text.lower(), (
+        "refusal template must convey that the agent tried + stopped"
     )
 
 

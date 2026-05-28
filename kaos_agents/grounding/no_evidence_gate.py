@@ -372,11 +372,11 @@ def render_refusal_text(verdict: NoEvidenceVerdict, *, max_files: int = 5) -> st
     if excerpt_lines:
         parts.append("Errors I saw:\n" + "\n".join(excerpt_lines))
     parts.append(
-        "I will NOT fabricate an answer for this question. "
-        "This is almost certainly a tool/VFS path-resolution issue "
-        "(see `kaos-modules/docs/plans/vfs-blind-tools-audit-and-fix-plan.md`) "
-        "rather than a problem with your upload. "
-        "Please retry, or report the failure so the tool can be fixed."
+        "I will not answer this from training memory. The tool "
+        "errors above are on our side, not a problem with your "
+        "upload. Please retry the same request; if it fails again, "
+        "let us know and include the error excerpts above so we "
+        "can fix the tool."
     )
     return "\n\n".join(parts)
 
