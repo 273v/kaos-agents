@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.25] — 2026-05-28
+
+Dynamic deliverable schema architecture — full end-to-end shipment.
+
+This release lands the architecture in three layered pieces:
+
+- **PR-1b** (#98): `kaos-agent-design-extraction` per-document fan-out
+  + dispatcher-owned `source_uri` stamping (closes P3 class-1
+  attribution-swap at the type-system level).
+- **PR-2** (#99): `kaos-agent-interpret-extraction` iterative
+  Extract↔Synthesize loop — composes design-extraction with the new
+  `InterpretExtractionSignature` synthesizer from kaos-llm-core 0.1.7
+  in a ReAct loop with `max_iters` + `budget_usd` caps.
+- **PR-3** (#100): bridge wiring in both
+  `BaseAgent._handle_research_streaming` and
+  `ResearchAgent._handle_research_streaming` — agent autonomously
+  invokes the new tool for corpus + RESEARCH prompts; graceful
+  fall-through to legacy findings-dispatch / RAG on any failure.
+
+Bumps `kaos-llm-core>=0.1.7` (was 0.1.2/0.1.5) to pick up the
+synthesizer Signature primitive.
+
 ### Added
 
 - **`kaos-agent-interpret-extraction` tool — iterative Extract↔Synthesize
