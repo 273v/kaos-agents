@@ -123,11 +123,7 @@ Edge cases:
 ``confidence`` should be high (>= 0.85) when the contradiction is
 explicit (the response literally says "X" in one place and "not X"
 in another). Reserve lower confidence for cases where the
-contradiction requires interpretation. The two NOT-A-CONTRADICTION
-patterns above (RAG pick-one and honest can't-verify) are not
-contradictions, regardless of how high the surface-level confidence
-in flagging them might feel — these classifications are the failure
-mode this rubric is being tightened to prevent."""
+contradiction requires interpretation."""
 
 
 M2_ALLOWED_LABELS: tuple[str, ...] = (
