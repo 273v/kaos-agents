@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `kaos_agents.types.session_policy.PERSONA_SOFT_CEILINGS` — public
+  persona → soft-ceiling registry, the single source of truth for which
+  persona presets exist.
+
 ### Changed
 
 - **Unified the post-satisfied grounding critics (M2/M3/M4).** The three
@@ -24,6 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     now plain-English instructions describing the problem and the fix;
   - per-critic verdict logging is no longer emitted twice (the loop and
     the `judge_*` wrapper previously both logged).
+- `SessionPolicy.for_persona` now looks persona presets up in
+  `PERSONA_SOFT_CEILINGS` instead of a three-branch `if/elif`, and its
+  unknown-persona `ValueError` enumerates the registry keys. Adding a
+  persona is now one registry entry — no parallel branch and no
+  hand-maintained valid-name list to drift out of sync. No behavior
+  change (the error still matches "Unknown persona").
 
 ## [0.1.25] — 2026-05-28
 

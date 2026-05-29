@@ -21,6 +21,7 @@ from kaos_agents.types.session_policy import (
     DEFAULT_MAX_LOOP_ITERATIONS,
     DRAFTING_SOFT_CEILING,
     FORENSICS_SOFT_CEILING,
+    PERSONA_SOFT_CEILINGS,
     RESEARCH_SOFT_CEILING,
     SessionPolicy,
 )
@@ -107,6 +108,25 @@ class TestForPersona:
 
     def test_default_is_research(self) -> None:
         assert SessionPolicy.default() == SessionPolicy.for_persona("research")
+
+    def test_registry_is_source_of_truth(self) -> None:
+        """Every key in PERSONA_SOFT_CEILINGS builds a policy whose
+        soft_ceiling is that registry value — so adding a persona is a
+        single registry entry with no parallel branch to maintain."""
+        assert set(PERSONA_SOFT_CEILINGS) == {"research", "drafting", "forensics"}
+        for name, ceiling in PERSONA_SOFT_CEILINGS.items():
+            policy = SessionPolicy.for_persona(name)
+            assert policy.soft_ceiling == ceiling
+            assert policy.allowed_groups == ceiling
+
+    def test_unknown_persona_error_enumerates_registry(self) -> None:
+        """The error lists the valid personas from the registry itself,
+        so the message can't drift from the supported set."""
+        with pytest.raises(ValueError, match="Unknown persona") as exc:
+            SessionPolicy.for_persona("unicorn")
+        message = str(exc.value)
+        for name in PERSONA_SOFT_CEILINGS:
+            assert repr(name) in message
 
 
 # ─── Elevation tier lookup ───────────────────────────────────────────

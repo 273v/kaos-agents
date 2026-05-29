@@ -130,6 +130,18 @@ DRAFTING_SOFT_CEILING: frozenset[str] = RESEARCH_SOFT_CEILING | {"authoring"}
 FORENSICS_SOFT_CEILING: frozenset[str] = frozenset({"forensics", "vfs"})
 
 
+# Persona → soft-ceiling registry. The single source of truth for which
+# persona presets exist; :meth:`SessionPolicy.for_persona` looks up here
+# and its error message enumerates these keys, so adding a persona is one
+# entry (no parallel if/elif branch + hand-maintained valid-name list to
+# drift out of sync).
+PERSONA_SOFT_CEILINGS: dict[str, frozenset[str]] = {
+    "research": RESEARCH_SOFT_CEILING,
+    "drafting": DRAFTING_SOFT_CEILING,
+    "forensics": FORENSICS_SOFT_CEILING,
+}
+
+
 # Default loop budget — per the round-2 PRD §7 competitive analysis
 # (Pydantic AI's usage_limits + Harvey Deep Research budgets). These are
 # the **maxima** the loop respects; a turn that resolves in one
@@ -242,7 +254,8 @@ class SessionPolicy:
         """Build a SessionPolicy for a named persona preset.
 
         Args:
-            persona: ``"research"`` | ``"drafting"`` | ``"forensics"``.
+            persona: A key of :data:`PERSONA_SOFT_CEILINGS` — currently
+                ``"research"`` | ``"drafting"`` | ``"forensics"``.
 
         Returns:
             A SessionPolicy whose ``allowed_groups`` starts equal to the
@@ -252,16 +265,11 @@ class SessionPolicy:
         Raises:
             ValueError: For unknown persona names.
         """
-        if persona == "research":
-            sc = RESEARCH_SOFT_CEILING
-        elif persona == "drafting":
-            sc = DRAFTING_SOFT_CEILING
-        elif persona == "forensics":
-            sc = FORENSICS_SOFT_CEILING
-        else:
-            raise ValueError(
-                f"Unknown persona {persona!r}; expected one of 'research', 'drafting', 'forensics'."
-            )
+        try:
+            sc = PERSONA_SOFT_CEILINGS[persona]
+        except KeyError:
+            valid = ", ".join(repr(name) for name in PERSONA_SOFT_CEILINGS)
+            raise ValueError(f"Unknown persona {persona!r}; expected one of {valid}.") from None
         return cls(
             allowed_groups=sc,
             soft_ceiling=sc,
@@ -357,6 +365,7 @@ __all__ = [
     "DEFAULT_MAX_PER_TOOL_COST_USD",
     "DRAFTING_SOFT_CEILING",
     "FORENSICS_SOFT_CEILING",
+    "PERSONA_SOFT_CEILINGS",
     "RESEARCH_SOFT_CEILING",
     "ElevationTier",
     "SessionPolicy",
