@@ -6,7 +6,7 @@ mid-synthesis. The orchestrator's per-iteration tool-call cap returns
 control after N calls so M2 / circuit-breaker / budget-cap layers can
 intervene BEFORE the cost-storm completes.
 
-Default cap is 10. ``max_tool_calls_per_iteration=0`` disables the cap.
+Default cap is 30. ``max_tool_calls_per_iteration=0`` disables the cap.
 """
 
 from __future__ import annotations
@@ -136,16 +136,16 @@ async def _collect(gen) -> list[Any]:
 
 @pytest.mark.asyncio
 async def test_tool_call_cap_fires_at_default_threshold() -> None:
-    """Default cap=10: 15 calls in one iteration → tool_call_cap_exceeded."""
+    """Default cap=30: 35 calls in one iteration → tool_call_cap_exceeded."""
     policy = SessionPolicy.default()
     plan = _StubPlan(kept={"web"}, dropped=set())
 
-    spans = [_make_tool_complete_span("kaos-web-search", idx=i) for i in range(15)]
+    spans = [_make_tool_complete_span("kaos-web-search", idx=i) for i in range(35)]
     worker = _worker_stub(
         WorkerResult(
             text="Synthesized a long answer from many tool calls.",
             tool_calls_made=[
-                {"tool_name": "kaos-web-search", "result_summary": f"r{i}"} for i in range(15)
+                {"tool_name": "kaos-web-search", "result_summary": f"r{i}"} for i in range(35)
             ],
             cost_usd=0.05,
             latency_ms=2000.0,
@@ -196,16 +196,16 @@ async def test_tool_call_cap_fires_at_default_threshold() -> None:
 
 @pytest.mark.asyncio
 async def test_tool_call_cap_at_threshold_minus_one_does_not_fire() -> None:
-    """Default cap=10: 9 calls is under the cap → other terminator fires."""
+    """Default cap=30: 29 calls is under the cap → other terminator fires."""
     policy = SessionPolicy.default()
     plan = _StubPlan(kept={"web"}, dropped=set())
 
-    spans = [_make_tool_complete_span("kaos-web-search", idx=i) for i in range(9)]
+    spans = [_make_tool_complete_span("kaos-web-search", idx=i) for i in range(29)]
     worker = _worker_stub(
         WorkerResult(
             text="Found enough — synthesizing.",
             tool_calls_made=[
-                {"tool_name": "kaos-web-search", "result_summary": f"r{i}"} for i in range(9)
+                {"tool_name": "kaos-web-search", "result_summary": f"r{i}"} for i in range(29)
             ],
             cost_usd=0.005,
             latency_ms=500.0,

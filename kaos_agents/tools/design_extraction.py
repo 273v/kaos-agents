@@ -78,23 +78,17 @@ class AgentDesignExtractionTool(KaosTool):
             name="kaos-agent-design-extraction",
             display_name="Design + Execute Extraction Schema (LLM)",
             description=(
-                "Given a user question and a corpus of stored "
-                "ContentDocument artifacts, ask an LLM to propose a "
-                "typed ExtractionSchema for the deliverable, compile "
-                "it to a runtime Signature, and fan out per-document "
-                "extracts in parallel. Returns typed cited rows (one "
-                "per artifact). Use this for any question that fits "
-                "a structured extraction shape: per-document "
-                "attribute lookup, comparison table, list, batch flag "
-                "report. The dispatcher (this tool body) owns "
-                "source_uri assignment on every returned cell — the "
-                "LLM cannot fabricate citation identities. "
-                "TRANSPARENCY (Sprint-3 #10): structuredContent "
-                "carries ``cost_usd: float`` and ``total_tokens: int`` "
-                "at the top level — sums across the designer call + "
-                "every per-document extract call. Per-stage "
-                "breakdowns appear as ``designer_cost_usd`` + "
-                "``extraction_cost_usd``."
+                "Extract typed rows from N stored documents in "
+                "parallel — one row per document, columns proposed by "
+                "an LLM from the question + corpus. Returns the typed "
+                "schema + cited rows (no synthesis on top); use "
+                "kaos-agent-interpret-extraction when you also want "
+                "the user-facing memo rendered from the rows. Pick "
+                "this when you need just the structured data (CSV "
+                "export, programmatic downstream consumer, schema "
+                "inspection). Every cell carries the source "
+                "artifact_id — the LLM cannot fabricate citation "
+                "identities."
             ),
             category=ToolCategory.DOCUMENT,
             capability=ToolCapability.ANALYZE,
