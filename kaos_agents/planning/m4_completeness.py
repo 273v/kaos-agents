@@ -44,6 +44,7 @@ from kaos_core.logging import get_logger
 from kaos_agents.planning.judge import (
     JudgeVerdict,
     judge_with_rubric,
+    log_verdict,
 )
 
 logger = get_logger(__name__)
@@ -163,26 +164,16 @@ async def judge_completeness(
     # Same observability discipline as M2/M3 — INFO on trusted verdict,
     # WARNING on fell_back, so operators see every M4 firing without
     # grepping memory.json.
-    if verdict.fell_back:
-        logger.warning(
-            "M4 verdict fell back (label=%r confidence=%.2f reason=%r model=%s)",
-            verdict.label,
-            verdict.confidence,
-            verdict.reasoning,
-            model,
-        )
-    else:
-        logger.info(
-            "M4 verdict label=%s confidence=%.2f cost=$%.4f latency_ms=%.0f "
-            "user_prompt_chars=%d response_chars=%d model=%s",
-            verdict.label,
-            verdict.confidence,
-            verdict.cost_usd,
-            verdict.latency_ms,
-            len(user_prompt),
-            len(response_text),
-            model,
-        )
+    log_verdict(
+        logger,
+        "M4",
+        verdict,
+        model=model,
+        char_counts={
+            "user_prompt_chars": len(user_prompt),
+            "response_chars": len(response_text),
+        },
+    )
     return verdict
 
 
