@@ -36,6 +36,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   persona is now one registry entry — no parallel branch and no
   hand-maintained valid-name list to drift out of sync. No behavior
   change (the error still matches "Unknown persona").
+- **`DEFAULT_MAX_LOOP_COST_USD` raised $0.25 → $2.00.** The 20-persona
+  NDA matrix (2026-05-29) showed legitimate 5-document reviews on
+  Opus-class models costing up to ~$0.43/turn — the $0.25 loop cost cap
+  was cutting real work off mid-synthesis and emitting an honest-but-
+  useless "hit its spending limit" refusal. $2.00 clears observed
+  legitimate turns with headroom; `max_loop_iterations` (3) and
+  `max_loop_wall_clock_seconds` (60) remain the primary runaway guards.
+  The cap is still overridable per-session (`SessionPolicy`) and
+  per-request.
 
 ## [0.1.25] — 2026-05-28
 

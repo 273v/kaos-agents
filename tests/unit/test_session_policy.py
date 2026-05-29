@@ -269,9 +269,13 @@ class TestLoopConfigDefaults:
         assert DEFAULT_MAX_LOOP_ITERATIONS == 3
         assert SessionPolicy.default().max_loop_iterations == 3
 
-    def test_default_max_cost_usd_is_a_quarter(self) -> None:
-        assert pytest.approx(0.25) == DEFAULT_MAX_LOOP_COST_USD
-        assert SessionPolicy.default().max_loop_cost_usd == pytest.approx(0.25)
+    def test_default_max_cost_usd_clears_legitimate_multidoc_turns(self) -> None:
+        # Raised from $0.25 to $2.00 (2026-05-29): the NDA matrix showed
+        # legitimate 5-doc Opus reviews costing up to ~$0.43/turn, which
+        # the old cap cut off mid-synthesis. iterations + wall-clock are
+        # the primary runaway guards; this is the $ backstop.
+        assert pytest.approx(2.00) == DEFAULT_MAX_LOOP_COST_USD
+        assert SessionPolicy.default().max_loop_cost_usd == pytest.approx(2.00)
 
     def test_default_wall_clock_is_60_seconds(self) -> None:
         assert SessionPolicy.default().max_loop_wall_clock_seconds == pytest.approx(60.0)

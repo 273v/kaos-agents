@@ -144,12 +144,20 @@ PERSONA_SOFT_CEILINGS: dict[str, frozenset[str]] = {
 
 # Default loop budget — per the round-2 PRD §7 competitive analysis
 # (Pydantic AI's usage_limits + Harvey Deep Research budgets). These are
-# the **maxima** the loop respects; a turn that resolves in one
-# iteration costs maybe $0.005 (Haiku planner + Haiku critic +
-# Haiku/Sonnet worker) — the budget exists to cap pathological loops,
-# not to constrain typical use.
+# the **maxima** the loop respects; the budget exists to cap pathological
+# loops, NOT to constrain typical use.
+#
+# ``max_loop_cost_usd`` is $2.00, not the original $0.25: the 20-persona
+# NDA matrix (2026-05-29) showed legitimate 5-document reviews on
+# Opus-class models costing up to ~$0.43/turn, and the $0.25 cap was
+# cutting them off mid-synthesis — producing an honest-but-useless
+# "hit its spending limit" refusal on real work. $2.00 clears observed
+# legitimate turns with comfortable headroom while ``max_loop_iterations``
+# (3) and ``max_loop_wall_clock_seconds`` (60) remain the primary
+# runaway guards. Operators tighten via env / per-request override when
+# they want a stricter ceiling.
 DEFAULT_MAX_LOOP_ITERATIONS: int = 3
-DEFAULT_MAX_LOOP_COST_USD: float = 0.25
+DEFAULT_MAX_LOOP_COST_USD: float = 2.00
 DEFAULT_MAX_LOOP_WALL_CLOCK_SECONDS: float = 60.0
 
 # Plan §Issue 9 / B1.7 — per-tool-call intra-iteration cost cap.
