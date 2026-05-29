@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Unified the post-satisfied grounding critics (M2/M3/M4).** The three
+  near-identical wiring blocks in `run_agentic_turn` are now a single
+  `_process_critic` runner driven by declarative `_GroundingCritic`
+  specs. No behavior change to the loop (full unit suite unchanged), but:
+  - the duplicated `0.85` override floor (previously a local variable
+    declared twice) is now the single named
+    `_CRITIC_OVERRIDE_CONFIDENCE_FLOOR`;
+  - M3's intentional no-confidence-floor behavior is now explicit in its
+    spec (`confidence_floor=0.0`) instead of an undocumented asymmetry;
+  - the re-write directives threaded into the worker's `thinking_note`
+    no longer leak internal critic ids or rubric labels (e.g.
+    "M2 consistency critic flagged contradicts_reasoning:") — they are
+    now plain-English instructions describing the problem and the fix;
+  - per-critic verdict logging is no longer emitted twice (the loop and
+    the `judge_*` wrapper previously both logged).
+
 ## [0.1.25] — 2026-05-28
 
 Dynamic deliverable schema architecture — full end-to-end shipment.
