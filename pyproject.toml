@@ -53,7 +53,7 @@ dependencies = [
 # (kaos-agent-interpret-extraction tool wraps it in the iterative
 # Extract↔Synthesize loop). 0.1.5 shipped the extraction half
 # (design_schema with auto schema_id, stamp_source_uri).
-llm = ["kaos-llm-client>=0.1.0,<0.2", "kaos-llm-core>=0.1.7,<0.2"]
+llm = ["kaos-llm-client>=0.1.9,<0.2", "kaos-llm-core>=0.1.8,<0.2"]
 # MCP server bridge (kaos-agents-serve --http and --stdio)
 mcp = ["kaos-mcp>=0.1.0,<0.2"]
 # FastAPI HTTP API surface (kaos-agents-serve --api)
@@ -96,8 +96,8 @@ full = [
 
 [dependency-groups]
 dev = [
-  "kaos-llm-client>=0.1.0,<0.2",
-  "kaos-llm-core>=0.1.7,<0.2",
+  "kaos-llm-client>=0.1.9,<0.2",
+  "kaos-llm-core>=0.1.8,<0.2",
   "kaos-mcp>=0.1.0,<0.2",
   "kaos-pdf>=0.1.0,<0.2",
   # WU-J does not cut kaos-office / kaos-web / kaos-tabular / kaos-ml-core.

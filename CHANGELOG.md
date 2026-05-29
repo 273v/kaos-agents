@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.26] — 2026-05-29
+
 ### Added
 
 - `kaos_agents.types.session_policy.PERSONA_SOFT_CEILINGS` — public
