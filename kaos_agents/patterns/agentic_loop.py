@@ -74,7 +74,7 @@ import asyncio
 import json
 import re
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -555,242 +555,71 @@ async def run_agentic_turn(
 
             yield _build_goal_checked_event(outcome, state, session_id, run_id)
 
-            # ── 4b. M2 reasoning-action consistency override ─────────
-            # When the caller opted-in to M2 (m2_consistency_model is
-            # set) AND the goal check returned satisfied, run the M2
-            # critic on the worker's response. A contradicts_* verdict
-            # overrides the terminator and forces a re-write iteration.
-            # See 2026-05-19-agentic-loop-honesty.md §3.2 + the M2
-            # rubric in kaos_agents.planning.m2_consistency.
-            m2_override_note: str = ""
-            if m2_consistency_model is not None and outcome.satisfied:
-                m2_verdict = await judge_reasoning_action_consistency(
-                    response_text=worker_result.text,
-                    model=m2_consistency_model,
-                    tool_results_text=_format_tool_results_for_m2(worker_result.tool_calls_made),
-                )
-                state.cumulative_cost_usd += m2_verdict.cost_usd
-                # Confidence floor — only an explicit contradiction (per
-                # the rubric's own ">= 0.85" guidance) overrides a
-                # satisfied verdict. Lower-confidence flags are real
-                # observability signals (emitted via the event +
-                # structured log below) but must not flip a passing
-                # turn into a replan. Without this gate, an over-eager
-                # critic LLM can refuse correctly-grounded answers on
-                # weak heuristics — WU-K v2 Case E1 (2026-05-21):
-                # response cited "Meridian Financial, LLC" verbatim
-                # present in tool results, M2 returned
-                # contradicts_tool_results @ 0.92 anyway. The rubric
-                # has been tightened with explicit "RAG pick-one" and
-                # "honest can't-verify" carve-outs (see
-                # planning/m2_consistency.py); this floor is the
-                # defensive backstop when the model still flags those
-                # patterns despite the carve-outs.
-                M2_OVERRIDE_CONFIDENCE_FLOOR: float = 0.85
-                if (
-                    not m2_verdict.fell_back
-                    and m2_verdict.confidence >= M2_OVERRIDE_CONFIDENCE_FLOOR
-                ):
-                    if m2_verdict.label == "contradicts_reasoning":
-                        m2_override_note = (
-                            "M2 consistency critic flagged contradicts_reasoning: "
-                            "your prior response's headline contradicted its own "
-                            "body. Re-write the response so the opening "
-                            "branch/announcement/summary matches the body's "
-                            "actual computation and final conclusion. Do not "
-                            "leave a stale headline from a first-draft attempt."
+            # ── 4b. Post-satisfied grounding critics (M2 / M3 / M4) ──
+            # Opt-in (the caller passes a model) and only after a
+            # satisfied GoalCheck. Each critic is a JudgeSignature rubric
+            # that can override the satisfied verdict and force one more
+            # iteration with a re-write directive. All three run through
+            # the shared _process_critic path (see the _GroundingCritic
+            # specs above); M2/M3 judge the worker text against the tool
+            # results, M4 judges the response against the user's request.
+            # Order is M2 → M3 → M4 (grounding before completeness): the
+            # first critic to override supplies the refusal rationale if
+            # a later iteration bails. See 2026-05-19-agentic-loop-honesty.md §3.2.
+            override_notes: list[str] = []
+            critic_rationale = ""
+            if outcome.satisfied:
+                tool_results_text = _format_tool_results_for_m2(worker_result.tool_calls_made)
+                critic_calls: list[tuple[_GroundingCritic, Awaitable[Any]]] = []
+                if m2_consistency_model is not None:
+                    critic_calls.append(
+                        (
+                            _M2_CRITIC,
+                            judge_reasoning_action_consistency(
+                                response_text=worker_result.text,
+                                model=m2_consistency_model,
+                                tool_results_text=tool_results_text,
+                            ),
                         )
-                    elif m2_verdict.label == "contradicts_tool_results":
-                        m2_override_note = (
-                            "M2 consistency critic flagged contradicts_tool_results: "
-                            "your prior response asserted facts that contradict "
-                            "what the tool calls actually returned. Re-write the "
-                            "response using only what the tools returned; do not "
-                            "fall back to training memory for the disputed claim."
+                    )
+                if m3_grounding_model is not None:
+                    critic_calls.append(
+                        (
+                            _M3_CRITIC,
+                            judge_grounding_fabrication(
+                                response_text=worker_result.text,
+                                model=m3_grounding_model,
+                                tool_results_text=tool_results_text,
+                            ),
                         )
-                # Emit a typed observability event so operators, SPA
-                # run-inspectors, and OTel exporters all see the
-                # verdict (regardless of whether it triggered an
-                # override). Mirrors GoalChecked + ToolPolicyElevated.
-                yield _build_consistency_checked_event(
-                    verdict=m2_verdict,
-                    iteration=state.iteration,
-                    overrode_satisfied=bool(m2_override_note),
-                    state=state,
-                    session_id=session_id,
-                    run_id=run_id,
-                )
-                # Structured log so default log filters surface M2
-                # firings without grepping memory.json. INFO when the
-                # verdict is trustworthy, WARNING on fell_back.
-                if m2_verdict.fell_back:
-                    logger.warning(
-                        "M2 consistency critic fell back (treated as consistent) "
-                        "session=%s iteration=%d cost=$%.4f reason=%r",
-                        session_id,
-                        state.iteration,
-                        m2_verdict.cost_usd,
-                        m2_verdict.reasoning,
                     )
-                else:
-                    logger.info(
-                        "M2 consistency critic verdict=%s confidence=%.2f "
-                        "overrode_satisfied=%s session=%s iteration=%d "
-                        "cost=$%.4f latency_ms=%.0f",
-                        m2_verdict.label,
-                        m2_verdict.confidence,
-                        bool(m2_override_note),
-                        session_id,
-                        state.iteration,
-                        m2_verdict.cost_usd,
-                        m2_verdict.latency_ms,
+                if m4_completeness_model is not None:
+                    critic_calls.append(
+                        (
+                            _M4_CRITIC,
+                            judge_completeness(
+                                user_prompt=user_message,
+                                response_text=worker_result.text,
+                                model=m4_completeness_model,
+                            ),
+                        )
                     )
-                # When M2 fires, do NOT terminate — fall through to the
-                # replan section below with the M2 note in thinking_note.
+                for spec, coro in critic_calls:
+                    note, rationale, event = _process_critic(
+                        spec=spec,
+                        verdict=await coro,
+                        state=state,
+                        session_id=session_id,
+                        run_id=run_id,
+                    )
+                    yield event
+                    if note:
+                        override_notes.append(note)
+                        critic_rationale = critic_rationale or rationale
 
-            # ── 4c. M3 document-grounding fabrication override ───────
-            # Composes with M2 — both critics run when satisfied. Either
-            # one's override fires the replan. M3 targets the "agent
-            # admits it didn't read X then describes X" pattern
-            # (task #445 P0-7 / R1-REAL recurrence).
-            m3_override_note: str = ""
-            if m3_grounding_model is not None and outcome.satisfied:
-                m3_verdict = await judge_grounding_fabrication(
-                    response_text=worker_result.text,
-                    model=m3_grounding_model,
-                    tool_results_text=_format_tool_results_for_m2(worker_result.tool_calls_made),
-                )
-                state.cumulative_cost_usd += m3_verdict.cost_usd
-                if not m3_verdict.fell_back:
-                    if m3_verdict.label == "fabricated_with_admission":
-                        m3_override_note = (
-                            "M3 grounding critic flagged "
-                            "fabricated_with_admission: your prior response "
-                            "ADMITTED it could not read / fetch / access the "
-                            "document AND THEN described the document's "
-                            "contents anyway. Re-write so EITHER (a) you "
-                            "actually invoke a fetch / search / read tool "
-                            "for the document and ground your claims in what "
-                            "the tool returns, OR (b) you refuse cleanly and "
-                            "do NOT describe contents you cannot verify. "
-                            "Never both — that's the worst case for the user."
-                        )
-                    elif m3_verdict.label == "fabricated_without_admission":
-                        m3_override_note = (
-                            "M3 grounding critic flagged "
-                            "fabricated_without_admission: your prior response "
-                            "made substantive claims about a document/source "
-                            "that the tool calls did not actually return. "
-                            "Re-write the response using ONLY what the tools "
-                            "returned (or what the user supplied verbatim in "
-                            "the prompt). If the tools returned nothing "
-                            "useful, refuse honestly — do not silently fall "
-                            "back to training memory for specifics about "
-                            "named documents."
-                        )
-                yield _build_consistency_checked_event(
-                    verdict=m3_verdict,
-                    iteration=state.iteration,
-                    overrode_satisfied=bool(m3_override_note),
-                    state=state,
-                    session_id=session_id,
-                    run_id=run_id,
-                )
-                if m3_verdict.fell_back:
-                    logger.warning(
-                        "M3 grounding critic fell back (treated as grounded) "
-                        "session=%s iteration=%d cost=$%.4f reason=%r",
-                        session_id,
-                        state.iteration,
-                        m3_verdict.cost_usd,
-                        m3_verdict.reasoning,
-                    )
-                else:
-                    logger.info(
-                        "M3 grounding critic verdict=%s confidence=%.2f "
-                        "overrode_satisfied=%s session=%s iteration=%d "
-                        "cost=$%.4f latency_ms=%.0f",
-                        m3_verdict.label,
-                        m3_verdict.confidence,
-                        bool(m3_override_note),
-                        session_id,
-                        state.iteration,
-                        m3_verdict.cost_usd,
-                        m3_verdict.latency_ms,
-                    )
-
-            # ── 4d. M4 silent-incompleteness override ────────────────
-            # Composes with M2 + M3 — all three critics run when
-            # satisfied. M4 runs LAST: a partial answer that's also
-            # ungrounded should be flagged on grounding first (M3); M4
-            # catches the cases where the answer IS grounded in what
-            # the tools returned but quantitatively incomplete vs what
-            # the user asked for. P0.4 / S12 confident-partial-answer.
-            m4_override_note: str = ""
-            m4_verdict = None
-            if m4_completeness_model is not None and outcome.satisfied:
-                m4_verdict = await judge_completeness(
-                    user_prompt=user_message,
-                    response_text=worker_result.text,
-                    model=m4_completeness_model,
-                )
-                state.cumulative_cost_usd += m4_verdict.cost_usd
-                # Confidence floor mirrors M2/M3 (>=0.85) — only an
-                # explicit incompleteness verdict overrides a satisfied
-                # GoalCheck. Lower-confidence flags are real
-                # observability signals (event + log below) but must
-                # not flip a passing turn into a replan.
-                M4_OVERRIDE_CONFIDENCE_FLOOR: float = 0.85
-                if (
-                    not m4_verdict.fell_back
-                    and m4_verdict.confidence >= M4_OVERRIDE_CONFIDENCE_FLOOR
-                    and m4_verdict.label == "partial"
-                ):
-                    m4_override_note = (
-                        "M4 completeness critic flagged partial: your prior response "
-                        "returned fewer items than the user requested without "
-                        "acknowledging exhaustion. EITHER continue searching the "
-                        "corpus for the missing items, OR re-write to explicitly "
-                        "state which items were found and which were not (cite "
-                        "what you searched — 'I reviewed N documents and found M')."
-                    )
-                yield _build_consistency_checked_event(
-                    verdict=m4_verdict,
-                    iteration=state.iteration,
-                    overrode_satisfied=bool(m4_override_note),
-                    state=state,
-                    session_id=session_id,
-                    run_id=run_id,
-                )
-                if m4_verdict.fell_back:
-                    logger.warning(
-                        "M4 completeness critic fell back (treated as complete) "
-                        "session=%s iteration=%d cost=$%.4f reason=%r",
-                        session_id,
-                        state.iteration,
-                        m4_verdict.cost_usd,
-                        m4_verdict.reasoning,
-                    )
-                else:
-                    logger.info(
-                        "M4 completeness critic verdict=%s confidence=%.2f "
-                        "overrode_satisfied=%s session=%s iteration=%d "
-                        "cost=$%.4f latency_ms=%.0f",
-                        m4_verdict.label,
-                        m4_verdict.confidence,
-                        bool(m4_override_note),
-                        session_id,
-                        state.iteration,
-                        m4_verdict.cost_usd,
-                        m4_verdict.latency_ms,
-                    )
-
-            # Compose M2 + M3 + M4 override notes. When multiple fire,
-            # the user sees all directives in the next iteration's
-            # thinking_note.
-            override_note = "\n\n".join(
-                n for n in (m2_override_note, m3_override_note, m4_override_note) if n
-            )
+            # When multiple critics fire, the worker sees every directive
+            # in the next iteration's thinking_note.
+            override_note = "\n\n".join(override_notes)
 
             # ── 5. Terminal verdicts ─────────────────────────────────
             if outcome.satisfied and not override_note:
@@ -822,49 +651,20 @@ async def run_agentic_turn(
             state.last_tool_call_count = new_tool_count
 
             # ── 7. Plan next iteration via needs_more_work ──────────
-            # Three paths into replan: the goal check returned
-            # needs_more_work, OR the M2 override fired on a satisfied
-            # verdict, OR the M3 override fired. M2/M3 paths bypass
-            # the GoalCheckNeedsMoreWork assertion because the outcome
-            # object is still satisfied.
+            # Two paths into replan: the goal check returned
+            # needs_more_work, OR a post-satisfied critic overrode the
+            # satisfied verdict (override_note is non-empty). The
+            # override path bypasses the GoalCheckNeedsMoreWork assertion
+            # because the outcome object is still satisfied.
             if override_note:
                 state.thinking_note = override_note
-                # 0.1.2 (R1.2): set last_critic_rationale on the
-                # override path too so a downstream max-iter refusal
-                # surfaces the critic that actually flagged the
-                # response. Pre-fix the override branch set
-                # ``state.thinking_note`` but not the rationale, so
-                # a subsequent max_iter exit rendered the previous
-                # iteration's GoalCheck rationale (often empty or
-                # stale clarification-loop text) instead of M2/M3's
-                # actual directive.
-                #
-                # Use the M2 verdict's reasoning when M2 overrode
-                # (most common case); fall back to M3 reasoning when
-                # only M3 fired; the override_note itself contains
-                # the actionable directive so use that as
-                # next_action.
-                if m2_override_note and not m2_verdict.fell_back:
-                    state.last_critic_rationale = (
-                        f"M2 ({m2_verdict.label}): {m2_verdict.reasoning}"
-                        if m2_verdict.reasoning
-                        else f"M2 flagged {m2_verdict.label} at "
-                        f"confidence {m2_verdict.confidence:.2f}"
-                    )
-                elif m3_override_note and not m3_verdict.fell_back:
-                    state.last_critic_rationale = (
-                        f"M3 ({m3_verdict.label}): {m3_verdict.reasoning}"
-                        if m3_verdict.reasoning
-                        else f"M3 flagged {m3_verdict.label} at "
-                        f"confidence {m3_verdict.confidence:.2f}"
-                    )
-                elif m4_override_note and m4_verdict is not None and not m4_verdict.fell_back:
-                    state.last_critic_rationale = (
-                        f"M4 ({m4_verdict.label}): {m4_verdict.reasoning}"
-                        if m4_verdict.reasoning
-                        else f"M4 flagged {m4_verdict.label} at "
-                        f"confidence {m4_verdict.confidence:.2f}"
-                    )
+                # The first critic to override (M2 → M3 → M4) already
+                # built critic_rationale; surface it so a downstream
+                # max-iterations refusal names the critic that flagged
+                # the response rather than a stale GoalCheck rationale
+                # (task #505 / R1.2). The override_note carries the
+                # actionable directive, so it doubles as next_action.
+                state.last_critic_rationale = critic_rationale
                 state.last_critic_next_action = override_note
                 state.last_terminal_verdict = "override"  # R0.1
             else:
@@ -1070,11 +870,6 @@ def _build_failure_refusal(
         "scope) or retry with a higher iteration / cost budget."
     )
     return "\n".join(lines)
-
-
-# Backwards-compat alias for the older name used while #505 was being
-# scoped. Will be removed in the next refactor pass.
-_build_max_iterations_refusal = _build_failure_refusal
 
 
 def _draft_for_preserve(state: _LoopState) -> str:
@@ -1387,6 +1182,178 @@ def _consider_elevation(
         )
 
     return new_policy, elevated_event, capability_event
+
+
+# ── Post-satisfied grounding critics (M2 / M3 / M4) ──────────────────
+#
+# After a *satisfied* GoalCheck the loop optionally runs one or more
+# grounding critics (opt-in: the caller passes a model). Each is a
+# JudgeSignature rubric living in planning.{m2_consistency,m3_grounding,
+# m4_completeness}; a failing verdict overrides the satisfied terminator
+# and forces one more iteration with a re-write directive.
+#
+# All three are described declaratively by a `_GroundingCritic` spec and
+# share one runner (`_process_critic`), so the loop body holds three
+# small guarded calls instead of three ~55-line copies. Adding a critic
+# is a new spec + one guarded call.
+
+# Minimum verdict confidence for a critic to override a satisfied
+# GoalCheck. The JudgeSignature rubrics themselves say "high confidence
+# (>= 0.85) when the contradiction is explicit"; the loop honours that
+# threshold so an over-eager critic can't flip a correctly-grounded
+# answer into a replan on a weak heuristic (WU-K v2 Case E1, 2026-05-21).
+_CRITIC_OVERRIDE_CONFIDENCE_FLOOR = 0.85
+
+# Failing verdict label → re-write directive threaded into the next
+# iteration's thinking_note. These strings are LLM-VISIBLE prompts: they
+# name the actual problem and the fix, never the internal critic id or
+# the rubric label (feedback_llm_visible_prompt_prose).
+_M2_DIRECTIVES: dict[str, str] = {
+    "contradicts_reasoning": (
+        "Your previous response's opening headline/announcement/summary "
+        "contradicted its own body. Re-write so the opening matches the "
+        "body's actual computation and final conclusion. Do not leave a "
+        "stale headline from a first-draft attempt."
+    ),
+    "contradicts_tool_results": (
+        "Your previous response asserted facts that contradict what the "
+        "tool calls actually returned. Re-write using only what the tools "
+        "returned; do not fall back to training memory for the disputed "
+        "claim."
+    ),
+}
+_M3_DIRECTIVES: dict[str, str] = {
+    "fabricated_with_admission": (
+        "Your previous response ADMITTED it could not read / fetch / "
+        "access the document AND THEN described the document's contents "
+        "anyway. Re-write so EITHER (a) you actually invoke a fetch / "
+        "search / read tool for the document and ground your claims in "
+        "what it returns, OR (b) you refuse cleanly and do NOT describe "
+        "contents you cannot verify. Never both — that's the worst case "
+        "for the user."
+    ),
+    "fabricated_without_admission": (
+        "Your previous response made substantive claims about a "
+        "document/source that the tool calls did not actually return. "
+        "Re-write using ONLY what the tools returned (or what the user "
+        "supplied verbatim in the prompt). If the tools returned nothing "
+        "useful, refuse honestly — do not silently fall back to training "
+        "memory for specifics about named documents."
+    ),
+}
+_M4_DIRECTIVES: dict[str, str] = {
+    "partial": (
+        "Your previous response returned fewer items than the user "
+        "requested without acknowledging exhaustion. EITHER continue "
+        "searching the corpus for the missing items, OR re-write to "
+        "explicitly state which items were found and which were not "
+        "(cite what you searched — 'I reviewed N documents and found M')."
+    ),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class _GroundingCritic:
+    """Declarative spec for one post-satisfied grounding critic.
+
+    Fields:
+        name: Internal id used in events, logs, and the refusal
+            rationale ONLY — never threaded into an LLM prompt.
+        directives: Failing verdict label → plain-English re-write
+            instruction (LLM-visible; see ``_M2_DIRECTIVES`` et al.).
+            A verdict whose label is not a key never overrides.
+        confidence_floor: Minimum verdict confidence to override. M2 and
+            M4 use ``_CRITIC_OVERRIDE_CONFIDENCE_FLOOR``; M3 uses ``0.0``
+            (any trustworthy fabrication label overrides) because an
+            admitted-or-silent fabrication is the highest-severity
+            failure family. This asymmetry is intentional and pre-dates
+            the unification — see docs/plans/2026-05-29-kaos-agents-
+            simplification-diary.md before "fixing" it.
+    """
+
+    name: str
+    directives: Mapping[str, str]
+    confidence_floor: float
+
+
+_M2_CRITIC = _GroundingCritic("M2", _M2_DIRECTIVES, _CRITIC_OVERRIDE_CONFIDENCE_FLOOR)
+_M3_CRITIC = _GroundingCritic("M3", _M3_DIRECTIVES, 0.0)
+_M4_CRITIC = _GroundingCritic("M4", _M4_DIRECTIVES, _CRITIC_OVERRIDE_CONFIDENCE_FLOOR)
+
+
+def _critic_override(spec: _GroundingCritic, verdict: Any) -> str:
+    """Return this critic's thinking_note directive, or '' if it doesn't override.
+
+    A critic overrides the satisfied terminator iff the verdict is
+    trustworthy (not ``fell_back``), clears the spec's confidence floor,
+    and carries a failing label the spec has a directive for.
+    """
+    if verdict.fell_back or verdict.confidence < spec.confidence_floor:
+        return ""
+    return spec.directives.get(verdict.label, "")
+
+
+def _process_critic(
+    *,
+    spec: _GroundingCritic,
+    verdict: Any,
+    state: _LoopState,
+    session_id: str,
+    run_id: str,
+) -> tuple[str, str, ConsistencyChecked]:
+    """Shared post-processing for one post-satisfied grounding critic.
+
+    Folds the verdict's cost into ``state``, decides whether it overrides
+    the satisfied verdict, builds the :class:`ConsistencyChecked`
+    observability event, and logs once (INFO when trusted, WARNING when
+    the critic fell back). Returns ``(override_note, rationale, event)``:
+
+    * ``override_note`` — the directive to thread into the next
+      iteration's thinking_note, or '' when the critic does not override.
+    * ``rationale`` — human-facing diagnosis stashed for a downstream
+      max-iterations refusal; '' unless the critic overrode.
+    * ``event`` — the caller yields this to preserve stream order.
+    """
+    state.cumulative_cost_usd += verdict.cost_usd
+    note = _critic_override(spec, verdict)
+    rationale = ""
+    if note:
+        rationale = (
+            f"{spec.name} ({verdict.label}): {verdict.reasoning}"
+            if verdict.reasoning
+            else f"{spec.name} flagged {verdict.label} at confidence {verdict.confidence:.2f}"
+        )
+    event = _build_consistency_checked_event(
+        verdict=verdict,
+        iteration=state.iteration,
+        overrode_satisfied=bool(note),
+        state=state,
+        session_id=session_id,
+        run_id=run_id,
+    )
+    if verdict.fell_back:
+        logger.warning(
+            "%s critic fell back (treated as pass) session=%s iteration=%d cost=$%.4f reason=%r",
+            spec.name,
+            session_id,
+            state.iteration,
+            verdict.cost_usd,
+            verdict.reasoning,
+        )
+    else:
+        logger.info(
+            "%s critic verdict=%s confidence=%.2f overrode_satisfied=%s "
+            "session=%s iteration=%d cost=$%.4f latency_ms=%.0f",
+            spec.name,
+            verdict.label,
+            verdict.confidence,
+            bool(note),
+            session_id,
+            state.iteration,
+            verdict.cost_usd,
+            verdict.latency_ms,
+        )
+    return note, rationale, event
 
 
 def _build_consistency_checked_event(

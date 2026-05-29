@@ -43,6 +43,7 @@ from kaos_core.logging import get_logger
 from kaos_agents.planning.judge import (
     JudgeVerdict,
     judge_with_rubric,
+    log_verdict,
 )
 
 logger = get_logger(__name__)
@@ -170,26 +171,16 @@ async def judge_grounding_fabrication(
     # Same observability discipline as M2 — INFO on trusted verdict,
     # WARNING on fell_back, so operators see every M3 firing without
     # grepping memory.json.
-    if verdict.fell_back:
-        logger.warning(
-            "M3 verdict fell back (label=%r confidence=%.2f reason=%r model=%s)",
-            verdict.label,
-            verdict.confidence,
-            verdict.reasoning,
-            model,
-        )
-    else:
-        logger.info(
-            "M3 verdict label=%s confidence=%.2f cost=$%.4f latency_ms=%.0f "
-            "response_chars=%d tool_results_chars=%d model=%s",
-            verdict.label,
-            verdict.confidence,
-            verdict.cost_usd,
-            verdict.latency_ms,
-            len(response_text),
-            len(tool_results_text),
-            model,
-        )
+    log_verdict(
+        logger,
+        "M3",
+        verdict,
+        model=model,
+        char_counts={
+            "response_chars": len(response_text),
+            "tool_results_chars": len(tool_results_text),
+        },
+    )
     return verdict
 
 

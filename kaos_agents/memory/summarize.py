@@ -15,6 +15,11 @@ from typing import TYPE_CHECKING
 from kaos_core.logging import get_logger
 from kaos_llm_core import InputField, OutputField, Signature
 
+from kaos_agents._constants import (
+    FALLBACK_LINE_OVERHEAD,
+    FALLBACK_SUMMARY_LINE_MAX,
+    SUMMARIZE_FALLBACK_TOKENS,
+)
 from kaos_agents.settings import DEFAULT_MODEL
 
 if TYPE_CHECKING:
@@ -47,7 +52,7 @@ async def summarize_items(
     section_type: MemoryType,
     *,
     model: str = DEFAULT_MODEL,
-    target_tokens: int = 200,
+    target_tokens: int = SUMMARIZE_FALLBACK_TOKENS,
     chars_per_token: float = 4.0,
 ) -> str:
     """Summarize a list of memory items into a compact text.
@@ -117,11 +122,12 @@ def _fallback_summarize(items: list[MemoryItem], target_chars: int) -> str:
     total = 0
     for item in items:
         first_line = item.content.split("\n", 1)[0]
-        if len(first_line) > 100:
-            first_line = first_line[:97] + "..."
+        if len(first_line) > FALLBACK_SUMMARY_LINE_MAX:
+            first_line = first_line[: FALLBACK_SUMMARY_LINE_MAX - 3] + "..."
         if total + len(first_line) > target_chars:
             lines.append("...")
             break
         lines.append(f"- {first_line}")
-        total += len(first_line) + 4  # account for "- " prefix and newline
+        # account for "- " prefix and newline
+        total += len(first_line) + FALLBACK_LINE_OVERHEAD
     return "[Summary of prior items]\n" + "\n".join(lines)

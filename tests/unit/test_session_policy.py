@@ -21,6 +21,7 @@ from kaos_agents.types.session_policy import (
     DEFAULT_MAX_LOOP_ITERATIONS,
     DRAFTING_SOFT_CEILING,
     FORENSICS_SOFT_CEILING,
+    PERSONA_SOFT_CEILINGS,
     RESEARCH_SOFT_CEILING,
     SessionPolicy,
 )
@@ -107,6 +108,25 @@ class TestForPersona:
 
     def test_default_is_research(self) -> None:
         assert SessionPolicy.default() == SessionPolicy.for_persona("research")
+
+    def test_registry_is_source_of_truth(self) -> None:
+        """Every key in PERSONA_SOFT_CEILINGS builds a policy whose
+        soft_ceiling is that registry value — so adding a persona is a
+        single registry entry with no parallel branch to maintain."""
+        assert set(PERSONA_SOFT_CEILINGS) == {"research", "drafting", "forensics"}
+        for name, ceiling in PERSONA_SOFT_CEILINGS.items():
+            policy = SessionPolicy.for_persona(name)
+            assert policy.soft_ceiling == ceiling
+            assert policy.allowed_groups == ceiling
+
+    def test_unknown_persona_error_enumerates_registry(self) -> None:
+        """The error lists the valid personas from the registry itself,
+        so the message can't drift from the supported set."""
+        with pytest.raises(ValueError, match="Unknown persona") as exc:
+            SessionPolicy.for_persona("unicorn")
+        message = str(exc.value)
+        for name in PERSONA_SOFT_CEILINGS:
+            assert repr(name) in message
 
 
 # ─── Elevation tier lookup ───────────────────────────────────────────
@@ -249,9 +269,13 @@ class TestLoopConfigDefaults:
         assert DEFAULT_MAX_LOOP_ITERATIONS == 3
         assert SessionPolicy.default().max_loop_iterations == 3
 
-    def test_default_max_cost_usd_is_a_quarter(self) -> None:
-        assert pytest.approx(0.25) == DEFAULT_MAX_LOOP_COST_USD
-        assert SessionPolicy.default().max_loop_cost_usd == pytest.approx(0.25)
+    def test_default_max_cost_usd_clears_legitimate_multidoc_turns(self) -> None:
+        # Raised from $0.25 to $2.00 (2026-05-29): the NDA matrix showed
+        # legitimate 5-doc Opus reviews costing up to ~$0.43/turn, which
+        # the old cap cut off mid-synthesis. iterations + wall-clock are
+        # the primary runaway guards; this is the $ backstop.
+        assert pytest.approx(2.00) == DEFAULT_MAX_LOOP_COST_USD
+        assert SessionPolicy.default().max_loop_cost_usd == pytest.approx(2.00)
 
     def test_default_wall_clock_is_60_seconds(self) -> None:
         assert SessionPolicy.default().max_loop_wall_clock_seconds == pytest.approx(60.0)

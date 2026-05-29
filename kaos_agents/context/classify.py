@@ -12,6 +12,13 @@ from typing import TYPE_CHECKING, Literal
 from kaos_core.logging import get_logger
 from kaos_llm_core import InputField, OutputField, Signature
 
+from kaos_agents._constants import (
+    HEURISTIC_CONFIDENCE_DEFAULT,
+    HEURISTIC_CONFIDENCE_GREETING,
+    HEURISTIC_CONFIDENCE_PLAN,
+    HEURISTIC_CONFIDENCE_RESEARCH,
+    HEURISTIC_CONFIDENCE_TOOL_USE,
+)
 from kaos_agents.settings import DEFAULT_MODEL
 from kaos_agents.types import IntentResult, IntentType, InvocationUsage
 
@@ -278,7 +285,7 @@ def _classify_heuristic(user_message: str, memory: SessionMemory) -> IntentResul
     if len(words) <= 3 and words & _GREETING_WORDS:
         return IntentResult(
             intent=IntentType.RESPOND,
-            confidence=0.8,
+            confidence=HEURISTIC_CONFIDENCE_GREETING,
             reasoning="Short greeting/acknowledgment detected (heuristic).",
         )
 
@@ -292,7 +299,7 @@ def _classify_heuristic(user_message: str, memory: SessionMemory) -> IntentResul
     if has_docs and words & _QUESTION_WORDS:
         return IntentResult(
             intent=IntentType.RESEARCH,
-            confidence=0.6,
+            confidence=HEURISTIC_CONFIDENCE_RESEARCH,
             reasoning="Question word with loaded documents (heuristic).",
         )
 
@@ -300,7 +307,7 @@ def _classify_heuristic(user_message: str, memory: SessionMemory) -> IntentResul
     if any(phrase in msg_lower for phrase in _PLAN_PHRASES):
         return IntentResult(
             intent=IntentType.PLAN,
-            confidence=0.5,
+            confidence=HEURISTIC_CONFIDENCE_PLAN,
             reasoning="Multi-step language detected (heuristic).",
         )
 
@@ -308,13 +315,13 @@ def _classify_heuristic(user_message: str, memory: SessionMemory) -> IntentResul
     if words & _ACTION_WORDS:
         return IntentResult(
             intent=IntentType.TOOL_USE,
-            confidence=0.6,
+            confidence=HEURISTIC_CONFIDENCE_TOOL_USE,
             reasoning="Action keyword detected (heuristic).",
         )
 
     # Default: tool_use (most general)
     return IntentResult(
         intent=IntentType.TOOL_USE,
-        confidence=0.4,
+        confidence=HEURISTIC_CONFIDENCE_DEFAULT,
         reasoning="No strong signal — defaulting to tool_use (heuristic).",
     )

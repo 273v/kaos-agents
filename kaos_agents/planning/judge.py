@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -274,6 +275,49 @@ async def judge_with_rubric(
         cost_usd=cost_usd,
         latency_ms=latency_ms,
         fell_back=fell_back,
+    )
+
+
+def log_verdict(
+    logger: logging.Logger,
+    name: str,
+    verdict: JudgeVerdict,
+    *,
+    model: str,
+    char_counts: Mapping[str, int],
+) -> None:
+    """Emit the standard per-critic verdict observability line.
+
+    Shared by the M2/M3/M4 ``judge_*`` wrappers so every critic logs in
+    one format: a WARNING when the critic fell back (untrusted verdict —
+    provider error or disallowed label), otherwise an INFO with the
+    verdict + cost/latency + caller-supplied character counts.
+    ``char_counts`` renders as space-separated ``key=value`` pairs (e.g.
+    ``response_chars=812 tool_results_chars=1190``).
+
+    The caller passes its own module logger so each line keeps its
+    ``kaos.agents.planning.<critic>`` namespace for log filtering.
+    """
+    if verdict.fell_back:
+        logger.warning(
+            "%s verdict fell back (label=%r confidence=%.2f reason=%r model=%s)",
+            name,
+            verdict.label,
+            verdict.confidence,
+            verdict.reasoning,
+            model,
+        )
+        return
+    counts = " ".join(f"{key}={value}" for key, value in char_counts.items())
+    logger.info(
+        "%s verdict label=%s confidence=%.2f cost=$%.4f latency_ms=%.0f %s model=%s",
+        name,
+        verdict.label,
+        verdict.confidence,
+        verdict.cost_usd,
+        verdict.latency_ms,
+        counts,
+        model,
     )
 
 

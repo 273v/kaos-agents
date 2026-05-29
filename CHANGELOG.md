@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.26] — 2026-05-29
+
+### Added
+
+- `kaos_agents.types.session_policy.PERSONA_SOFT_CEILINGS` — public
+  persona → soft-ceiling registry, the single source of truth for which
+  persona presets exist.
+
+### Changed
+
+- **Unified the post-satisfied grounding critics (M2/M3/M4).** The three
+  near-identical wiring blocks in `run_agentic_turn` are now a single
+  `_process_critic` runner driven by declarative `_GroundingCritic`
+  specs. No behavior change to the loop (full unit suite unchanged), but:
+  - the duplicated `0.85` override floor (previously a local variable
+    declared twice) is now the single named
+    `_CRITIC_OVERRIDE_CONFIDENCE_FLOOR`;
+  - M3's intentional no-confidence-floor behavior is now explicit in its
+    spec (`confidence_floor=0.0`) instead of an undocumented asymmetry;
+  - the re-write directives threaded into the worker's `thinking_note`
+    no longer leak internal critic ids or rubric labels (e.g.
+    "M2 consistency critic flagged contradicts_reasoning:") — they are
+    now plain-English instructions describing the problem and the fix;
+  - per-critic verdict logging is no longer emitted twice (the loop and
+    the `judge_*` wrapper previously both logged).
+- `SessionPolicy.for_persona` now looks persona presets up in
+  `PERSONA_SOFT_CEILINGS` instead of a three-branch `if/elif`, and its
+  unknown-persona `ValueError` enumerates the registry keys. Adding a
+  persona is now one registry entry — no parallel branch and no
+  hand-maintained valid-name list to drift out of sync. No behavior
+  change (the error still matches "Unknown persona").
+- **`DEFAULT_MAX_LOOP_COST_USD` raised $0.25 → $2.00.** The 20-persona
+  NDA matrix (2026-05-29) showed legitimate 5-document reviews on
+  Opus-class models costing up to ~$0.43/turn — the $0.25 loop cost cap
+  was cutting real work off mid-synthesis and emitting an honest-but-
+  useless "hit its spending limit" refusal. $2.00 clears observed
+  legitimate turns with headroom; `max_loop_iterations` (3) and
+  `max_loop_wall_clock_seconds` (60) remain the primary runaway guards.
+  The cap is still overridable per-session (`SessionPolicy`) and
+  per-request.
+- **`kaos-agent-memory-search` per-result content cap is now configurable.**
+  The tool hard-coded `r.content[:200]`; it now uses the existing
+  `KaosAgentSettings.result_summary_max_chars` (default 200 — behavior
+  unchanged) so the cap honors `KAOS_AGENT_RESULT_SUMMARY_MAX_CHARS` and
+  per-request `_meta.kaos_config`, matching the runner / plan-execute
+  result-summary paths. Closes the last live hard-coded content-truncation
+  site found in the 2026-05-29 stack-wide truncation audit (the others are
+  logs/errors/CLI previews or the deprecated `adaptive_retrieve` path).
+
 ## [0.1.25] — 2026-05-28
 
 Dynamic deliverable schema architecture — full end-to-end shipment.

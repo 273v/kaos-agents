@@ -54,7 +54,7 @@ async def test_mcp_list_tools() -> None:
         print(f"MCP tools: {tool_names}")
 
 
-@pytest.mark.integration
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_mcp_agent_chat_single_turn() -> None:
     """Call kaos-agent-chat via MCP and get a real response."""
@@ -93,7 +93,7 @@ async def test_mcp_agent_chat_single_turn() -> None:
         print(f"MCP response: {text[:200]}")
 
 
-@pytest.mark.integration
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_mcp_agent_chat_multi_turn_memory() -> None:
     """Multi-turn via MCP: turn 2 recalls turn 1 context."""
