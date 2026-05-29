@@ -872,11 +872,6 @@ def _build_failure_refusal(
     return "\n".join(lines)
 
 
-# Backwards-compat alias for the older name used while #505 was being
-# scoped. Will be removed in the next refactor pass.
-_build_max_iterations_refusal = _build_failure_refusal
-
-
 def _draft_for_preserve(state: _LoopState) -> str:
     """The worker draft to consider for preserve-on-budget-exit.
 
