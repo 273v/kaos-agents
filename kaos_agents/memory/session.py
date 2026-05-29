@@ -17,6 +17,12 @@ from typing import Any
 
 from kaos_core.logging import get_logger
 
+from kaos_agents._constants import (
+    SUMMARIZE_BUDGET_DIVISOR,
+    SUMMARIZE_FALLBACK_TOKENS,
+    SUMMARIZE_MIN_ITEMS,
+    SUMMARIZE_MIN_TARGET_TOKENS,
+)
 from kaos_agents.errors import SectionNotConfiguredError
 from kaos_agents.memory.sections import Section
 from kaos_agents.settings import DEFAULT_MODEL
@@ -429,7 +435,7 @@ class SessionMemory:
         for mt, section in self._sections.items():
             if not section.needs_summarization:
                 continue
-            if section.item_count < 2:
+            if section.item_count < SUMMARIZE_MIN_ITEMS:
                 continue  # Nothing meaningful to summarize
 
             should_summarize = False
@@ -446,7 +452,9 @@ class SessionMemory:
 
             items = section.collect_all_items()
             target_tokens = (
-                max(50, section.budget_tokens // 3) if section.budget_tokens > 0 else 200
+                max(SUMMARIZE_MIN_TARGET_TOKENS, section.budget_tokens // SUMMARIZE_BUDGET_DIVISOR)
+                if section.budget_tokens > 0
+                else SUMMARIZE_FALLBACK_TOKENS
             )
 
             summary_text = await summarize_items(
