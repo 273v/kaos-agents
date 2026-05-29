@@ -70,24 +70,17 @@ class AgentInterpretExtractionTool(KaosTool):
             name="kaos-agent-interpret-extraction",
             display_name="Interpret Extraction (Iterative)",
             description=(
-                "Given a user question and a corpus of stored "
-                "ContentDocument artifacts, run the dynamic-schema "
-                "Extract↔Synthesize loop: design a typed schema, fan "
-                "out per-document extractions, synthesize the user's "
-                "deliverable from the typed rows, and — when the "
-                "synthesizer reports the rows are insufficient — "
-                "augment the schema with the columns it requested and "
-                "re-extract. Returns the final memo (user-facing "
-                "answer) plus the cumulative typed rows (for the "
-                "Citations panel) plus a per-iteration trace. "
-                "Bounded: the synthesizer can only cite facts in the "
-                "extracted rows; it cannot fabricate. Loop converges "
-                "when the synthesizer signals "
-                "needs_more_extraction=false OR max_iters/budget "
-                "exhausted. TRANSPARENCY (Sprint-3 #10): "
-                "structuredContent carries cost_usd + total_tokens at "
-                "the top level (sum across all iterations of extract "
-                "+ synth)."
+                "Build a per-document typed table from a corpus, then "
+                "render it as the deliverable the user asked for. "
+                "Pick this when the question shape is one row per "
+                "document with named columns: comparison tables, "
+                "side-by-side reviews, batch attribute extraction, "
+                "CSV-ready outputs, exec summaries over N agreements. "
+                "Cheaper and more reliable than chaining "
+                "search-document + context-window N times for the same "
+                "shape. Every cell carries the source artifact_id; the "
+                "synthesizer cannot fabricate facts outside the "
+                "extracted cells."
             ),
             category=ToolCategory.DOCUMENT,
             capability=ToolCapability.ANALYZE,

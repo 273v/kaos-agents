@@ -293,75 +293,33 @@ def _build_signature_class() -> type:
     from kaos_llm_core import InputField, OutputField, Signature
 
     class _GoalCheckerSignature(Signature):
-        """Decide whether the agent's response satisfies the user's question.
+        """Decide whether the response answers the user's question.
 
         Output exactly one of: ``satisfied`` / ``needs_more_work`` /
         ``insufficient_evidence``.
 
-        Asymmetry: prefer ``needs_more_work`` over ``satisfied`` on
-        close calls. False ``satisfied`` ships a bad answer; false
-        ``needs_more_work`` wastes a turn.
+        Default to ``satisfied``. Trust the worker's judgment about
+        whether tools were needed. Most prompts can be answered from
+        the worker's available context (uploaded document summaries,
+        prior tool results in the same turn, training knowledge for
+        definitions / arithmetic / well-known stable facts).
 
-        Mark ``needs_more_work`` when ANY of these hold:
+        Mark ``needs_more_work`` only when the response is clearly
+        deficient on its own terms:
 
-          - The response says "I can't / I don't have / sorry" AND a
-            relevant group is registered but not yet elevated.
-          - The response asserts specific public-record facts (current
-            officeholder, current rule, recent date, price, legal
-            status) AND ``tool_calls_made`` is empty.
-          - The response cites a structural identifier ("Section 7",
-            "page 12", "Article III", "row 3", "slide 4") that does
-            not appear in any successful tool result this turn.
-          - The response uses a comparative qualifier ("standard",
-            "unusual", "typical", "common", "rare") without a tool
-            result supplying the baseline.
-          - The response ends near a markdown deliverable header
-            (``## Table`` / ``# CSV-ready table`` / ``### Summary`` /
-            etc.) without the rows / bullets / paragraph the heading
-            promised.
-          - The response makes a future-tense first-person promise to
-            act ("I'll now research", "I'll search", "let me
-            investigate") AND ``tool_calls_made`` for this iteration
-            is empty.
-          - The response claims first-person retrieval of a specific
-            external resource ("I fetched", "I retrieved", "I
-            reviewed", "I read", "I downloaded") AND no
-            ``tool_calls_made`` entry shows a successful fetch of
-            that specific resource.
-          - The user asks about a factual external entity (regulation,
-            statute, case, agency rule, public filing, public-company
-            fact, current event / market / policy state) AND
-            ``tool_calls_made`` contains no successful entries.
-            ``next_action`` = "call the appropriate research tool
-            (FR / eCFR / EDGAR / GovInfo / web-search / corpus
-            search) and re-answer with citations".
-          - ``iteration >= 2`` AND the response is another
-            clarification question.
-          - The user used a domain-conventional abbreviation ("GL"
-            in contracts → governing law; "DD" → due diligence;
-            "RFI" → request for information; "10-K" → annual
-            filing) AND the response asks for clarification instead
-            of answering.
+          - It asks the user a clarifying question instead of attempting
+            an answer (and ``iteration < 2``).
+          - It ends mid-deliverable — a heading or "here is the table"
+            with no body, an unfinished list, a code block that wasn't
+            closed.
+          - It announces future work ("I'll research that") without
+            actually doing it in this iteration.
+          - It contains a literal placeholder like ``[TODO]`` or
+            ``[fill in]``.
 
         Mark ``insufficient_evidence`` when ``iteration >= 2`` and the
-        agent is still apologizing / repeating with no new tools to
-        try. Refusal is a feature, not a failure.
-
-        Mark ``satisfied`` when the response answers with concrete
-        facts AND at least one successful tool call AND cites
-        tool-supplied identifiers or quoted text. Pure-definition /
-        arithmetic / language tasks / summarisation of already-quoted
-        text need no tool call.
-
-        Anaphoric recall carve-out: if the user's question is a
-        follow-up asking the agent to recall or restate a fact it
-        ALREADY cited in prior turns, do not require a new tool
-        call. The grounding lives in the prior turn.
-
-        Deterministic-computation carve-out: if the user supplies
-        BOTH the rule citation AND the inputs and asks for arithmetic
-        over them, the agent's job is the computation, not
-        re-fetching the rule.
+        agent is still apologizing or asking for clarification without
+        having produced a substantive answer.
         """
 
         user_message: str = InputField(description="The user's original question or instruction.")

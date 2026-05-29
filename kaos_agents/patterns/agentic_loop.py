@@ -236,7 +236,7 @@ async def run_agentic_turn(
     m3_grounding_model: str | None = None,
     m4_completeness_model: str | None = None,
     circuit_breaker_threshold: int = 5,
-    max_tool_calls_per_iteration: int = 10,
+    max_tool_calls_per_iteration: int = 30,
     citation_verification_enabled: bool = False,
 ) -> AsyncIterator[Any]:
     """Run one agent turn as an event-streaming loop.

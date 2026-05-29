@@ -594,32 +594,7 @@ class ResearchAgent(ChatAgent):
            to ``__init__``. Preferred for persistent / pre-indexed corpora.
         2. ``MemoryType.DOCUMENTS`` — the legacy per-turn corpus rebuilt
            from documents loaded via :meth:`load_document`.
-
-        2026-05-28 — like :meth:`BaseAgent._handle_research_streaming`,
-        try the dynamic-schema interpret_extraction tool first for
-        multi-doc corpora. On success the typed memo replaces the RAG
-        output; on any failure the legacy RAG path runs unchanged.
         """
-        # Try the bridge before the RAG path so multi-doc typed
-        # deliverables benefit from the new architecture without
-        # re-implementing it in the RAG handler.
-        interp_result = await self._try_interpret_extraction(message, memory)
-        if interp_result is not None:
-            # Emit the same SUBAGENT span the base path uses so
-            # downstream telemetry (OTel parents, Citations panel)
-            # treats the bridge as a peer of the legacy path.
-            research_span = emitter.span_start(
-                SpanSubject.SUBAGENT,
-                name="research.findings_dispatch",
-                attributes={"path": "interpret_extraction_bridge"},
-            )
-            yield research_span
-            async for ev in self._emit_interpret_extraction_events(
-                interp_result, research_span_id=research_span.span_id, emitter=emitter
-            ):
-                yield ev
-            return
-
         corpus: Any
         if self._corpus is not None:
             corpus = self._corpus
