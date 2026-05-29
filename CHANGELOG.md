@@ -45,6 +45,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `max_loop_wall_clock_seconds` (60) remain the primary runaway guards.
   The cap is still overridable per-session (`SessionPolicy`) and
   per-request.
+- **`kaos-agent-memory-search` per-result content cap is now configurable.**
+  The tool hard-coded `r.content[:200]`; it now uses the existing
+  `KaosAgentSettings.result_summary_max_chars` (default 200 — behavior
+  unchanged) so the cap honors `KAOS_AGENT_RESULT_SUMMARY_MAX_CHARS` and
+  per-request `_meta.kaos_config`, matching the runner / plan-execute
+  result-summary paths. Closes the last live hard-coded content-truncation
+  site found in the 2026-05-29 stack-wide truncation audit (the others are
+  logs/errors/CLI previews or the deprecated `adaptive_retrieve` path).
 
 ## [0.1.25] — 2026-05-28
 

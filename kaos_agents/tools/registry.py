@@ -1312,13 +1312,22 @@ class AgentMemorySearchTool(KaosTool):
 
             results = search_memory(memory, query, top_k=top_k)
 
+            # Per-result content cap is configurable (env
+            # KAOS_AGENT_RESULT_SUMMARY_MAX_CHARS / per-request
+            # _meta.kaos_config), not a hard-coded literal — same setting
+            # the runner + plan-execute use for result summaries. Default
+            # 200 preserves the historic cap.
+            from kaos_agents.settings import KaosAgentSettings
+
+            max_chars = KaosAgentSettings.from_context(context).result_summary_max_chars
+
             result_data = {
                 "session_id": session_id,
                 "query": query,
                 "result_count": len(results),
                 "results": [
                     {
-                        "content": r.content[:200],
+                        "content": r.content[:max_chars],
                         "section": r.section.value,
                         "score": round(r.score, 4),
                     }
