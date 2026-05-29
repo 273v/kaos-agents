@@ -6,6 +6,13 @@ from typing import Any
 
 import pytest
 
+from kaos_agents._constants import (
+    HEURISTIC_CONFIDENCE_DEFAULT,
+    HEURISTIC_CONFIDENCE_GREETING,
+    HEURISTIC_CONFIDENCE_PLAN,
+    HEURISTIC_CONFIDENCE_RESEARCH,
+    HEURISTIC_CONFIDENCE_TOOL_USE,
+)
 from kaos_agents.context.classify import (
     ClassifyIntentSignature,
     _classify_heuristic,
@@ -21,6 +28,30 @@ class TestHeuristicClassifier:
         mem = SessionMemory("test")
         result = _classify_heuristic("hello", mem)
         assert result.intent == IntentType.RESPOND
+
+    def test_heuristic_confidences_come_from_named_constants(self):
+        """The fallback classifier must source its confidences from the
+        HEURISTIC_CONFIDENCE_* constants, not re-inline magic numbers."""
+        mem = SessionMemory("test")
+        assert _classify_heuristic("hello", mem).confidence == HEURISTIC_CONFIDENCE_GREETING
+        assert (
+            _classify_heuristic("the thing with the stuff", mem).confidence
+            == HEURISTIC_CONFIDENCE_DEFAULT
+        )
+        assert (
+            _classify_heuristic("first do X, then do Y", mem).confidence
+            == HEURISTIC_CONFIDENCE_PLAN
+        )
+        assert (
+            _classify_heuristic("search for SEC filings", mem).confidence
+            == HEURISTIC_CONFIDENCE_TOOL_USE
+        )
+        docs_mem = SessionMemory("test-docs")
+        docs_mem.add(MemoryType.DOCUMENTS, "contract.pdf (15 pages)")
+        assert (
+            _classify_heuristic("what are the key dates?", docs_mem).confidence
+            == HEURISTIC_CONFIDENCE_RESEARCH
+        )
 
     def test_hi_is_respond(self):
         mem = SessionMemory("test")
