@@ -162,6 +162,12 @@ class _LoopState:
     # stuck-detection comparison). Budget caps firing mid-iteration
     # consult this to preserve the worker's draft.
     current_iter_text: str = ""
+    # 0.1.27 (I5): the most recent worker_result.tool_calls_made,
+    # captured alongside ``current_iter_text``. Used by the
+    # completeness-gated budget footer to run the goal-check the budget
+    # cap preempted — so a complete deliverable isn't disclaimed as
+    # "work-in-progress" just because a wall-clock / tool-cap guard fired.
+    last_tool_calls_made: tuple[Any, ...] = ()
     # The most recent GoalCheck rationale + next_action — captured so
     # the max_iterations refusal-override can render an honest "I
     # tried and failed" message instead of letting the last
@@ -311,6 +317,14 @@ async def run_agentic_turn(
     """
     state = _LoopState(t_start=time.monotonic())
     raw_turn_groups: list[str] | None = None
+    # I5: turn-level context so any budget terminator can run the
+    # goal-check the cap preempted and decide whether to disclaim a
+    # preserved draft as incomplete. Reuses the loop's goal_check_model.
+    goal_check_ctx = _CompletenessCtx(
+        user_message=user_message,
+        available_groups=available_groups,
+        goal_check_model=goal_check_model,
+    )
 
     try:
         while state.iteration < policy.max_loop_iterations:
@@ -344,6 +358,7 @@ async def run_agentic_turn(
                     state=state,
                     session_id=session_id,
                     run_id=run_id,
+                    goal_check_ctx=goal_check_ctx,
                 ):
                     yield ev
                 yield _terminate(state, policy, "cost_exceeded", session_id, run_id)
@@ -354,6 +369,7 @@ async def run_agentic_turn(
                     state=state,
                     session_id=session_id,
                     run_id=run_id,
+                    goal_check_ctx=goal_check_ctx,
                 ):
                     yield ev
                 yield _terminate(state, policy, "wall_clock_exceeded", session_id, run_id)
@@ -392,6 +408,7 @@ async def run_agentic_turn(
             # preserve the worker's draft via
             # ``_should_preserve_worker_draft``.
             state.current_iter_text = worker_result.text
+            state.last_tool_calls_made = tuple(worker_result.tool_calls_made)
 
             # Plan §Issue 9 / B1.7 — per-call cost cap. Disabled by
             # default (max_per_tool_cost_usd == 0.0); operators tighten
@@ -403,6 +420,7 @@ async def run_agentic_turn(
                     state=state,
                     session_id=session_id,
                     run_id=run_id,
+                    goal_check_ctx=goal_check_ctx,
                 ):
                     yield ev
                 yield _terminate(state, policy, "cost_exceeded", session_id, run_id)
@@ -479,6 +497,7 @@ async def run_agentic_turn(
                     state=state,
                     session_id=session_id,
                     run_id=run_id,
+                    goal_check_ctx=goal_check_ctx,
                 ):
                     yield ev
                 yield _terminate(state, policy, "circuit_breaker_tripped", session_id, run_id)
@@ -508,6 +527,7 @@ async def run_agentic_turn(
                     state=state,
                     session_id=session_id,
                     run_id=run_id,
+                    goal_check_ctx=goal_check_ctx,
                 ):
                     yield ev
                 yield _terminate(state, policy, "tool_call_cap_exceeded", session_id, run_id)
@@ -519,6 +539,7 @@ async def run_agentic_turn(
                     state=state,
                     session_id=session_id,
                     run_id=run_id,
+                    goal_check_ctx=goal_check_ctx,
                 ):
                     yield ev
                 yield _terminate(state, policy, "cost_exceeded", session_id, run_id)
@@ -529,6 +550,7 @@ async def run_agentic_turn(
                     state=state,
                     session_id=session_id,
                     run_id=run_id,
+                    goal_check_ctx=goal_check_ctx,
                 ):
                     yield ev
                 yield _terminate(state, policy, "wall_clock_exceeded", session_id, run_id)
@@ -643,6 +665,7 @@ async def run_agentic_turn(
                     state=state,
                     session_id=session_id,
                     run_id=run_id,
+                    goal_check_ctx=goal_check_ctx,
                 ):
                     yield ev
                 yield _terminate(state, policy, "stuck_no_progress", session_id, run_id)
@@ -731,6 +754,7 @@ async def run_agentic_turn(
             state=state,
             session_id=session_id,
             run_id=run_id,
+            goal_check_ctx=goal_check_ctx,
         ):
             yield ev
         yield _terminate(state, policy, "max_iterations", session_id, run_id)
@@ -921,12 +945,71 @@ def _should_preserve_worker_draft(state: _LoopState) -> bool:
     ) >= _MIN_WORKER_DRAFT_CHARS and state.last_terminal_verdict in ("", "satisfied")
 
 
+@dataclass(frozen=True, slots=True)
+class _CompletenessCtx:
+    """Turn-level context for the completeness-gated budget footer (I5).
+
+    Built once per turn and threaded into every budget terminator so
+    ``_emit_failure_refusal`` can run the goal-check the budget cap
+    preempted. Constant across the turn — ``user_message`` /
+    ``available_groups`` / ``goal_check_model`` never change mid-loop.
+    """
+
+    user_message: str
+    available_groups: list[str]
+    goal_check_model: str | None
+
+
+async def _draft_is_complete(state: _LoopState, ctx: _CompletenessCtx | None) -> bool:
+    """Is the preserved worker draft a *complete* answer to the goal?
+
+    0.1.27 (I5). A budget guard firing is a *resource* event; "the
+    answer is incomplete" is a *content* claim. The two are independent
+    — a 5-document review can be fully delivered in one iteration and
+    only then trip the 60 s wall-clock guard. The "work-in-progress"
+    footer must therefore be gated on a completeness judgment, not on
+    the budget-exit reason.
+
+    Two cases yield "complete":
+
+    - A critic already returned ``satisfied`` this turn
+      (``last_terminal_verdict == "satisfied"``) — no extra call needed.
+    - The budget cap fired BEFORE any critic ran
+      (``last_terminal_verdict == ""``) — run the goal-check the budget
+      preempted; ``satisfied`` ⇒ complete.
+
+    When no goal-check model is configured (or the call fails) we cannot
+    verify completeness, so we conservatively return ``False`` and keep
+    the honest caveat footer.
+    """
+    if state.last_terminal_verdict == "satisfied":
+        return True
+    if ctx is None or ctx.goal_check_model is None:
+        return False
+    try:
+        outcome = await check_goal(
+            user_message=ctx.user_message,
+            agent_response=_draft_for_preserve(state),
+            tool_calls_made=list(state.last_tool_calls_made),
+            elevation_trail=[],
+            available_groups=ctx.available_groups,
+            iteration=state.iteration,
+            model=ctx.goal_check_model,
+        )
+        state.cumulative_cost_usd += outcome.cost_usd
+        return outcome.satisfied
+    except Exception:
+        logger.exception("budget-exit completeness check failed; keeping the caveat footer")
+        return False
+
+
 async def _emit_failure_refusal(
     *,
     reason: str,
     state: _LoopState,
     session_id: str,
     run_id: str,
+    goal_check_ctx: _CompletenessCtx | None = None,
 ) -> AsyncIterator[Any]:
     """Emit the TextDelta + TurnSummary pair carrying a clean refusal.
 
@@ -953,13 +1036,20 @@ async def _emit_failure_refusal(
     one path is the highest-leverage change in the 0.1.2 release.
     """
     if _should_preserve_worker_draft(state):
-        # Preserve worker draft + budget footer. The user sees the
-        # work-in-progress + a clear caveat — much better than
-        # discarding the work for a generic template.
+        # Preserve the substantive worker draft. Whether to append the
+        # "work-in-progress" caveat footer is a *content* decision —
+        # gated on completeness, NOT on the fact that a budget guard
+        # fired (0.1.27 / I5). A complete deliverable that merely tripped
+        # the wall-clock / tool-cap guard ships clean; an incomplete (or
+        # unverifiable) draft keeps the honest caveat.
         worker_draft = _draft_for_preserve(state).rstrip()
-        footer = _build_budget_footer(reason=reason, iterations=state.iteration)
-        refusal_text = worker_draft + footer
-        intent = "respond_with_caveat"
+        if await _draft_is_complete(state, goal_check_ctx):
+            refusal_text = worker_draft
+            intent = "respond"
+        else:
+            footer = _build_budget_footer(reason=reason, iterations=state.iteration)
+            refusal_text = worker_draft + footer
+            intent = "respond_with_caveat"
     else:
         refusal_text = _build_failure_refusal(
             reason=reason,

@@ -625,3 +625,188 @@ async def test_insufficient_evidence_still_preserves_worker_text() -> None:
     assert not any("I stopped after" in td.content for td in text_deltas), (
         "insufficient_evidence path must NOT emit the legacy template"
     )
+
+
+# ─── 0.1.27 (I5): completeness-gated budget footer ─────────────────
+#
+# A budget guard firing is a *resource* event; "the answer is
+# incomplete" is a *content* claim. A complete multi-doc deliverable
+# can be produced in one iteration and only then trip the 60 s
+# wall-clock guard — the footer must be gated on a completeness
+# judgment, not on the exit reason. See CHANGELOG 0.1.27.
+
+
+def _satisfied_outcome() -> GoalCheckOutcome:
+    return GoalCheckOutcome(
+        result=GoalCheckSatisfied(confidence=0.9, rationale="answer is complete"),
+        cost_usd=0.0002,
+        latency_ms=20.0,
+        iteration=1,
+    )
+
+
+def _needs_more_outcome() -> GoalCheckOutcome:
+    return GoalCheckOutcome(
+        result=GoalCheckNeedsMoreWork(
+            next_action="cover the remaining files",
+            confidence=0.4,
+            rationale="only 2 of 5 files addressed",
+        ),
+        cost_usd=0.0002,
+        latency_ms=20.0,
+        iteration=1,
+    )
+
+
+@pytest.mark.asyncio
+async def test_draft_is_complete_satisfied_verdict_needs_no_judge() -> None:
+    """A critic already returned ``satisfied`` → complete, no extra call."""
+    from kaos_agents.patterns.agentic_loop import _draft_is_complete, _LoopState
+
+    state = _LoopState(last_text="x" * 100, last_terminal_verdict="satisfied")
+    assert await _draft_is_complete(state, None) is True
+
+
+@pytest.mark.asyncio
+async def test_draft_is_complete_no_judge_available_is_conservative() -> None:
+    """Budget fired pre-critic (verdict="") and no goal-check model is
+    configured → cannot verify → conservatively incomplete (keep footer)."""
+    from kaos_agents.patterns.agentic_loop import _draft_is_complete, _LoopState
+
+    state = _LoopState(last_text="x" * 100, last_terminal_verdict="")
+    assert await _draft_is_complete(state, None) is False
+
+
+@pytest.mark.asyncio
+async def test_draft_is_complete_runs_preempted_goal_check() -> None:
+    """Budget fired pre-critic + a goal-check model is configured → run
+    the goal-check the cap preempted. ``satisfied`` ⇒ complete;
+    ``needs_more_work`` ⇒ incomplete."""
+    from kaos_agents.patterns.agentic_loop import (
+        _CompletenessCtx,
+        _draft_is_complete,
+        _LoopState,
+    )
+
+    ctx = _CompletenessCtx(
+        user_message="review these 5 NDAs",
+        available_groups=["documents"],
+        goal_check_model="anthropic:claude-sonnet-4-6",
+    )
+    state = _LoopState(last_text="x" * 100, last_terminal_verdict="")
+
+    with patch(
+        "kaos_agents.patterns.agentic_loop.check_goal", new=_check_stub(_satisfied_outcome())
+    ):
+        assert await _draft_is_complete(state, ctx) is True
+
+    state2 = _LoopState(last_text="x" * 100, last_terminal_verdict="")
+    with patch(
+        "kaos_agents.patterns.agentic_loop.check_goal", new=_check_stub(_needs_more_outcome())
+    ):
+        assert await _draft_is_complete(state2, ctx) is False
+
+
+@pytest.mark.asyncio
+async def test_complete_draft_ships_without_budget_footer() -> None:
+    """End-to-end: the worker delivers a complete answer in one
+    iteration, the cost cap then fires (before the normal goal-check),
+    and the preempted goal-check returns ``satisfied``. The final turn
+    text must be the clean draft with NO "I stopped after" footer and
+    ``intent="respond"`` — a complete deliverable is never disclaimed
+    as work-in-progress just because a budget guard fired (I5)."""
+    policy = SessionPolicy.default()
+    policy = replace(policy, max_loop_cost_usd=0.05)
+
+    draft = (
+        "Procurement review of all five NDAs: EMNA (Delaware), Acme "
+        "(Michigan), BI (Michigan), CC (Michigan), DynaMo (Delaware). "
+        "Each indemnity clause is mutual and uncapped. This is the full "
+        "deliverable the user requested, complete in one pass."
+    )
+    assert len(draft) >= _MIN_WORKER_DRAFT_CHARS
+
+    worker = _worker_stub(
+        WorkerResult(
+            text=draft,
+            tool_calls_made=[{"name": "kaos-content-search-document", "is_error": False}],
+            cost_usd=0.10,  # over cap → cost_exceeded fires post-worker
+            latency_ms=200.0,
+        )
+    )
+    with (
+        patch(
+            "kaos_agents.patterns.agentic_loop.plan_turn_tool_policy",
+            new=_plan_stub(_StubPlan(kept={"documents"}, dropped=set())),
+        ),
+        # The only check_goal call is the one _draft_is_complete makes;
+        # it returns satisfied → the draft is complete.
+        patch(
+            "kaos_agents.patterns.agentic_loop.check_goal", new=_check_stub(_satisfied_outcome())
+        ),
+    ):
+        events = await _collect(
+            run_agentic_turn(
+                user_message="Procurement risk review on these 5 NDAs.",
+                policy=policy,
+                worker=worker,
+                available_groups=["documents"],
+                goal_check_model="anthropic:claude-sonnet-4-6",
+            )
+        )
+
+    term = [e for e in events if isinstance(e, LoopTerminated)]
+    assert term and term[0].reason == "cost_exceeded"
+    final = [e for e in events if isinstance(e, TurnSummary)][-1]
+    assert "DynaMo (Delaware)" in final.text, "complete draft must survive"
+    assert "I stopped after" not in final.text, (
+        "a complete deliverable must NOT carry the work-in-progress footer (I5)"
+    )
+    assert "work-in-progress" not in final.text.lower()
+    assert final.intent == "respond"
+
+
+@pytest.mark.asyncio
+async def test_incomplete_draft_keeps_budget_footer() -> None:
+    """Guard against over-suppression: when the preempted goal-check
+    says ``needs_more_work``, the honest caveat footer must remain."""
+    policy = SessionPolicy.default()
+    policy = replace(policy, max_loop_cost_usd=0.05)
+
+    draft = (
+        "Procurement review (partial): EMNA (Delaware) and Acme "
+        "(Michigan) covered. I have not yet reached BI, CC, or DynaMo."
+    )
+    assert len(draft) >= _MIN_WORKER_DRAFT_CHARS
+
+    worker = _worker_stub(
+        WorkerResult(
+            text=draft,
+            tool_calls_made=[{"name": "kaos-content-search-document", "is_error": False}],
+            cost_usd=0.10,
+            latency_ms=200.0,
+        )
+    )
+    with (
+        patch(
+            "kaos_agents.patterns.agentic_loop.plan_turn_tool_policy",
+            new=_plan_stub(_StubPlan(kept={"documents"}, dropped=set())),
+        ),
+        patch(
+            "kaos_agents.patterns.agentic_loop.check_goal", new=_check_stub(_needs_more_outcome())
+        ),
+    ):
+        events = await _collect(
+            run_agentic_turn(
+                user_message="Procurement risk review on these 5 NDAs.",
+                policy=policy,
+                worker=worker,
+                available_groups=["documents"],
+                goal_check_model="anthropic:claude-sonnet-4-6",
+            )
+        )
+
+    final = [e for e in events if isinstance(e, TurnSummary)][-1]
+    assert "EMNA (Delaware)" in final.text, "partial draft must still be preserved"
+    assert "I stopped after" in final.text, "an incomplete draft must keep the honest caveat footer"
+    assert final.intent == "respond_with_caveat"
