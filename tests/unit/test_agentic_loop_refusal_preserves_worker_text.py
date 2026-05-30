@@ -810,3 +810,118 @@ async def test_incomplete_draft_keeps_budget_footer() -> None:
     assert "EMNA (Delaware)" in final.text, "partial draft must still be preserved"
     assert "I stopped after" in final.text, "an incomplete draft must keep the honest caveat footer"
     assert final.intent == "respond_with_caveat"
+
+
+# ─── I5 hardening: footer suppression is REASON-UNIFORM ─────────────
+#
+# A budget guard's identity selects only the footer *text*
+# (``_build_budget_footer`` → ``_BUDGET_REASON_PHRASE``); whether the
+# footer is appended at all is decided solely by ``_draft_is_complete``.
+# Locking this invariant across every terminal reason guards against a
+# future reason-specific footer leak (the anti-pattern industry review
+# flagged: "assemble footer then conditionally suppress"). The fix was
+# verified end-to-end on the wall-clock path (NDA matrix P6, 2026-05-30,
+# LoopTerminated.reason=wall_clock_exceeded yet no footer); these tests
+# cover the remaining terminators — notably ``circuit_breaker_tripped``
+# (matrix P2), which a stale note wrongly suspected of bypassing the gate.
+
+_ALL_BUDGET_TERMINAL_REASONS = [
+    "cost_exceeded",
+    "wall_clock_exceeded",
+    "circuit_breaker_tripped",
+    "tool_call_cap_exceeded",
+    "stuck_no_progress",
+    "max_iterations",
+]
+
+
+@pytest.mark.parametrize("reason", _ALL_BUDGET_TERMINAL_REASONS)
+@pytest.mark.asyncio
+async def test_complete_draft_suppresses_footer_for_every_terminal_reason(reason: str) -> None:
+    """A COMPLETE preserved draft ships WITHOUT the work-in-progress
+    footer no matter which terminal guard fired. ``reason`` selects the
+    footer text, never whether it is appended."""
+    from kaos_agents.patterns.agentic_loop import (
+        _CompletenessCtx,
+        _emit_failure_refusal,
+        _LoopState,
+    )
+
+    draft = (
+        "Complete five-NDA review: EMNA (Delaware), Acme (Michigan), BI "
+        "(Michigan), CC (Michigan), DynaMo (Delaware). Full deliverable."
+    )
+    assert len(draft) >= _MIN_WORKER_DRAFT_CHARS
+    state = _LoopState(last_text=draft, last_terminal_verdict="")
+    ctx = _CompletenessCtx(
+        user_message="review these 5 NDAs",
+        available_groups=["documents"],
+        goal_check_model="anthropic:claude-sonnet-4-6",
+    )
+    with patch(
+        "kaos_agents.patterns.agentic_loop.check_goal",
+        new=_check_stub(_satisfied_outcome()),
+    ):
+        events = await _collect(
+            _emit_failure_refusal(
+                reason=reason,
+                state=state,
+                session_id="s",
+                run_id="r",
+                goal_check_ctx=ctx,
+            )
+        )
+
+    final = [e for e in events if isinstance(e, TurnSummary)][-1]
+    assert "DynaMo (Delaware)" in final.text, "complete draft must survive"
+    assert "I stopped after" not in final.text, (
+        f"complete draft must NOT carry the work-in-progress footer (reason={reason})"
+    )
+    assert "work-in-progress" not in final.text.lower()
+    assert final.intent == "respond", f"reason={reason} complete draft must ship clean"
+
+
+@pytest.mark.parametrize(
+    "reason", ["cost_exceeded", "wall_clock_exceeded", "circuit_breaker_tripped"]
+)
+@pytest.mark.asyncio
+async def test_incomplete_draft_keeps_footer_for_every_terminal_reason(reason: str) -> None:
+    """Over-suppression guard, also reason-uniform: an INCOMPLETE draft
+    keeps the honest caveat footer regardless of which guard fired."""
+    from kaos_agents.patterns.agentic_loop import (
+        _CompletenessCtx,
+        _emit_failure_refusal,
+        _LoopState,
+    )
+
+    draft = (
+        "Partial review: EMNA (Delaware) and Acme (Michigan) only. "
+        "BI, CC, and DynaMo are not yet reached in this pass."
+    )
+    assert len(draft) >= _MIN_WORKER_DRAFT_CHARS
+    state = _LoopState(last_text=draft, last_terminal_verdict="")
+    ctx = _CompletenessCtx(
+        user_message="review these 5 NDAs",
+        available_groups=["documents"],
+        goal_check_model="anthropic:claude-sonnet-4-6",
+    )
+    with patch(
+        "kaos_agents.patterns.agentic_loop.check_goal",
+        new=_check_stub(_needs_more_outcome()),
+    ):
+        events = await _collect(
+            _emit_failure_refusal(
+                reason=reason,
+                state=state,
+                session_id="s",
+                run_id="r",
+                goal_check_ctx=ctx,
+            )
+        )
+
+    final = [e for e in events if isinstance(e, TurnSummary)][-1]
+    assert "EMNA (Delaware)" in final.text, "partial draft must still be preserved"
+    assert "I stopped after" in final.text, (
+        f"incomplete draft must keep the caveat footer (reason={reason})"
+    )
+    assert final.intent == "respond_with_caveat"
