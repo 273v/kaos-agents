@@ -118,6 +118,19 @@ class TestIRIBuilders:
         assert iri.startswith(KAOS)
         assert "doc/contract-2024.pdf" in iri
 
+    def test_doc_iri_percent_encodes_spaces(self) -> None:
+        # 0.1.27: source_uri is now the user-facing filename, which can
+        # contain spaces ("MNDA - Acme.docx"). The wrapped IRI must
+        # percent-encode them or kaos_graph rejects the subject
+        # ("Invalid IRI code point ' '"). The "/" "#" separators of the
+        # composite ``filename#/body/...`` provenance must survive.
+        iri = doc_iri("MNDA - Acme.docx#/body/7/children/8/children/0")
+        assert " " not in iri
+        assert "MNDA%20-%20Acme.docx" in iri
+        assert "#/body/7/children/8/children/0" in iri
+        # Sanity: it is a valid absolute IRI kaos_graph will accept.
+        assert iri.startswith("https://")
+
     def test_agent_iri_canonical(self) -> None:
         # v1 uses a single canonical agent IRI for runtime attribution
         assert agent_iri() == KAOS_AGENT_RUNTIME
@@ -487,3 +500,35 @@ class TestTurtleExport:
         # cito:cites + prov:wasAssociatedWith predicate IRIs are in the dump
         assert CITO_CITES in ttl
         assert PROV_ASSOCIATED_WITH in ttl
+
+    def test_friendly_filename_source_uri_serializes_to_turtle(self) -> None:
+        """0.1.27: ``source_uri`` is now the user-facing filename, which
+        can contain spaces ("MNDA - Acme.docx#/body/7"). The document node
+        IRI must be percent-encoded so ``to_turtle`` does not raise
+        "Invalid IRI code point" — the 2026-05-30 graph-persistence crash
+        that wedged the turn after the attribution fix surfaced friendly
+        names. This pins the full emit -> serialize path, not just the
+        ``doc_iri`` unit.
+        """
+        from kaos_graph.rdf import to_turtle
+
+        mem = SessionMemory("s1")
+        emitter = _emitter()
+        composite = "MNDA - Acme.docx#/body/7/children/0"
+        emit_from_event(
+            emitter.emit(
+                CitationFound,
+                claim="TERM. This Agreement shall be effective from the Effective Date.",
+                source_uri=composite,
+                confidence=0.9,
+                verified=True,
+            ),
+            mem,
+        )
+
+        # Must not raise ValueError("Invalid IRI code point ' '").
+        ttl = to_turtle(mem.graph)
+
+        # The doc node serialized as a valid, percent-encoded IRI.
+        assert doc_iri(composite) in ttl
+        assert "MNDA%20-%20Acme.docx" in ttl

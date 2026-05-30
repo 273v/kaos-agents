@@ -27,6 +27,7 @@ import re
 import time
 import uuid
 from collections.abc import AsyncIterator, Iterator
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from kaos_core.logging import get_logger
@@ -110,6 +111,125 @@ logger = get_logger(__name__)
 def _generate_run_id() -> str:
     """Generate a unique run ID for event correlation."""
     return f"run_{uuid.uuid4().hex[:12]}"
+
+
+@dataclass(frozen=True, slots=True)
+class _FullScanDecision:
+    """Result of the lexical-narrowing-vs-full-scan decision (I3)."""
+
+    full_scan: bool
+    reason: str
+    est_full_scan_usd: float
+    n_filter_chunks: int
+
+
+def _decide_full_scan(
+    *,
+    n_docs: int,
+    n_sentences: int,
+    chunk_size: int,
+    budget_usd: float,
+    cost_per_call_usd: float,
+    plan_floor: int,
+) -> _FullScanDecision:
+    """Decide whether to scan the full corpus or lexically narrow first.
+
+    0.1.27 (I3). Lexical narrowing (ngram / token / BM25) trades recall
+    for cost in front of a vocabulary-robust semantic filter, so the
+    decision is made against the thing it trades against — the cost
+    budget — not a proxy like document or sentence count (which ignore
+    the model's per-call cost and the session budget). Full-scan when a
+    full pass fits the budget (or the corpus is below the doc floor);
+    narrow only when a full scan would blow it. Pure function — the
+    policy scales with corpus size, model unit-cost, and budget, and is
+    unit-testable in isolation.
+
+    ``chunk_size`` is the filter batch size (sentences per LLM call) so
+    ``n_filter_chunks`` — the real cost driver — is ``ceil(n/chunk)``.
+    """
+    n_filter_chunks = (n_sentences + chunk_size - 1) // chunk_size if n_sentences > 0 else 0
+    est = n_filter_chunks * cost_per_call_usd
+    if n_docs < plan_floor:
+        return _FullScanDecision(
+            True, f"full-scan: {n_docs} docs < floor={plan_floor}", est, n_filter_chunks
+        )
+    if n_sentences > 0 and est <= budget_usd:
+        return _FullScanDecision(
+            True,
+            f"full-scan: est ${est:.3f} <= budget ${budget_usd:.2f} "
+            f"({n_sentences} sentences / {chunk_size}-chunk) — the semantic "
+            "filter scans the full corpus; lexical narrowing would only risk recall",
+            est,
+            n_filter_chunks,
+        )
+    return _FullScanDecision(
+        False,
+        f"narrow: est ${est:.3f} > budget ${budget_usd:.2f} ({n_sentences} sentences)",
+        est,
+        n_filter_chunks,
+    )
+
+
+def _findings_recall_miss(result: Any) -> bool:
+    """True when a FindingsAgent run refused for a *recall* reason.
+
+    0.1.27 (I3). Distinguishes "the search didn't surface the answer"
+    (``refusal`` set, no budget stop) from "the agent ran out of budget"
+    (``budget_exceeded``). Only the former warrants widening a speculative
+    lexical narrowing to the recall floor (``strategy=NONE``): the answer
+    may exist but the BM25/ngram step dropped it before the semantic
+    filter could judge it. A budget stop, by contrast, means the agent
+    did not finish looking — re-running on a larger view would just burn
+    more budget, so it is left to the caller's budget remediation.
+    """
+    return result.refusal is not None and not result.budget_exceeded
+
+
+def _bare_name(name: Any) -> str:
+    """Human-readable basename: strip any path + percent-decode."""
+    if not name:
+        return ""
+    short = str(name).rsplit("/", 1)[-1]
+    try:
+        from urllib.parse import unquote
+
+        short = unquote(short)
+    except Exception:
+        pass
+    return short
+
+
+def _source_uri_for_item(item: Any, filename: str, parsed: Any | None) -> str:
+    """Pick the originating-document identifier the USER knows it by.
+
+    0.1.27 (I3 attribution). Provenance has to resolve to the name shown
+    in the documents panel and used in the user's query ("MNDA - Acme") —
+    not a parser artifact. SPA uploads are parsed from temp files, so
+    ``ContentDocument.metadata.source.uri`` is a throwaway path like
+    ``/tmp/tmp52cu95ct.docx``; and near-identical templates share a
+    generic ``metadata.title`` ("Mutual Non-Disclosure Agreement") that
+    can't tell one file from another. Both leave the synthesis LLM unable
+    to attribute a clause to the file the user named (NDA-matrix
+    attribution miss, 2026-05-30). So the DOCUMENTS-item filename — the
+    user-facing identity — wins; parsed title / source-uri are fallbacks
+    only when the item carries no usable name.
+
+    ``item`` is currently unused but kept in the signature so callers can
+    pass per-item context if a future picker needs it.
+    """
+    item_name = _bare_name(filename)
+    if item_name and item_name != "(unnamed)":
+        return item_name
+    if parsed is not None:
+        pmeta = getattr(parsed, "metadata", None)
+        ptitle = getattr(pmeta, "title", None) if pmeta is not None else None
+        if ptitle:
+            return str(ptitle)
+        psrc = getattr(pmeta, "source", None) if pmeta is not None else None
+        puri = getattr(psrc, "uri", None) if psrc is not None else None
+        if puri:
+            return _bare_name(puri) or filename
+    return filename or "(unnamed)"
 
 
 def _build_citation_uri(
@@ -1285,8 +1405,8 @@ class BaseAgent(KaosAgent):
         full_view, full_document, segmenter, block_id_to_source_uri = bundle
 
         # Retrieval planner: pick the narrowing strategy + typed probes.
-        # Skip the LLM call for tiny corpora (the planner would pick
-        # NONE anyway — see retrieval_plan_floor setting).
+        # Skip the LLM call (force strategy=NONE) for corpora the semantic
+        # filter can scan in full.
         from kaos_agents.patterns.retrieval import (
             LLMRetrievalPlanner,
             RetrievalPlanResult,
@@ -1294,16 +1414,63 @@ class BaseAgent(KaosAgent):
             apply_retrieval_plan,
         )
 
+        # Lexical narrowing (ngram / token / BM25) is a lexical gate in
+        # front of a vocabulary-robust semantic filter: it trades recall
+        # for cost. So make that trade against the thing it actually
+        # trades against — the cost budget — not a proxy like document or
+        # sentence count (which ignore the model's per-call cost and the
+        # session's budget, the other two terms that decide whether a
+        # full scan is affordable). Estimate the full-scan filter cost
+        # (its real driver is the number of filter chunks) and prefer a
+        # full, recall-complete scan whenever it fits the budget; narrow
+        # only when a full scan would blow it. This scales across corpus
+        # size, model, and budget. (NDA-matrix P4/P8/P10: a ~450-sentence
+        # 5-NDA deal room — well under any reasonable budget — was being
+        # narrowed to 7 sentences, dropping the answer before the filter
+        # saw it.)
+        # Filter batch size — the unit of both the cost estimate below
+        # and the FindingsAgent run further down (kept in one place so
+        # the estimate can never drift from the actual batching).
+        findings_chunk_size = 20
         plan_floor = int(getattr(self._settings, "retrieval_plan_floor", 5) or 5)
+        # Full-scan budget: the boundary between "small deal room, scan it
+        # all" and "large corpus, narrow first". Calibrated against the
+        # corpus-stress tier: a ~450-sentence 5-NDA deal room full-scans
+        # for ~$0.18 (recall-complete, needed for vocabulary-mismatch
+        # queries like "auto-renewal"); a ~1200-sentence needle-in-25-
+        # distractors haystack would cost ~$0.50 to full-scan, so it
+        # narrows instead — and its needles are lexically distinctive, so
+        # BM25 narrowing finds them cheaply. $0.25 splits the two.
+        full_scan_budget_usd = float(
+            getattr(self._settings, "findings_full_scan_budget_usd", 0.25) or 0.25
+        )
+        # Measured unit cost of one filter chunk (short relevance
+        # classification over ``chunk_size`` sentences) — calibrated from
+        # the corpus-stress tier (a 1228-sentence / 62-chunk full scan
+        # cost ~$0.50, i.e. ~$0.008/chunk on Sonnet-class). A physical,
+        # measurable quantity; if it under-predicts, the gate full-scans a
+        # corpus that overruns budget, so err high, not low.
+        filter_cost_per_call_usd = float(
+            getattr(self._settings, "findings_filter_cost_per_call_usd", 0.008) or 0.008
+        )
+        try:
+            full_scan_sentences = len(full_view.sentences)
+        except Exception:
+            full_scan_sentences = 0
+        decision = _decide_full_scan(
+            n_docs=len(docs_items),
+            n_sentences=full_scan_sentences,
+            chunk_size=findings_chunk_size,
+            budget_usd=full_scan_budget_usd,
+            cost_per_call_usd=filter_cost_per_call_usd,
+            plan_floor=plan_floor,
+        )
         planner_usage_cost = 0.0
         planner_usage_tokens = 0
-        if len(docs_items) < plan_floor:
+        if decision.full_scan:
             plan = RetrievalPlanResult(
                 strategy=RetrievalStrategy.NONE,
-                reasoning=(
-                    f"skip-floor: {len(docs_items)} docs < floor={plan_floor}, "
-                    "no LLM planner call needed"
-                ),
+                reasoning=decision.reason,
             )
         else:
             plan_model = (
@@ -1412,9 +1579,16 @@ class BaseAgent(KaosAgent):
             selector=_selector_with_source_uri,
             filter_model=filter_model,
             synthesis_model=synthesis_model,
-            chunk_size=20,
+            chunk_size=findings_chunk_size,
             num_parallel=3,
             relevance_threshold=0.4,
+            # No per-dispatch cost cap here: the budget gate only routes
+            # *small* corpora to full-scan (large ones narrow), so the
+            # full-scan path is inherently cheap, and the loop-level cost
+            # cap is the real runaway guard. An inner cap here would
+            # truncate a full scan mid-corpus and return an empty answer
+            # (the corpus-stress regression: enumerated=1228 → $0.50 cap →
+            # answer_chars=0) — worse than narrowing.
         )
 
         try:
@@ -1426,8 +1600,50 @@ class BaseAgent(KaosAgent):
             )
             return None, None, ZERO_USAGE
 
-        total_cost = result.filter_cost_usd + result.synthesis_cost_usd + planner_usage_cost
-        total_tokens = result.filter_tokens + result.synthesis_tokens + planner_usage_tokens
+        # Recall-safe widen-on-empty. The retrieval planner's lexical
+        # narrowing (ngram / token / BM25) is a *speculative* cost
+        # optimization; the FindingsAgent semantic filter is the actual
+        # relevance authority. A speculative narrowing must never be the
+        # reason the answer is unreachable — when the user's vocabulary
+        # ("auto-renewal", "which state's law governs") has no lexical
+        # overlap with the document's ("shall terminate upon", "governed
+        # by the laws of ..."), the lexical step drops the answer before
+        # the vocabulary-robust filter ever sees it (NDA-matrix P4/P8/P10
+        # silent-miss). So: when we actually narrowed AND the filter then
+        # found nothing relevant — a *recall* miss, NOT a budget stop —
+        # re-run once on the full corpus view. That is exactly
+        # ``strategy=NONE``, the recall floor sub-``plan_floor`` corpora
+        # already use; the agent's selector is view-agnostic so the same
+        # agent re-runs on ``full_view`` unchanged. The planner's choice
+        # becomes a fast-path, not a gate: right → we saved tokens, wrong
+        # → the loop recovers. Cost is paid only on the failure path.
+        extra_cost = 0.0
+        extra_tokens = 0
+        narrowed = apply_result.strategy is not RetrievalStrategy.NONE
+        if narrowed and _findings_recall_miss(result):
+            logger.info(
+                "base_agent._run_findings_dispatch: widen-on-empty — "
+                "narrowed strategy=%s refused (%s); re-running on full "
+                "corpus view (recall floor)",
+                apply_result.strategy.value,
+                result.refusal.reason if result.refusal else "?",
+            )
+            extra_cost = result.filter_cost_usd + result.synthesis_cost_usd
+            extra_tokens = result.filter_tokens + result.synthesis_tokens
+            try:
+                result = await agent.run(message, full_view)
+            except Exception:
+                logger.exception(
+                    "base_agent._run_findings_dispatch: widen-on-empty "
+                    "re-run failed; keeping the narrowed refusal"
+                )
+
+        total_cost = (
+            result.filter_cost_usd + result.synthesis_cost_usd + planner_usage_cost + extra_cost
+        )
+        total_tokens = (
+            result.filter_tokens + result.synthesis_tokens + planner_usage_tokens + extra_tokens
+        )
         usage = InvocationUsage(
             input_tokens=0,
             output_tokens=0,
@@ -1769,37 +1985,6 @@ class BaseAgent(KaosAgent):
         # lookup survives the apply_retrieval_plan narrowing step
         # (which renumbers positions but preserves block identity).
         block_id_to_source_uri: dict[int, str] = {}
-
-        def _source_uri_for_item(_item: Any, _filename: str, parsed: Any | None) -> str:
-            """Pick the most descriptive originating-document identifier.
-
-            Priority: parsed ContentDocument.metadata.source.uri →
-            parsed.metadata.title → DOCUMENTS-item filename/uri →
-            ``"(unnamed)"``. Keeps the choice local to the adapter
-            so kaos-content internals stay out of FindingsAgent.
-            """
-            if parsed is not None:
-                pmeta = getattr(parsed, "metadata", None)
-                psrc = getattr(pmeta, "source", None) if pmeta is not None else None
-                puri = getattr(psrc, "uri", None) if psrc is not None else None
-                if puri:
-                    # Use the bare filename rather than the full
-                    # file:// URI — the synthesis prompt benefits
-                    # from a human-readable identifier and the URI
-                    # may leak local-filesystem paths.
-                    short = puri.rsplit("/", 1)[-1]
-                    # urllib-style unquote so "MNDA%20-%20Acme.docx" → "MNDA - Acme.docx"
-                    try:
-                        from urllib.parse import unquote
-
-                        short = unquote(short)
-                    except Exception:
-                        pass
-                    return short or _filename
-                ptitle = getattr(pmeta, "title", None) if pmeta is not None else None
-                if ptitle:
-                    return str(ptitle)
-            return _filename
 
         for item in docs_items:
             meta = item.metadata

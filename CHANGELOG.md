@@ -7,6 +7,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.27] — 2026-05-30
+
+### Fixed
+
+- **Findings-dispatch recall-safe widen-on-empty (I3).** The retrieval
+  planner's lexical narrowing (ngram / token / BM25) is a *speculative*
+  cost optimization, but it ran irreversibly *before* the FindingsAgent
+  semantic filter — so when the user's vocabulary had no lexical overlap
+  with the document's ("auto-renewal" vs "shall terminate upon"; "which
+  state's law governs" vs "governed by the laws of …"), the lexical step
+  dropped the answer before the vocabulary-robust filter could see it,
+  and the agent reported "not present in the available evidence" for a
+  clause that demonstrably existed (NDA-matrix P4 / P8 / P10 silent-miss,
+  reproduced in the SPA on 2026-05-30: a ~450-sentence 5-NDA deal room
+  narrowed to 7 sentences). Two coupled changes, both recall-safe:
+  - **Primary — narrow only when a full scan would exceed the cost
+    budget.** Lexical narrowing trades recall for cost, so
+    `_run_findings_dispatch` now makes that trade against the cost
+    budget directly: it estimates the full-scan filter cost
+    (chunks × a measured per-call unit cost,
+    `findings_filter_cost_per_call_usd`, default $0.008) and prefers a
+    full, recall-complete semantic scan (`strategy=NONE`) whenever it
+    fits `findings_full_scan_budget_usd` (default $0.25); it narrows only
+    when a full scan would blow the budget. This scales across corpus
+    size, model, and budget — unlike a document or sentence count, which
+    ignore the latter two. Defaults are calibrated against the
+    corpus-stress tier: a ~450-sentence deal room full-scans (~$0.18,
+    recall-complete for vocabulary-mismatch queries like "auto-renewal"),
+    while a ~1200-sentence needle-in-25-distractors haystack narrows (its
+    needle is lexically distinctive, so BM25 finds it cheaply, and a full
+    scan there would overrun cost). The dispatch FindingsAgent carries no
+    inner `max_cost_usd`: the gate already routes only small corpora to
+    full-scan and the loop-level cost cap is the runaway guard — an inner
+    cap would truncate a scan mid-corpus and emit an empty answer.
+  - **Secondary net — recall-safe widen-on-empty.** For genuinely large
+    corpora that still narrow, a narrowed run that yields a *recall*
+    refusal (no relevant candidates — NOT a budget stop) re-runs once on
+    the full corpus view. The planner's choice becomes a fast-path, not
+    a gate; the second pass is paid only on the failure path.
+- **Findings provenance resolves to the user-facing filename (attribution).**
+  Surfacing the clauses (above) exposed a second, masked bug: the
+  per-finding `source_uri` resolved to the parser's transient temp-file
+  path (e.g. `tmp52cu95ct.docx`), and near-identical templates share a
+  generic `metadata.title` ("Mutual Non-Disclosure Agreement"), so the
+  synthesis LLM could not map a clause to the file the user named
+  ("MNDA - Acme") and refused to answer. Provenance now resolves to the
+  DOCUMENTS-item filename — the identity shown in the documents panel and
+  used in the user's query — with parsed title / source-uri as fallbacks
+  only when no item name exists (mirrors kelvin-agent, which keys display
+  to `document.file_name`). The agent now quotes the right clause and
+  disambiguates it from the other files by name.
+- **`doc_iri` percent-encodes the wrapped value.** With `source_uri` now
+  the user-facing filename, it can contain spaces ("MNDA - Acme.docx"),
+  which `kaos_graph` rejected as an invalid IRI subject and crashed
+  session persistence. `memory.triples.doc_iri` now percent-encodes the
+  wrapped local part (preserving `/` `#` `:` separators) so any
+  human-readable filename yields a valid graph IRI.
+- **Completeness-gated budget footer (I5).** A budget guard firing is a
+  *resource* event; "the answer is incomplete" is a *content* claim — the
+  two are independent. A complete multi-document deliverable could be
+  produced in one iteration and then trip the 60 s wall-clock guard,
+  after which the loop appended an "I stopped … this is my work-in-
+  progress" footer to a finished answer (NDA-matrix P7; reproduced in the
+  SPA on a complete 5-NDA review). The budget footer is now gated on a
+  completeness judgment rather than the exit reason: when a budget cap
+  fires before any critic ran, `_emit_failure_refusal` runs the
+  goal-check the cap preempted (reusing `goal_check_model`) — a
+  `satisfied` verdict ships the draft clean; an incomplete or
+  unverifiable draft keeps the honest caveat. Reuses the existing
+  GoalChecker; no new heuristics.
+
 ## [0.1.26] — 2026-05-29
 
 ### Added

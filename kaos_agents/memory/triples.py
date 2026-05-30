@@ -115,11 +115,19 @@ def doc_iri(source_uri: str) -> str:
     """IRI for a :class:`kaos:Document` node.
 
     Pass-through if the input already looks like an IRI; otherwise
-    wraps under the kaos: namespace.
+    wraps under the kaos: namespace. The wrapped value is
+    percent-encoded so a human-readable ``source_uri`` (now the
+    user-facing filename, e.g. ``"MNDA - Acme.docx#/body/7"``) produces
+    a valid IRI — spaces and other reserved characters would otherwise
+    make ``kaos_graph`` reject the subject ("Invalid IRI code point").
+    The ``/`` ``#`` ``:`` separators are preserved so the namespaced
+    path + fragment structure stays intact.
     """
     if source_uri.startswith(("http://", "https://", "urn:", "file:", "doi:")):
         return source_uri
-    return f"{KAOS}doc/{source_uri}"
+    from urllib.parse import quote
+
+    return f"{KAOS}doc/{quote(source_uri, safe='/#:._-~')}"
 
 
 def agent_iri() -> str:
