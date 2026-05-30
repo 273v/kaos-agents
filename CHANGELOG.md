@@ -27,15 +27,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `_run_findings_dispatch` now makes that trade against the cost
     budget directly: it estimates the full-scan filter cost
     (chunks × a measured per-call unit cost,
-    `findings_filter_cost_per_call_usd`) and prefers a full,
-    recall-complete semantic scan (`strategy=NONE`) whenever it fits
-    `findings_full_scan_budget_usd` (default $0.50); it narrows only
+    `findings_filter_cost_per_call_usd`, default $0.008) and prefers a
+    full, recall-complete semantic scan (`strategy=NONE`) whenever it
+    fits `findings_full_scan_budget_usd` (default $0.25); it narrows only
     when a full scan would blow the budget. This scales across corpus
     size, model, and budget — unlike a document or sentence count, which
-    ignore the latter two. The full-scan path also passes that budget as
-    the FindingsAgent `max_cost_usd` runtime backstop. A 5-NDA deal room
-    (well under budget) is now scanned in full, so the vocabulary-robust
-    filter surfaces the clause regardless of lexical overlap.
+    ignore the latter two. Defaults are calibrated against the
+    corpus-stress tier: a ~450-sentence deal room full-scans (~$0.18,
+    recall-complete for vocabulary-mismatch queries like "auto-renewal"),
+    while a ~1200-sentence needle-in-25-distractors haystack narrows (its
+    needle is lexically distinctive, so BM25 finds it cheaply, and a full
+    scan there would overrun cost). The dispatch FindingsAgent carries no
+    inner `max_cost_usd`: the gate already routes only small corpora to
+    full-scan and the loop-level cost cap is the runaway guard — an inner
+    cap would truncate a scan mid-corpus and emit an empty answer.
   - **Secondary net — recall-safe widen-on-empty.** For genuinely large
     corpora that still narrow, a narrowed run that yields a *recall*
     refusal (no relevant candidates — NOT a budget stop) re-runs once on

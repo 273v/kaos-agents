@@ -1433,15 +1433,25 @@ class BaseAgent(KaosAgent):
         # the estimate can never drift from the actual batching).
         findings_chunk_size = 20
         plan_floor = int(getattr(self._settings, "retrieval_plan_floor", 5) or 5)
+        # Full-scan budget: the boundary between "small deal room, scan it
+        # all" and "large corpus, narrow first". Calibrated against the
+        # corpus-stress tier: a ~450-sentence 5-NDA deal room full-scans
+        # for ~$0.18 (recall-complete, needed for vocabulary-mismatch
+        # queries like "auto-renewal"); a ~1200-sentence needle-in-25-
+        # distractors haystack would cost ~$0.50 to full-scan, so it
+        # narrows instead — and its needles are lexically distinctive, so
+        # BM25 narrowing finds them cheaply. $0.25 splits the two.
         full_scan_budget_usd = float(
-            getattr(self._settings, "findings_full_scan_budget_usd", 0.50) or 0.50
+            getattr(self._settings, "findings_full_scan_budget_usd", 0.25) or 0.25
         )
         # Measured unit cost of one filter chunk (short relevance
-        # classification over ``chunk_size`` sentences). A physical,
-        # calibratable quantity — conservative default errs toward
-        # narrowing slightly sooner, never toward over-spend.
+        # classification over ``chunk_size`` sentences) — calibrated from
+        # the corpus-stress tier (a 1228-sentence / 62-chunk full scan
+        # cost ~$0.50, i.e. ~$0.008/chunk on Sonnet-class). A physical,
+        # measurable quantity; if it under-predicts, the gate full-scans a
+        # corpus that overruns budget, so err high, not low.
         filter_cost_per_call_usd = float(
-            getattr(self._settings, "findings_filter_cost_per_call_usd", 0.004) or 0.004
+            getattr(self._settings, "findings_filter_cost_per_call_usd", 0.008) or 0.008
         )
         try:
             full_scan_sentences = len(full_view.sentences)
@@ -1572,10 +1582,13 @@ class BaseAgent(KaosAgent):
             chunk_size=findings_chunk_size,
             num_parallel=3,
             relevance_threshold=0.4,
-            # Runtime backstop for the full-scan path: even if the
-            # cost estimate above was optimistic, the filter stops
-            # gracefully at the budget rather than over-spending.
-            max_cost_usd=full_scan_budget_usd,
+            # No per-dispatch cost cap here: the budget gate only routes
+            # *small* corpora to full-scan (large ones narrow), so the
+            # full-scan path is inherently cheap, and the loop-level cost
+            # cap is the real runaway guard. An inner cap here would
+            # truncate a full scan mid-corpus and return an empty answer
+            # (the corpus-stress regression: enumerated=1228 → $0.50 cap →
+            # answer_chars=0) — worse than narrowing.
         )
 
         try:

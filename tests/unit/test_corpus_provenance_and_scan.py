@@ -91,6 +91,22 @@ def test_chunk_count_is_ceiling() -> None:
     assert d.n_filter_chunks == 3
 
 
+def test_deal_room_full_scans_but_haystack_narrows_at_shipped_defaults() -> None:
+    """Regression (corpus-stress tier, 2026-05-30). The gate must full-scan
+    a small deal room (~450 sentences, recall-complete for vocabulary-
+    mismatch queries) but NARROW a large needle-in-haystack (~1200
+    sentences) — full-scanning the latter overran the cost cap and
+    returned an empty answer (enumerated=1228 -> $0.50 cap -> answer_chars=0),
+    while its distinctive needle is cheaply found by BM25 narrowing.
+    Uses the shipped defaults: $0.25 budget, $0.008/call.
+    """
+    budget, cost = 0.25, 0.008  # mirrors findings_full_scan_budget_usd / _cost_per_call
+    deal_room = _decide(n_docs=5, n_sentences=450, budget_usd=budget, cost_per_call_usd=cost)
+    haystack = _decide(n_docs=26, n_sentences=1228, budget_usd=budget, cost_per_call_usd=cost)
+    assert deal_room.full_scan is True, "small deal room must full-scan"
+    assert haystack.full_scan is False, "large haystack must narrow, not full-scan into the cap"
+
+
 def test_zero_sentences_does_not_full_scan_via_budget() -> None:
     # Degenerate: an unresolvable/empty view (n_sentences=0) is NOT a
     # budget-justified full scan (nothing to scan) — only the doc-floor
