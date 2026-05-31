@@ -178,7 +178,9 @@ def test_pool_files_are_in_assets_dir() -> None:
     """No stray pool files outside the canonical assets directory."""
     repo_root = Path(__file__).resolve().parents[2]
     strays = [
-        p for p in repo_root.glob("kaos_agents/**/*.toml") if "/_assets/examples/" not in str(p)
+        p
+        for p in repo_root.glob("kaos_agents/**/*.toml")
+        if "/_assets/examples/" not in p.as_posix()
     ]
     assert not strays, (
         f"Found TOML example pools outside _assets/examples/: {strays}. "

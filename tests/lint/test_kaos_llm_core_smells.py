@@ -82,7 +82,8 @@ def _python_files_under(root: Path) -> list[Path]:
 
 
 def _rel(path: Path) -> str:
-    return str(path.relative_to(_REPO_ROOT))
+    # as_posix() so the forward-slash allowlists/exceptions match on Windows too.
+    return path.relative_to(_REPO_ROOT).as_posix()
 
 
 # ─── S8: every Call(SigClass, ...) passes examples= ─────────────────────
