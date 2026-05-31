@@ -104,9 +104,28 @@ _TOKEN_A = "tenant-a-secret-token-aaaaaaaaaaaaaaaaaa"
 _TOKEN_B = "tenant-b-secret-token-bbbbbbbbbbbbbbbbbb"
 
 
+def _memory_vfs():
+    """In-memory VFS for API tests.
+
+    Tenant-scoped session ids contain ``:`` (``scope_session_id`` →
+    ``"tenant:session"``), which is illegal in Windows filesystem paths.
+    The kaos-core disk backend does not yet sanitize reserved characters
+    in context-id-derived path components, so disk-backed tests fail on
+    Windows with ``OSError [WinError 123]``. The MEMORY backend keeps the
+    scoped id as a dict key (no filesystem) while preserving CONTEXT
+    isolation / tenant scoping. See the compat status doc for the residual
+    kaos-core gap.
+    """
+    from kaos_core.vfs.core import StorageBackend, VFSConfig, VirtualFileSystem
+
+    return VirtualFileSystem(config=VFSConfig(default_backend=StorageBackend.MEMORY))
+
+
 def _make_app(token: str):
     settings = KaosAgentsApiSettings(api_token=SecretStr(token))
-    return create_app(api_settings=settings)
+    app = create_app(api_settings=settings)
+    app.state.vfs = _memory_vfs()
+    return app
 
 
 @pytest.fixture
@@ -326,6 +345,7 @@ class TestAuthBypassedEndpointsStillWork:
     @pytest.mark.asyncio
     async def test_send_message_with_token_200(self) -> None:
         app = create_app(api_settings=KaosAgentsApiSettings(api_token=SecretStr(_TOKEN_A)))
+        app.state.vfs = _memory_vfs()
         transport = ASGITransport(app=app)
 
         mock_intent = IntentResult(intent=IntentType.RESPOND, confidence=1.0, reasoning="ok")
