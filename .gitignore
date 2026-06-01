@@ -40,3 +40,6 @@ Thumbs.db
 # stays tracked so historical run identifiers survive in the public repo.
 tests/integration/runs/**/*.jsonl
 !tests/integration/runs/INDEX.jsonl
+
+# Local acceptance / Chrome-MCP scratch notes — never commit (may contain local paths)
+tests/scratch/
