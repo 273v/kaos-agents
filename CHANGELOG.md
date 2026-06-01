@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Tests
+
+- **I5 footer-suppression reason-uniformity regression lock.** Added
+  parametrized coverage asserting that the completeness-gated budget
+  footer (`_emit_failure_refusal` → `_draft_is_complete`) is decided
+  solely by draft completeness, never by the terminal `reason`: a
+  complete preserved draft ships clean (`intent="respond"`, no
+  work-in-progress footer) for every terminator — `cost_exceeded`,
+  `wall_clock_exceeded`, `circuit_breaker_tripped`,
+  `tool_call_cap_exceeded`, `stuck_no_progress`, `max_iterations` — and
+  an incomplete draft keeps the caveat footer across them. The 0.1.27
+  end-to-end test covered only `cost_exceeded`; this locks the invariant
+  the SPA confirmation exercised live on the `wall_clock_exceeded` path
+  (NDA persona matrix 2026-05-30) and guards against a future
+  reason-specific footer leak. Test-only; no behavior change.
+
 ## [0.1.27] — 2026-05-30
 
 ### Fixed
