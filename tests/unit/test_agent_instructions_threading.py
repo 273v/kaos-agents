@@ -237,7 +237,9 @@ class TestReActComposesInstructions:
             stop_reason = "TERMINATED"
 
         class _FakeReAct:
-            def __init__(self, sig, *, tools, model, max_iterations, instructions):
+            def __init__(
+                self, sig, *, tools, model, max_iterations, instructions, program_hooks=None
+            ):
                 captured["instructions"] = instructions
 
             async def __call__(self, **kwargs):

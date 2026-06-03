@@ -1,21 +1,38 @@
-# Few-shot Example pool for RespondSignature (BaseAgent _simple_respond path).
-# Loaded by kaos_agents.runtime.agent via load_examples("respond").
+# Few-shot Example pool for RespondSignature.
+#
+# NOTE: as of 2026-06-02 the BaseAgent ``_simple_respond`` path no longer
+# loads these — codecs render few-shot examples as literal user/assistant
+# chat turns, which a conversational agent mistakes for real history and
+# confabulates on self-referential turns. This pool is retained for the
+# example-loader contract / optimizer use only; the respond path now relies
+# on the RespondSignature instructions instead. Keep any examples here
+# generic and content-free for the same bleed reason.
 #
 # The _simple_respond path is the lowest-tier dispatcher — invoked when
 # the intent is `respond` and no tools are needed. Examples teach the
 # model to respond directly with the answer, not to refuse / ask
 # clarifying questions / hedge unnecessarily.
+#
+# DISCIPLINE — example content can bleed into real answers. These few-shot
+# rows ship verbatim to the model. An example whose ``conversation_history``
+# embeds realistic, specific domain content invites the model to mistake
+# the EXAMPLE'S history for the ACTUAL conversation and regurgitate it as a
+# false claim about what was said earlier. (2026-06-02: a prior FRCP-laden
+# acknowledgement example made the agent confabulate "my last reply
+# introduced FRCP material" on unrelated NDA sessions.) Keep example
+# histories generic and keep acknowledgement responses content-free, so a
+# bleed cannot become a fabricated factual claim.
 
 [[example]]
 name = "direct_answer_to_stable_concept"
-description = "Stable concept question → answer directly from background knowledge."
+description = "Stable factual question → answer directly, no hedging. Content kept generic/innocuous so it cannot bleed into a later turn as a fabricated 'prior answer'."
 
 [example.inputs]
-message = "What is judicial review?"
+message = "What is 15% of 80?"
 conversation_history = "(new conversation)"
 
 [example.outputs]
-response = "Judicial review is the power of courts — most famously the U.S. Supreme Court since Marbury v. Madison (1803) — to review the constitutionality of legislative and executive actions and to invalidate those found unconstitutional."
+response = "15% of 80 is 12."
 
 
 [[example]]
@@ -24,7 +41,7 @@ description = "Acknowledgement after a prior helpful answer → short conversati
 
 [example.inputs]
 message = "Thanks, that's helpful!"
-conversation_history = "User: Can you help me find the FRCP rule on response deadlines?\nAssistant: FRCP 12(a)(1)(A)(i) gives 21 days from service of the complaint to respond."
+conversation_history = "User: <an earlier question the assistant answered>\nAssistant: <the assistant's earlier helpful answer>"
 
 [example.outputs]
-response = "Glad that helped. Let me know if you want to dig into the related rules (e.g., FRCP 6(a)(1)(C) on weekend rollover, or motion-to-dismiss tolling under 12(a)(4))."
+response = "Glad that helped — let me know if you'd like to go deeper on any part of it."

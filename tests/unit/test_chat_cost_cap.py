@@ -133,9 +133,12 @@ def _make_fake_react(cost_usd: float) -> type:
     """Build a fake ReAct class whose .invoke returns a fixed cost."""
 
     class _FakeReAct:
-        def __init__(self, sig, *, tools, model, max_iterations, instructions) -> None:
+        def __init__(
+            self, sig, *, tools, model, max_iterations, instructions, program_hooks=None
+        ) -> None:
             self._sig = sig
             self._cost = cost_usd
+            self._program_hooks = program_hooks
 
         async def invoke(self, **kwargs: typing.Any) -> _FakeInvocation:
             return _FakeInvocation(cost_usd=self._cost)

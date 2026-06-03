@@ -9,6 +9,7 @@ Extends BaseAgent with:
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
@@ -53,6 +54,11 @@ from kaos_agents.types import (
     ToolExecution,
 )
 from kaos_agents.types.memory import MemoryType
+
+# Sentinel pushed onto the live tool-event queue when the ReAct drive task
+# finishes (success or failure), so the drain loop in
+# ``_handle_tool_use_streaming`` terminates deterministically.
+_TOOL_STREAM_SENTINEL = object()
 
 _REACT_INSTRUCTION = (
     "Complete the user's request using the available tools. Be thorough "
@@ -419,109 +425,27 @@ class ChatAgent(BaseAgent):
         )
         return narrowed
 
-    # ─── Classifier promotion for the attached-corpus case ─────────────
+    # ─── Routing is an LLM decision, not a keyword override ────────────
     #
-    # When the SPA uploads files, they land in ``SessionMemory.DOCUMENTS``
-    # AND the per-turn assembled context. The base classifier reads that
-    # text and — when the redacted / summarized preview happens to look
-    # like a direct answer — picks RESPOND with high confidence. The
-    # SPA's "what is X in the attached file?" question then gets a
-    # hallucinated answer from the preview rather than a grounded answer
-    # from the bytes. (See CS-B2 / CS-B3 corpus-stress regressions.)
+    # ChatAgent deliberately does NOT override ``_classify``. The
+    # attached-corpus routing case (CS-B2 / CS-B3 — "what is X in the
+    # attached file?" must read the bytes via the FindingsAgent rather
+    # than guess from a redacted summary) is handled inside the LLM
+    # router itself: ``BaseAgent._classify`` surfaces the attached
+    # document filenames via ``render_documents_for_classifier`` and the
+    # ``ClassifyIntentSignature`` documents-and-conversation rules route
+    # document-CONTENT questions to ``research`` while keeping turns about
+    # the conversation itself ("do you hear what you just said?", "find
+    # the flaw in your last reply") as ``respond`` — even when documents
+    # are attached.
     #
-    # The promotion: when the LLM picked RESPOND or TOOL_USE while
-    # DOCUMENTS are attached AND the message contains fact-lookup
-    # keywords, override to RESEARCH so the FindingsAgent default
-    # (kaos_agents.runtime.agent.BaseAgent._handle_research_streaming)
-    # grounds the answer on the raw bytes via VFS.
-    #
-    # The keyword set is intentionally conservative — "what", "value of",
-    # "find", "json", "file" etc. — to avoid hijacking greetings or
-    # follow-up chitchat. Tune via subclassing if a specific domain has
-    # different signals.
-
-    _CORPUS_FACT_LOOKUP_TOKENS: tuple[str, ...] = (
-        "file",
-        "files",
-        "attached",
-        "attachment",
-        "attachments",
-        "document",
-        "documents",
-        "uploaded",
-        "config",
-        "json",
-        "value of",
-        "value for",
-        "what is",
-        "what's",
-        "what does",
-        "find",
-        "look up",
-        "lookup",
-        "quote",
-        "verbatim",
-        "exact",
-    )
-
-    @staticmethod
-    def _message_looks_like_corpus_lookup(
-        message: str,
-        tokens: tuple[str, ...],
-    ) -> bool:
-        """Cheap keyword screen — does the message look like a doc-grounded ask?"""
-        lowered = message.lower()
-        return any(tok in lowered for tok in tokens)
-
-    async def _classify(
-        self,
-        message: str,
-        memory: SessionMemory,
-        context_items: dict[MemoryType, list[Any]] | None = None,
-    ) -> IntentResult:
-        """Promote RESPOND/TOOL_USE → RESEARCH when DOCUMENTS attached
-        AND the prompt asks for a file-grounded fact.
-
-        See module-level commentary for rationale (CS-B2 / CS-B3).
-        Leaves RESEARCH / PLAN / CLARIFY verdicts alone — only
-        promotes the two intents that don't grant the FindingsAgent
-        path a chance to run.
-
-        Subclasses can broaden / narrow the fact-lookup vocabulary by
-        overriding ``_CORPUS_FACT_LOOKUP_TOKENS``.
-        """
-        result = await super()._classify(message, memory, context_items)
-
-        if result.intent not in (IntentType.RESPOND, IntentType.TOOL_USE):
-            return result
-
-        # Count attached DOCUMENTS in this turn's context, falling back
-        # to the section count when the per-turn assembler trimmed it.
-        docs_in_context = 0
-        if context_items is not None:
-            docs_in_context = len(context_items.get(MemoryType.DOCUMENTS, []) or [])
-        if docs_in_context == 0 and memory.has_section(MemoryType.DOCUMENTS):
-            docs_in_context = memory.section_item_count(MemoryType.DOCUMENTS)
-
-        if docs_in_context == 0:
-            return result
-        if not self._message_looks_like_corpus_lookup(message, self._CORPUS_FACT_LOOKUP_TOKENS):
-            return result
-
-        promoted_reason = (
-            f"corpus_attached_promotion: {docs_in_context} DOCUMENTS attached "
-            f"+ fact-lookup keywords; classifier said "
-            f"{result.intent.value} ({result.confidence:.2f}); promoted to "
-            "RESEARCH so FindingsAgent grounds the answer on bytes "
-            "rather than redacted context."
-        )
-        logger.debug("chat_agent._classify: %s", promoted_reason)
-        return IntentResult(
-            intent=IntentType.RESEARCH,
-            confidence=1.0,
-            reasoning=promoted_reason,
-            usage=result.usage,
-        )
+    # The previous implementation force-promoted RESPOND/TOOL_USE →
+    # RESEARCH on a substring match ("find", "what is", …) + docs
+    # attached. That keyword proxy misrouted self-referential / meta
+    # turns into the corpus retriever (which cannot answer them),
+    # producing empty FindingsAgent runs and expensive refusals
+    # (session 01KT5PK4ST95065194G4VXF4NB, 2026-06-02). See
+    # docs/design/2026-06-02-agentic-routing-and-transcript-grounding.md.
 
     async def _dispatch_streaming(
         self,
@@ -711,54 +635,173 @@ class ChatAgent(BaseAgent):
         _MAX_SCHEMA_DROPS = 5
         current_tools = list(tools)
         already_dropped: set[str] = set()
+
+        # Live tool-call streaming bridge. ReAct fires the per-tool
+        # ``ProgramHooks`` synchronously around each tool dispatch
+        # (on_tool_start before, on_tool_end after). The hooks only
+        # ENQUEUE the raw ToolCall / ToolObservation; the SPAN events are
+        # built and yielded below by THIS coroutine (the sole owner of
+        # ``emitter``), so emitter state is never touched from inside a
+        # hook. Because tools dispatch sequentially, each tool's
+        # start→end pair is enqueued in order with no interleaving — the
+        # drain loop emits Span(TOOL_CALL, start) the instant a tool
+        # enters flight and Span(TOOL_CALL, complete) the instant it
+        # returns, so the UI watches tool calls happen live instead of in
+        # one burst after the whole ReAct loop finishes.
+        from kaos_llm_core.programs.program_hooks import ProgramHooks
+
+        tool_event_queue: asyncio.Queue[Any] = asyncio.Queue()
+
+        def _on_tool_start(_prog: Any, tool_call: Any, *, context: Any = None) -> None:
+            try:
+                tool_event_queue.put_nowait(("start", tool_call))
+            except Exception:  # pragma: no cover - observability must never break dispatch
+                logger.debug("chat_agent: on_tool_start bridge failed", exc_info=True)
+
+        def _on_tool_end(_prog: Any, observation: Any, *, context: Any = None) -> None:
+            try:
+                tool_event_queue.put_nowait(("end", observation))
+            except Exception:  # pragma: no cover - observability must never break dispatch
+                logger.debug("chat_agent: on_tool_end bridge failed", exc_info=True)
+
+        live_tool_hooks = ProgramHooks(on_tool_start=_on_tool_start, on_tool_end=_on_tool_end)
+        # call_ids surfaced live, so the post-invoke trajectory sweep
+        # below skips re-emitting them (it stays only as a defensive
+        # backstop for any tool the bridge somehow missed).
+        streamed_call_ids: set[str] = set()
+        # call_id → live span_start event, so on_tool_end's complete span
+        # reuses the same span_id (parent/child + UI pairing stay intact).
+        open_tool_spans: dict[str, Any] = {}
+
         try:
-            invocation = None
-            result = None
             t_start = time.monotonic()
-            for attempt in range(_MAX_SCHEMA_DROPS + 1):
-                react = ReAct(
-                    ToolTaskSignature,
-                    tools=current_tools,
-                    model=self._model_for_role("respond"),
-                    max_iterations=self._max_react_iterations,
-                    instructions=react_instructions,
-                )
-                try:
-                    # ``.invoke()`` returns the full Invocation so we can surface
-                    # ``invocation.usage`` for TurnComplete — ``.__call__()``
-                    # returns the bare ReActResult and throws usage on the floor.
-                    invocation = await react.invoke(question=message, context=context_text)
-                    result = invocation.output
-                    break
-                except Exception as exc:
-                    msg = str(exc)
-                    if attempt >= _MAX_SCHEMA_DROPS or not is_tool_schema_rejection(msg):
-                        raise
-                    bad_name = extract_invalid_tool_name(msg)
-                    if bad_name is None:
-                        bad_index = extract_invalid_tool_index(msg)
-                        if bad_index is None:
-                            raise
-                        current_tools, bad_name = drop_tool_at_index(current_tools, bad_index)
-                    else:
-                        current_tools = drop_tool_by_name(current_tools, bad_name)
-                    if bad_name is None or bad_name in already_dropped or not current_tools:
-                        # Re-raise → outer except below runs the
-                        # react-fallback. Cases: index past EOL; the
-                        # same tool failed twice (would loop); last
-                        # tool standing got dropped.
-                        raise
-                    already_dropped.add(bad_name)
-                    logger.warning(
-                        "chat_agent: dropped tool %r due to schema rejection "
-                        "(attempt %d/%d, %d tools remaining): %s",
-                        bad_name,
-                        attempt + 1,
-                        _MAX_SCHEMA_DROPS,
-                        len(current_tools),
-                        exc,
+
+            async def _invoke_with_schema_drops() -> Any:
+                """Run ReAct with the FIX-16 schema-drop retry loop and return
+                the successful Invocation. Raises on terminal failure."""
+                nonlocal current_tools
+                for attempt in range(_MAX_SCHEMA_DROPS + 1):
+                    react = ReAct(
+                        ToolTaskSignature,
+                        tools=current_tools,
+                        model=self._model_for_role("respond"),
+                        max_iterations=self._max_react_iterations,
+                        instructions=react_instructions,
+                        program_hooks=live_tool_hooks,
                     )
-            # Loop must exit via break or raise; defensive guard:
+                    try:
+                        # ``.invoke()`` returns the full Invocation so we can
+                        # surface ``invocation.usage`` for TurnComplete —
+                        # ``.__call__()`` returns the bare ReActResult.
+                        return await react.invoke(question=message, context=context_text)
+                    except Exception as exc:
+                        msg = str(exc)
+                        if attempt >= _MAX_SCHEMA_DROPS or not is_tool_schema_rejection(msg):
+                            raise
+                        bad_name = extract_invalid_tool_name(msg)
+                        if bad_name is None:
+                            bad_index = extract_invalid_tool_index(msg)
+                            if bad_index is None:
+                                raise
+                            current_tools, bad_name = drop_tool_at_index(current_tools, bad_index)
+                        else:
+                            current_tools = drop_tool_by_name(current_tools, bad_name)
+                        if bad_name is None or bad_name in already_dropped or not current_tools:
+                            # Re-raise → outer except below runs the
+                            # react-fallback. Cases: index past EOL; the
+                            # same tool failed twice (would loop); last
+                            # tool standing got dropped.
+                            raise
+                        already_dropped.add(bad_name)
+                        logger.warning(
+                            "chat_agent: dropped tool %r due to schema rejection "
+                            "(attempt %d/%d, %d tools remaining): %s",
+                            bad_name,
+                            attempt + 1,
+                            _MAX_SCHEMA_DROPS,
+                            len(current_tools),
+                            exc,
+                        )
+                raise RuntimeError("ReAct retry loop exhausted without success or raise")
+
+            async def _drive() -> Any:
+                try:
+                    return await _invoke_with_schema_drops()
+                finally:
+                    # Always unblock the drain loop, even on failure.
+                    tool_event_queue.put_nowait(_TOOL_STREAM_SENTINEL)
+
+            invoke_task = asyncio.create_task(_drive())
+
+            # Drain tool events LIVE while ReAct runs. Each item is built
+            # into Span events here (this coroutine owns the emitter).
+            while True:
+                item = await tool_event_queue.get()
+                if item is _TOOL_STREAM_SENTINEL:
+                    break
+                kind, data = item
+                if kind == "start":
+                    call_id = str(getattr(data, "id", "") or getattr(data, "name", "") or "")
+                    raw_args = getattr(data, "arguments", None) or {}
+                    args_tuple = (
+                        tuple(sorted(raw_args.items())) if isinstance(raw_args, dict) else ()
+                    )
+                    tc_span = emitter.span_start(
+                        SpanSubject.TOOL_CALL,
+                        name=f"tool.{getattr(data, 'name', '')}",
+                        attributes={
+                            "tool_name": getattr(data, "name", ""),
+                            "call_id": call_id,
+                            "arguments": args_tuple,
+                        },
+                    )
+                    open_tool_spans[call_id] = tc_span
+                    streamed_call_ids.add(call_id)
+                    yield tc_span
+                else:  # "end"
+                    obs = data
+                    call_id = str(
+                        getattr(obs, "tool_call_id", "") or getattr(obs, "tool_name", "") or ""
+                    )
+                    result_full = str(obs.result) if obs.result else ""
+                    structured_content = _extract_structured_content(obs.result)
+                    complete_attrs: dict[str, Any] = {
+                        "tool_name": obs.tool_name,
+                        "call_id": call_id,
+                        "result_summary": result_full,
+                        "is_error": obs.is_error,
+                    }
+                    if isinstance(structured_content, dict) and structured_content:
+                        complete_attrs["structured_content"] = structured_content
+                    open_span = open_tool_spans.pop(call_id, None)
+                    if open_span is None:
+                        # Defensive: an end with no matching start (cannot
+                        # happen while tools dispatch sequentially, but keep
+                        # the card well-formed). Emit the start now so the
+                        # complete has a real span_id to pair against.
+                        open_span = emitter.span_start(
+                            SpanSubject.TOOL_CALL,
+                            name=f"tool.{obs.tool_name}",
+                            attributes={
+                                "tool_name": obs.tool_name,
+                                "call_id": call_id,
+                                "arguments": (),
+                            },
+                        )
+                        streamed_call_ids.add(call_id)
+                        yield open_span
+                    yield emitter.span_complete(
+                        SpanSubject.TOOL_CALL,
+                        span_id=open_span.span_id,
+                        name=f"tool.{obs.tool_name}",
+                        duration_ms=0.0,  # Per-tool timing not available from trajectory
+                        attributes=complete_attrs,
+                    )
+
+            # Re-raises any terminal ReAct failure → outer except → fallback.
+            invocation = invoke_task.result()
+            result = invocation.output if invocation is not None else None
+            # Defensive guard: drive must return an Invocation or raise.
             if invocation is None or result is None:
                 raise RuntimeError("ReAct retry loop exhausted without success or raise")
             t_total = (time.monotonic() - t_start) * 1000
@@ -841,8 +884,13 @@ class ChatAgent(BaseAgent):
             for iteration in result.trajectory:
                 for obs in iteration.tool_results:
                     total_tool_calls += 1
-                    result_full = str(obs.result) if obs.result else ""
                     call_id = obs.tool_call_id or obs.tool_name
+                    # Streamed live above via the per-tool hook bridge —
+                    # skip to avoid duplicate cards. This loop stays only
+                    # as a backstop for any tool the bridge missed.
+                    if call_id in streamed_call_ids:
+                        continue
+                    result_full = str(obs.result) if obs.result else ""
                     args_tuple = tuple(sorted(obs.arguments.items())) if obs.arguments else ()
                     structured_content = _extract_structured_content(obs.result)
                     # Log line gets a short head for readability — a

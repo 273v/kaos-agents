@@ -93,6 +93,30 @@ class RespondSignature(Signature):
     passed to the :class:`Call` (defaults to "You are a helpful
     assistant."). Subclasses or callers override the instructions to
     project a different persona without changing the I/O contract here.
+
+    Answer directly and concisely from what you know and from
+    ``conversation_history``; do not hedge, stall, or ask for
+    clarification when the message can reasonably be answered. For a
+    short acknowledgement ("thanks!") reply briefly without manufacturing
+    new content.
+
+    Grounding discipline for self-referential turns: when the user reacts
+    to or asks about your own earlier reply ("do you hear what you just
+    said?", "find the flaw in your last response", "what did you mean?",
+    "you're wrong"), answer ONLY from the actual ``conversation_history``
+    — quote or paraphrase what you genuinely said there. The illustrative
+    examples in this prompt are NOT part of this conversation; never
+    describe their topics as something you discussed. Never claim you
+    said, did, or introduced something that is not present in
+    ``conversation_history``.
+
+    If the user's reaction is vague and you cannot point to a specific
+    problem in your actual prior reply, do NOT invent or apologize for a
+    fault. Instead, briefly restate what you actually said (per the
+    history) and ask what specifically they would like you to revisit.
+    A grounded "here is what I said — what concerns you?" is always
+    better than a confident self-criticism you cannot support from the
+    transcript.
     """
 
     message: str = InputField(description="The user's message.")
@@ -1089,10 +1113,20 @@ class BaseAgent(KaosAgent):
         # keeps its pre-fix behavior. See
         # :func:`render_tool_categories_for_classifier` for the
         # output shape and the senator-question regression note.
+        from kaos_agents.context.classify import render_documents_for_classifier
         from kaos_agents.context.tool_catalog import render_tool_categories_for_classifier
 
         runtime = getattr(self, "_runtime", None)
         available_tool_categories = render_tool_categories_for_classifier(runtime)
+        # Surface attached-document filenames so the LLM router can send
+        # document-CONTENT questions to ``research`` while keeping turns
+        # about the conversation itself (reactions to a prior answer) as
+        # ``respond`` — see ClassifyIntentSignature's documents-and-
+        # conversation rules. This replaces the old keyword-based
+        # ``corpus_attached_promotion`` override (a substring match on
+        # "find"/"what is" that misrouted meta turns into the corpus
+        # retriever); routing is now an LLM decision over real evidence.
+        documents_available = render_documents_for_classifier(memory)
 
         return await classify_intent(
             message,
@@ -1100,6 +1134,7 @@ class BaseAgent(KaosAgent):
             model=self._model_for_role("classify"),
             context_text=context_text,
             available_tool_categories=available_tool_categories,
+            documents_available=documents_available,
         )
 
     async def _dispatch(
@@ -2218,13 +2253,23 @@ class BaseAgent(KaosAgent):
         # paths that don't truncate this way; if a JSON-side truncation
         # regresses, file it as a JSONCodec bug in kaos-llm-core rather
         # than working around it with text scaffolding here.
-        from kaos_agents._examples import load_examples
-
+        # NO few-shot examples on the conversational respond path. The
+        # codecs render each few-shot example as a literal user/assistant
+        # message pair interleaved before the real turn
+        # (kaos_llm_core.codecs.json_codec.encode), so from the model's
+        # view the examples ARE prior conversation turns — indistinguishable
+        # from real history. On a self-referential turn ("do you hear what
+        # you just said?") the model then reports an example's content as
+        # something it actually said, confabulating the conversation
+        # (2026-06-02: FRCP / "Thanks, that's helpful!" leaked from the old
+        # respond examples). The "answer directly, don't hedge" guidance the
+        # examples used to carry now lives in the RespondSignature docstring
+        # + instructions, which do not pollute the apparent history. See
+        # docs/design/2026-06-02-agentic-routing-and-transcript-grounding.md.
         call = Call(
             RespondSignature,
             model=self._model_for_role("respond"),
             instructions=instructions,
-            examples=load_examples("respond"),
         )
         # ``.invoke()`` returns the full Invocation so we can read
         # ``invocation.usage`` — the bare ``await call(...)`` path is
