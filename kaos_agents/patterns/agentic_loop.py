@@ -71,12 +71,13 @@ The caller sees one continuous event stream per turn.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import re
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 from kaos_core.logging import get_logger
 
@@ -105,6 +106,9 @@ from kaos_agents.planning.m3_grounding import (
 )
 from kaos_agents.planning.m4_completeness import (
     judge_completeness,
+)
+from kaos_agents.planning.m5_history import (
+    judge_history_grounding,
 )
 from kaos_agents.planning.policy import (
     TurnToolPolicy,
@@ -139,7 +143,21 @@ class WorkerResult:
 
 
 # Type alias for the injected worker callable.
-WorkerCallable = Callable[..., Awaitable[WorkerResult]]
+#
+# Two shapes are accepted, detected at call time:
+#   * **Buffered** — an ``async def`` returning a single ``WorkerResult``.
+#     Its ``.events`` are replayed into the stream after it returns. This
+#     is the original contract; every existing caller and test uses it.
+#   * **Streaming** — an ``async def`` *generator* that ``yield``s its
+#     pass-through events (text deltas, tool spans, …) as they happen and
+#     ``yield``s exactly one terminal :class:`WorkerResult` as its final
+#     item. The orchestrator forwards each event the instant it is
+#     produced (so a UI watches the worker live) and captures the final
+#     ``WorkerResult`` for the goal-check / critic / budget logic. A
+#     streaming worker should leave ``WorkerResult.events`` empty — the
+#     events were already emitted live and must not be replayed.
+WorkerResultGen = AsyncIterator[Any]
+WorkerCallable = Callable[..., Awaitable[WorkerResult] | WorkerResultGen]
 
 
 # ─── Loop state (internal) ───────────────────────────────────────────
@@ -241,6 +259,7 @@ async def run_agentic_turn(
     m2_consistency_model: str | None = None,
     m3_grounding_model: str | None = None,
     m4_completeness_model: str | None = None,
+    m5_history_model: str | None = None,
     circuit_breaker_threshold: int = 5,
     max_tool_calls_per_iteration: int = 30,
     citation_verification_enabled: bool = False,
@@ -306,6 +325,16 @@ async def run_agentic_turn(
             grounding first; M4 catches the cases where the answer IS
             grounded but quantitatively incomplete. Off by default
             (None) to preserve cost profile.
+        m5_history_model: When set, after a ``satisfied`` GoalCheck
+            verdict the loop ALSO runs the M5 conversation-history
+            grounding critic against ``recent_turns``. A
+            ``fabricated_history`` verdict — the response claims it (or
+            the user) said / did / introduced something absent from the
+            transcript — overrides the satisfied terminator and forces a
+            grounded re-write. This is the only critic that sees the
+            prior conversation, so it is the only one that can catch a
+            confident confabulation about what was said before. Off by
+            default (None); requires ``recent_turns`` to be populated.
 
     The loop terminates when one of:
       - GoalChecker returns ``satisfied`` or ``insufficient_evidence``
@@ -392,12 +421,45 @@ async def run_agentic_turn(
             effective_groups = sorted(
                 plan.kept_groups | (policy.allowed_groups & plan.dropped_groups)
             )
-            worker_result = await worker(
+            worker_call = worker(
                 user_message=user_message,
                 allowed_groups=effective_groups,
                 thinking_note=state.thinking_note,
                 iteration=state.iteration,
             )
+            worker_streamed_live = False
+            if inspect.isasyncgen(worker_call):
+                # Streaming worker: forward each pass-through event the
+                # instant it is produced (so a UI watches the worker work
+                # live), observe tool-call spans for the loop-level
+                # circuit breaker inline, and capture the terminal
+                # WorkerResult for the goal-check / critic / budget logic
+                # below. The buffered ``.events`` replay (further down) is
+                # skipped — these events were already emitted.
+                streamed_result: WorkerResult | None = None
+                async for item in worker_call:
+                    if isinstance(item, WorkerResult):
+                        streamed_result = item
+                        continue
+                    yield item
+                    _observe_for_circuit_breaker(
+                        item, state=state, threshold=circuit_breaker_threshold
+                    )
+                if streamed_result is None:
+                    msg = (
+                        "streaming worker exhausted without yielding a terminal "
+                        "WorkerResult. A streaming worker must yield its "
+                        "pass-through events and then yield exactly one "
+                        "WorkerResult as its final item. Fix: `yield "
+                        "WorkerResult(...)` after the event loop, or use the "
+                        "buffered contract (`async def worker(...) -> WorkerResult`)."
+                    )
+                    raise RuntimeError(msg)
+                worker_result = streamed_result
+                worker_streamed_live = True
+            else:
+                # Not an async generator → the buffered awaitable contract.
+                worker_result = await cast("Awaitable[WorkerResult]", worker_call)
             state.cumulative_cost_usd += worker_result.cost_usd
             # 0.1.2 (R0.1): capture the worker's draft text in a
             # separate field — DO NOT overwrite ``state.last_text``
@@ -473,13 +535,19 @@ async def run_agentic_turn(
             # CircuitBreakerTripped + terminate the loop. This closes
             # the gap left open by the Runner-layer breaker (which
             # only suppresses event emission, not tool dispatch).
-            for ev in worker_result.events:
-                yield ev
-                _observe_for_circuit_breaker(
-                    ev,
-                    state=state,
-                    threshold=circuit_breaker_threshold,
-                )
+            #
+            # Skipped when the worker streamed: a streaming worker already
+            # emitted these events live above (and the circuit breaker was
+            # observed inline there), so replaying ``worker_result.events``
+            # would double-emit.
+            if not worker_streamed_live:
+                for ev in worker_result.events:
+                    yield ev
+                    _observe_for_circuit_breaker(
+                        ev,
+                        state=state,
+                        threshold=circuit_breaker_threshold,
+                    )
 
             # If a per-tool circuit breaker tripped this iteration,
             # emit the typed event + refusal + LoopTerminated and stop.
@@ -623,6 +691,22 @@ async def run_agentic_turn(
                                 user_prompt=user_message,
                                 response_text=worker_result.text,
                                 model=m4_completeness_model,
+                            ),
+                        )
+                    )
+                if m5_history_model is not None:
+                    # Ground claims about the prior conversation against the
+                    # actual transcript (``recent_turns``). Catches confident
+                    # confabulations about what was said before — the gap no
+                    # other critic can see (they judge the current turn /
+                    # tool results, never the conversation history).
+                    critic_calls.append(
+                        (
+                            _M5_CRITIC,
+                            judge_history_grounding(
+                                response_text=worker_result.text,
+                                model=m5_history_model,
+                                transcript_text=recent_turns,
                             ),
                         )
                     )
@@ -1340,6 +1424,19 @@ _M4_DIRECTIVES: dict[str, str] = {
         "(cite what you searched — 'I reviewed N documents and found M')."
     ),
 }
+_M5_DIRECTIVES: dict[str, str] = {
+    "fabricated_history": (
+        "Your previous response claimed something about the earlier "
+        "conversation — that you or the user said, did, or introduced "
+        "something — that is NOT in the transcript. Re-write grounded "
+        "ONLY in what the conversation actually contains: do not assert "
+        "you said or introduced something unless it appears in the prior "
+        "turns. If the user implies you made a mistake without saying "
+        "which, identify the specific issue from the transcript or ask "
+        "what they are referring to — never invent, accept, or apologize "
+        "for an error you cannot point to in the conversation."
+    ),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -1369,6 +1466,11 @@ class _GroundingCritic:
 _M2_CRITIC = _GroundingCritic("M2", _M2_DIRECTIVES, _CRITIC_OVERRIDE_CONFIDENCE_FLOOR)
 _M3_CRITIC = _GroundingCritic("M3", _M3_DIRECTIVES, 0.0)
 _M4_CRITIC = _GroundingCritic("M4", _M4_DIRECTIVES, _CRITIC_OVERRIDE_CONFIDENCE_FLOOR)
+# Confabulating conversation history is an honesty failure on par with
+# the M3 fabrication family, so M5 uses the same 0.0 floor — any
+# trustworthy ``fabricated_history`` verdict overrides the satisfied
+# terminator and forces a grounded re-write.
+_M5_CRITIC = _GroundingCritic("M5", _M5_DIRECTIVES, 0.0)
 
 
 def _critic_override(spec: _GroundingCritic, verdict: Any) -> str:

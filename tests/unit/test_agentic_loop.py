@@ -670,3 +670,110 @@ async def test_worker_events_passthrough() -> None:
     idx_tool = events.index(sentinel_tool)
     idx_goal = next(i for i, e in enumerate(events) if isinstance(e, GoalChecked))
     assert idx_text < idx_tool < idx_goal
+
+
+# ─── Streaming worker contract ───────────────────────────────────────
+
+
+def _streaming_worker_stub(live_events: list[Any], result: WorkerResult):
+    """Patchable STREAMING worker — an async generator that yields its
+    pass-through events live, then yields the terminal WorkerResult."""
+
+    async def _impl(**_kwargs: Any):
+        for ev in live_events:
+            yield ev
+        yield result
+
+    return _impl
+
+
+@pytest.mark.asyncio
+async def test_streaming_worker_forwards_events_live_and_skips_replay() -> None:
+    """A streaming worker's events are forwarded the instant they are
+    yielded (before the orchestrator's GoalChecked), the terminal
+    WorkerResult is captured for goal-check, and ``WorkerResult.events``
+    is NOT replayed (no double-emit)."""
+    policy = SessionPolicy.default()
+    plan = _StubPlan(kept={"web"}, dropped=set())
+
+    live_text = {"type": "text_delta", "delta": "streamed-hello"}
+    live_tool = {"type": "span", "subject": "tool_call", "phase": "complete"}
+    # A sentinel left on .events MUST NOT be replayed for a streaming
+    # worker (it already streamed its events live).
+    must_not_replay = {"type": "should_not_be_replayed"}
+
+    worker = _streaming_worker_stub(
+        [live_text, live_tool],
+        WorkerResult(
+            text="streamed-hello",
+            tool_calls_made=[
+                {"name": "kaos-source-fr-search", "is_error": False, "summary_excerpt": "5 hits"}
+            ],
+            cost_usd=0.01,
+            latency_ms=10.0,
+            events=[must_not_replay],
+        ),
+    )
+    check = _check_stub(
+        GoalCheckOutcome(
+            result=GoalCheckSatisfied(confidence=0.95, rationale="grounded"),
+            cost_usd=0.0001,
+            latency_ms=10.0,
+            iteration=1,
+        )
+    )
+
+    with (
+        patch("kaos_agents.patterns.agentic_loop.plan_turn_tool_policy", new=_plan_stub(plan)),
+        patch("kaos_agents.patterns.agentic_loop.check_goal", new=check),
+    ):
+        events = await _collect(
+            run_agentic_turn(
+                user_message="hi",
+                policy=policy,
+                worker=worker,
+                available_groups=list(policy.soft_ceiling),
+            )
+        )
+
+    # Live events were forwarded, in order, BEFORE the orchestrator's
+    # GoalChecked event.
+    assert live_text in events
+    assert live_tool in events
+    idx_goal = next(i for i, e in enumerate(events) if isinstance(e, GoalChecked))
+    assert events.index(live_text) < events.index(live_tool) < idx_goal
+
+    # The .events sentinel was NOT replayed (streaming path skips replay).
+    assert must_not_replay not in events
+
+    # WorkerResult was captured → goal check ran → loop terminated satisfied.
+    goal = [e for e in events if isinstance(e, GoalChecked)]
+    assert len(goal) == 1 and goal[0].kind == "satisfied"
+    term = [e for e in events if isinstance(e, LoopTerminated)]
+    assert len(term) == 1
+
+
+@pytest.mark.asyncio
+async def test_streaming_worker_without_terminal_result_raises() -> None:
+    """A streaming worker that never yields a terminal WorkerResult is a
+    contract violation → RuntimeError with a fix-it message."""
+    policy = SessionPolicy.default()
+    plan = _StubPlan(kept={"web"}, dropped=set())
+
+    async def _bad_worker(**_kwargs: Any):
+        yield {"type": "text_delta", "delta": "partial"}
+        # never yields a WorkerResult
+
+    with (
+        patch("kaos_agents.patterns.agentic_loop.plan_turn_tool_policy", new=_plan_stub(plan)),
+        patch("kaos_agents.patterns.agentic_loop.check_goal", new=_check_stub()),
+        pytest.raises(RuntimeError, match=r"terminal.*WorkerResult"),
+    ):
+        await _collect(
+            run_agentic_turn(
+                user_message="hi",
+                policy=policy,
+                worker=_bad_worker,
+                available_groups=list(policy.soft_ceiling),
+            )
+        )

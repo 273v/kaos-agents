@@ -18,7 +18,7 @@ description = "Pure conversational acknowledgement → respond, no tool needed."
 
 [example.inputs]
 message = "Thanks, that's helpful!"
-conversation_context = "User: Can you help me find the FRCP rule on response deadlines?\nAssistant: FRCP 12(a)(1)(A)(i) gives 21 days from service of the complaint."
+conversation_context = "User: <an earlier question the assistant answered>\nAssistant: <the assistant's earlier helpful answer>"
 available_tool_categories = """\
 web: web search + page fetch
 source: federal regulations, eCFR, SEC EDGAR retrieval\
@@ -119,3 +119,80 @@ web: web search + page fetch\
 intent = "clarify"
 confidence = 0.9
 reasoning = "Anaphoric 'that' with no antecedent in the conversation context; no reasonable goal can be proposed."
+
+
+# ── Documents-and-conversation routing (anti-regression for session
+# 01KT5PK4ST95065194G4VXF4NB, 2026-06-02). With documents attached, a
+# question about their CONTENT routes to `research`; a turn about the
+# CONVERSATION ITSELF stays `respond` even though documents are present.
+# The old keyword promotion ("find"/"what" + docs → research) misrouted
+# the meta turns below into the corpus retriever.
+
+[[example]]
+name = "research_document_content_with_docs"
+description = "Question about the CONTENT of attached documents → research (ground on bytes)."
+
+[example.inputs]
+message = "Which of these NDAs has the longest term?"
+conversation_context = "(no prior messages)"
+documents_available = """\
+MNDA - Acme.docx
+MNDA - BI.docx
+MNDA - CC Final 2.docx
+MNDA - DynaMo.docx\
+"""
+available_tool_categories = """\
+documents: parse + read attached documents
+sources: federal regulations, SEC EDGAR retrieval\
+"""
+
+[example.outputs]
+intent = "research"
+confidence = 0.9
+reasoning = "Asks for a comparison across the attached documents' terms; must be grounded in their content, so route to research."
+
+
+[[example]]
+name = "respond_meta_reaction_with_docs"
+description = "Reaction to the assistant's own prior answer → respond, NOT research, even with docs attached."
+
+[example.inputs]
+message = "uh, do you hear what you just said?"
+conversation_context = "User: which has the longest term\nAssistant: MNDA - CC Final 2.docx has the longest stated term (fifth anniversary). The others are shorter or indefinite: ... MNDA - Acme.docx has no fixed end date."
+documents_available = """\
+MNDA - Acme.docx
+MNDA - BI.docx
+MNDA - CC Final 2.docx
+MNDA - DynaMo.docx\
+"""
+available_tool_categories = """\
+documents: parse + read attached documents\
+"""
+
+[example.outputs]
+intent = "respond"
+confidence = 0.9
+reasoning = "The turn reacts to my own prior answer; it is about the conversation, not the documents' content, so the corpus retriever cannot help — respond."
+
+
+[[example]]
+name = "respond_find_flaw_in_prior_reply_with_docs"
+description = "Self-referential 'find the flaw in your last reply' → respond, despite the word 'find' and attached docs."
+
+[example.inputs]
+message = "no, i want you to read your response to me and find the logical fallacy."
+conversation_context = "User: which has the longest term\nAssistant: MNDA - CC Final 2.docx has the longest stated term (fifth anniversary). The others are shorter or indefinite: ... MNDA - Acme.docx has no fixed end date."
+documents_available = """\
+MNDA - Acme.docx
+MNDA - BI.docx
+MNDA - CC Final 2.docx
+MNDA - DynaMo.docx\
+"""
+available_tool_categories = """\
+documents: parse + read attached documents\
+"""
+
+[example.outputs]
+intent = "respond"
+confidence = 0.9
+reasoning = "Asks me to re-read my own prior response and critique its reasoning; this is about the dialogue, not document content — 'find' here is meta-analysis, not corpus lookup."

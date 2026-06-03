@@ -175,6 +175,7 @@ class TestClassifyIntentBackwardCompat:
             model: str,
             context_text: str = "",
             available_tool_categories: str = "",
+            documents_available: str = "",
         ):
             seen["available_tool_categories"] = available_tool_categories
             from kaos_agents.types import IntentResult
@@ -206,6 +207,7 @@ class TestClassifyIntentBackwardCompat:
             model: str,
             context_text: str = "",
             available_tool_categories: str = "",
+            documents_available: str = "",
         ):
             seen["available_tool_categories"] = available_tool_categories
             from kaos_agents.types import IntentResult

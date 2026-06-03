@@ -60,6 +60,25 @@ class ClassifyIntentSignature(Signature):
     * **clarify** — the user's request is ambiguous and you need
       more information before proceeding.
 
+    Documents-and-conversation rules (read ``documents_available``):
+
+    * When ``documents_available`` is non-empty and the user asks
+      about the CONTENT of those documents — their terms, values,
+      dates, parties, clauses, or a comparison across them ("what
+      does the contract say about X", "which one has the longest
+      term") — choose ``research``. The answer must be grounded in
+      the document bytes, not guessed from a summary.
+    * A turn that reacts to or asks about THE CONVERSATION ITSELF —
+      your own prior answer, its reasoning or wording, or the
+      user's reaction to it ("do you hear what you just said?",
+      "find the flaw in your last reply", "what did you mean?",
+      "you're wrong", "re-read your response") — is ``respond``,
+      EVEN when documents are attached. These turns are about the
+      dialogue, not the corpus; the document retriever cannot
+      answer them, so do NOT route them to ``research``. Reason
+      from the meaning of the turn, not from surface words like
+      "find" or "what" (which appear in both kinds of question).
+
     Routing heuristics:
 
     * Read ``available_tool_categories`` to see what tool
@@ -105,6 +124,17 @@ class ClassifyIntentSignature(Signature):
     conversation_context: str = InputField(
         description="Recent conversation history and assembled memory context."
     )
+    documents_available: str = InputField(
+        default="",
+        description=(
+            "Documents attached to this session, one filename per line "
+            "(empty string when none are attached). Use this to route "
+            "questions about document CONTENT to ``research`` (grounded "
+            "on the bytes), while keeping turns about the conversation "
+            "itself as ``respond`` even when documents are present — see "
+            "the documents-and-conversation rules in the class docstring."
+        ),
+    )
     available_tool_categories: str = InputField(
         default="",
         description=(
@@ -135,6 +165,37 @@ class ClassifyIntentSignature(Signature):
     reasoning: str = OutputField(description="One-sentence explanation of the classification.")
 
 
+def render_documents_for_classifier(memory: SessionMemory) -> str:
+    """Render attached-document filenames for the intent classifier.
+
+    One filename per line, so the LLM router can reason about whether a
+    turn asks about document *content* (→ ``research``) versus the
+    conversation itself (→ ``respond``). Returns ``""`` when no documents
+    are attached, which preserves the no-documents routing path. No
+    hardcoded keyword logic — this only surfaces the evidence; the
+    Signature does the reasoning.
+    """
+    from kaos_agents.types.memory import MemoryType
+
+    if not memory.has_section(MemoryType.DOCUMENTS):
+        return ""
+    items = memory.get_recent(MemoryType.DOCUMENTS, 50)
+    names: list[str] = []
+    for item in items:
+        meta = getattr(item, "metadata", None) or {}
+        name = meta.get("filename") if isinstance(meta, dict) else None
+        if not name:
+            # Fall back to the leading "filename: X | ..." token the
+            # DOCUMENTS section stores in ``content``.
+            head = (getattr(item, "content", "") or "").split("|", 1)[0].strip()
+            name = head
+            if head.lower().startswith("filename:"):
+                name = head[len("filename:") :].strip()
+        if name:
+            names.append(str(name))
+    return "\n".join(names)
+
+
 async def classify_intent(
     user_message: str,
     memory: SessionMemory,
@@ -143,6 +204,7 @@ async def classify_intent(
     context_items: dict[str, list[MemoryItem]] | None = None,
     context_text: str = "",
     available_tool_categories: str = "",
+    documents_available: str = "",
 ) -> IntentResult:
     """Classify user intent using an LLM.
 
@@ -188,6 +250,7 @@ async def classify_intent(
             model=model,
             context_text=context_text,
             available_tool_categories=available_tool_categories,
+            documents_available=documents_available,
         )
     except Exception as exc:
         failure = classify_agent_failure(exc)
@@ -220,6 +283,7 @@ async def _classify_with_llm(
     model: str,
     context_text: str = "",
     available_tool_categories: str = "",
+    documents_available: str = "",
 ) -> IntentResult:
     """LLM-based intent classification.
 
@@ -247,6 +311,7 @@ async def _classify_with_llm(
     invocation = await call.invoke(
         message=user_message,
         conversation_context=context_text,
+        documents_available=documents_available,
         available_tool_categories=available_tool_categories,
     )
 

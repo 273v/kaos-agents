@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Intent misrouting of self-referential / meta turns (removed the
+  `corpus_attached_promotion` keyword heuristic).** `ChatAgent._classify`
+  previously force-promoted a `respond`/`tool_use` verdict to `research`
+  whenever documents were attached AND the message contained a fact-lookup
+  keyword (`find`, `what is`, `quote`, …). A conversational turn about the
+  dialogue itself — "find the logical fallacy in your last response",
+  "do you hear what you just said?" — matched on `find` and was routed
+  into the corpus FindingsAgent, which cannot answer it, producing empty
+  runs and expensive refusals. Routing is now a pure LLM decision:
+  `ClassifyIntentSignature` gains a `documents_available` input and rules
+  that route document-CONTENT questions to `research` while keeping turns
+  about the conversation itself as `respond`, even with documents
+  attached. `BaseAgent._classify` surfaces the attached filenames via the
+  new `render_documents_for_classifier`. No keyword lists.
+- **Conversation-history confabulation from few-shot example bleed.** The
+  codecs render every few-shot example as a literal user/assistant message
+  pair (`kaos_llm_core.codecs.json_codec.encode`), so a conversational
+  agent sees the examples as prior conversation turns. On a self-referential
+  turn the model reported an example's content as something it had actually
+  said (e.g. confabulating "my last reply introduced FRCP material" on an
+  unrelated NDA session, lifted verbatim from the responder's FRCP few-shot
+  example). The `_simple_respond` path no longer passes few-shot examples;
+  its "answer directly, don't hedge" guidance moved into the
+  `RespondSignature` instructions, which do not pollute the apparent
+  history. Remaining example pools were also de-bled (generic, content-free
+  rows). `RespondSignature` additionally gained an explicit grounding rule:
+  ground self-referential claims in the actual `conversation_history`, and
+  when a reaction is vague, restate what was actually said and ask — never
+  invent a fault.
+
+### Added
+
+- **M5 conversation-history grounding critic**
+  (`kaos_agents.planning.m5_history`, opt-in via
+  `run_agentic_turn(m5_history_model=...)`). After a satisfied GoalCheck it
+  judges the response's claims about the prior conversation against the
+  actual transcript (`recent_turns`); a `fabricated_history` verdict
+  overrides the satisfied terminator and forces a grounded re-write. This
+  is the only critic that sees the conversation transcript, closing the
+  inter-turn-honesty gap (M2/M3/M4 judge only the current turn / tool
+  results). Same `JudgeSignature` substrate as M3.
+- **Live event streaming through the agentic loop.**
+  `run_agentic_turn` now accepts a *streaming* worker (an async generator
+  that yields its pass-through events and a terminal `WorkerResult`) in
+  addition to the buffered `Awaitable[WorkerResult]` contract; detected
+  via `inspect.isasyncgen` and forwarded event-by-event (back-compat
+  preserved). `ChatAgent._handle_tool_use_streaming` consumes
+  kaos-llm-core 0.1.12's per-tool `ProgramHooks` (`on_tool_start` /
+  `on_tool_end`) via an `asyncio.Queue` bridge to emit
+  `Span(TOOL_CALL, start/complete)` live as each tool runs. Previously
+  the loop awaited the worker to completion and replayed its events, so a
+  UI saw nothing until the turn finished ("Working… / Thinking…"); now the
+  lifecycle streams as it happens. Requires **kaos-llm-core >= 0.1.12**.
+
 ### Tests
 
 - **I5 footer-suppression reason-uniformity regression lock.** Added

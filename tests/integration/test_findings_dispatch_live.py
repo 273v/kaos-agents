@@ -100,12 +100,18 @@ def _build_s05_docs() -> tuple[list[SynthDoc], str, str]:
 class TestFindingsDispatchLive:
     """End-to-end: ChatAgent.turn() with an attached corpus recovers the needle."""
 
-    async def test_chat_agent_promotes_then_grounds_via_findings_agent(self) -> None:
-        """The full happy path: classifier promotion + FindingsAgent default.
+    async def test_chat_agent_routes_content_question_to_findings_agent(self) -> None:
+        """The full happy path: LLM router sends a document-CONTENT question
+        to RESEARCH (grounded on bytes) + FindingsAgent default.
+
+        Routing is now an LLM decision over the attached-document filenames
+        (``documents_available``), not the old ``corpus_attached_promotion``
+        keyword override. See
+        docs/design/2026-06-02-agentic-routing-and-transcript-grounding.md.
 
         Architectural assertions (verify USER outcome, not symptom text):
         - The needle string is present in the final response.
-        - The classifier (or our promotion) routed to RESEARCH.
+        - The classifier routed a document-content question to RESEARCH.
         - No tool calls were fired (FindingsAgent dispatch bypasses ReAct).
         - The total cost is bounded (sanity gate $0.50/turn).
         """
@@ -144,8 +150,8 @@ class TestFindingsDispatchLive:
             f"Needle {needle!r} not present in response. Got: {response.text!r}"
         )
 
-        # Confirm the dispatch went through RESEARCH (the promotion fired
-        # OR the base classifier picked RESEARCH organically).
+        # Confirm the dispatch went through RESEARCH (the LLM router sends a
+        # document-content question to research when documents are attached).
         intent = getattr(response, "intent", None)
         if intent is not None:
             # IntentResult shape
@@ -173,13 +179,13 @@ class TestFindingsDispatchLive:
             f"the $0.50 sanity gate — possible runaway."
         )
 
-    async def test_no_corpus_falls_back_to_simple_respond(self) -> None:
-        """Promotion does NOT fire when no DOCUMENTS are attached.
+    async def test_no_corpus_does_not_force_research(self) -> None:
+        """With no DOCUMENTS attached, a fact-lookup-shaped message is NOT
+        forced to RESEARCH.
 
-        Conservative-promotion contract: if the user types
-        "what is the config_token value?" with no attached files, the
-        ChatAgent must NOT force RESEARCH — there's no corpus to
-        ground against. The base classifier's verdict (RESPOND) wins.
+        ``documents_available`` is empty, so the LLM router has no corpus to
+        send the question to. There is no keyword override anymore — the
+        classifier's organic verdict stands.
         """
         runtime = KaosRuntime.test_mode()
         session_id = f"findings-no-corpus-{int(time.time())}"
