@@ -77,7 +77,7 @@ def _make_tool_result(*, text: str = "", structured: dict | None = None, error: 
 
     contents = [TextContent(type="text", text=text)] if text else []
     return ToolResult(
-        content=contents,  # ty: ignore[invalid-argument-type]
+        content=contents,
         structuredContent=structured,
         isError=error,
     )
