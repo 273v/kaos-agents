@@ -23,7 +23,7 @@ jobs:
       contents: read           # to read the repo
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Run Scorecard analysis
