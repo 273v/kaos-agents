@@ -15,7 +15,7 @@ Requires ``ANTHROPIC_API_KEY`` in the environment.
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Any, TypeGuard
 
 import pytest
 from kaos_core.base.tool import KaosTool
@@ -51,7 +51,7 @@ from kaos_agents.types.providers import BALANCED, FAST
 from tests.integration._models import respond_model
 
 
-def _is_tool_call_start(event: object) -> bool:
+def _is_tool_call_start(event: object) -> TypeGuard[Span]:
     return (
         isinstance(event, Span)
         and event.subject == SpanSubject.TOOL_CALL
@@ -59,7 +59,7 @@ def _is_tool_call_start(event: object) -> bool:
     )
 
 
-def _is_tool_call_result(event: object) -> bool:
+def _is_tool_call_result(event: object) -> TypeGuard[Span]:
     return (
         isinstance(event, Span)
         and event.subject == SpanSubject.TOOL_CALL
@@ -67,7 +67,7 @@ def _is_tool_call_result(event: object) -> bool:
     )
 
 
-def _is_subagent_start(event: object) -> bool:
+def _is_subagent_start(event: object) -> TypeGuard[Span]:
     return (
         isinstance(event, Span)
         and event.subject == SpanSubject.SUBAGENT
@@ -75,7 +75,7 @@ def _is_subagent_start(event: object) -> bool:
     )
 
 
-def _is_subagent_complete(event: object) -> bool:
+def _is_subagent_complete(event: object) -> TypeGuard[Span]:
     return (
         isinstance(event, Span)
         and event.subject == SpanSubject.SUBAGENT
