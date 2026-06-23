@@ -205,7 +205,7 @@ async def execute_decompose(
         # LLM-only steps that bias on the prior content. The caller's
         # synthesis branch will format the partials for the user.
         if result.step_results:
-            logger.info(
+            logger.debug(
                 "decompose: NEEDS_REPLAN with %d successful step(s); "
                 "stopping so synthesis can surface partials",
                 len(result.step_results),
@@ -216,7 +216,7 @@ async def execute_decompose(
         # ``budget.replans``). The post-loop promotion will rewrite
         # NEEDS_REPLAN → MAX_REPLANS for the caller.
         if budget.replans >= budget.max_replans:
-            logger.info("decompose: hit max_replans=%d — stopping", budget.max_replans)
+            logger.debug("decompose: hit max_replans=%d — stopping", budget.max_replans)
             break
 
         # Otherwise: every step failed AND we have budget. Build
@@ -227,7 +227,7 @@ async def execute_decompose(
             attempt=attempt + 1,
             limit=budget.max_replans,
         )
-        logger.info(
+        logger.debug(
             "decompose: every step failed in attempt %d; retrying (replan %d of %d)",
             attempt,
             attempt + 1,
@@ -249,7 +249,7 @@ async def execute_decompose(
     # control-flow signal the strategy hasn't wired up).
     if last_result.stop_reason == StopReason.NEEDS_REPLAN and budget.replans >= budget.max_replans:
         last_result = replace(last_result, stop_reason=StopReason.MAX_REPLANS)
-        logger.info(
+        logger.debug(
             "decompose: promoting stop_reason NEEDS_REPLAN → MAX_REPLANS (replans=%d/%d)",
             budget.replans,
             budget.max_replans,

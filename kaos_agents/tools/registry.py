@@ -651,7 +651,7 @@ class AgentChatTool(KaosTool):
                 )
                 if hydrated_artifacts:
                     await store.save(memory_for_hydration)
-                    logger.info(
+                    logger.debug(
                         "kaos-agent-chat.auto_hydrate: session=%s injected=%d artifact(s)",
                         session_id,
                         len(hydrated_artifacts),
@@ -691,7 +691,7 @@ class AgentChatTool(KaosTool):
                 status["budget_exceeded"] = True
                 if not status.get("budget_kind"):
                     status["budget_kind"] = "cost"
-                logger.info(
+                logger.debug(
                     "kaos-agent-chat.budget_exceeded: actual=$%.4f > "
                     "cap=$%.4f (chat pattern is one ReAct call; "
                     "overshoot bounded by per-call cost)",

@@ -1565,7 +1565,7 @@ class FindingsAgent:
                 selector_arg=self.low_recall_selector_arg,
             )
             if warning is not None:
-                logger.info(
+                logger.debug(
                     "findings.warning: %s candidate_count=%d question_words=%d",
                     warning.kind,
                     total_enumerated,
@@ -1595,7 +1595,7 @@ class FindingsAgent:
                 candidates_enumerated=total_enumerated,
                 candidates_surviving_filter=0,
             )
-            logger.info(
+            logger.debug(
                 "findings.refusal: reason=%s question=%r enumerated=%d cap=%d",
                 refusal.reason,
                 question,
@@ -1629,7 +1629,7 @@ class FindingsAgent:
                 candidates_enumerated=0,
                 candidates_surviving_filter=0,
             )
-            logger.info(
+            logger.debug(
                 "findings.refusal: reason=%s question=%r enumerated=0 surviving=0",
                 refusal.reason,
                 question,
@@ -1695,7 +1695,7 @@ class FindingsAgent:
                 candidates_enumerated=total_enumerated,
                 candidates_surviving_filter=0,
             )
-            logger.info(
+            logger.debug(
                 "findings.refusal: reason=%s question=%r enumerated=%d "
                 "chunks=%d runs=%d planned=%d cap=%d",
                 refusal.reason,
@@ -1767,7 +1767,7 @@ class FindingsAgent:
                 # dispatching new work. Any chunks already counted
                 # contribute to the partial result.
                 budget_exceeded_during_filter = True
-                logger.info(
+                logger.debug(
                     "findings.budget_exceeded: filter_cost=$%.4f >= cap=$%.4f "
                     "(after %d/%d chunks), aborting remaining filter work",
                     filter_cost,
@@ -1859,7 +1859,7 @@ class FindingsAgent:
                     candidates_enumerated=total_enumerated,
                     candidates_surviving_filter=0,
                 )
-            logger.info(
+            logger.debug(
                 "findings.refusal: reason=%s question=%r enumerated=%d surviving=0 runs=%d",
                 refusal.reason,
                 question,
@@ -1906,7 +1906,7 @@ class FindingsAgent:
                 candidates_enumerated=total_enumerated,
                 candidates_surviving_filter=len(survivors),
             )
-            logger.info(
+            logger.debug(
                 "findings.budget_exceeded: skipping synthesis "
                 "(filter=$%.4f + synth_estimate=$%.4f > cap=$%.4f) "
                 "returning %d survivors",

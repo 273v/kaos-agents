@@ -1539,7 +1539,7 @@ class BaseAgent(KaosAgent):
             memory=memory,
             sentence_segmenter=segmenter,
         )
-        logger.info(
+        logger.debug(
             "base_agent._run_findings_dispatch: "
             "strategy=%s applied=%s kept=%d/%d planner_cost=$%.4f",
             plan.strategy.value,
@@ -1656,7 +1656,7 @@ class BaseAgent(KaosAgent):
         extra_tokens = 0
         narrowed = apply_result.strategy is not RetrievalStrategy.NONE
         if narrowed and _findings_recall_miss(result):
-            logger.info(
+            logger.debug(
                 "base_agent._run_findings_dispatch: widen-on-empty — "
                 "narrowed strategy=%s refused (%s); re-running on full "
                 "corpus view (recall floor)",

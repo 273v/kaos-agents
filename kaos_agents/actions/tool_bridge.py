@@ -142,7 +142,7 @@ def kaos_tool_to_llm_tool(
         """
         decision = effective_policy.evaluate(meta.name, meta.annotations)
         if decision == PermissionDecision.DENY:
-            logger.info(
+            logger.debug(
                 "tool_bridge: permission policy DENIED tool=%r before execution",
                 meta.name,
             )
@@ -158,7 +158,7 @@ def kaos_tool_to_llm_tool(
                 }
             )
         if decision == PermissionDecision.ASK:
-            logger.info(
+            logger.debug(
                 "tool_bridge: permission policy requested APPROVAL for tool=%r; "
                 "skipping execution until resumed",
                 meta.name,
@@ -191,7 +191,7 @@ def kaos_tool_to_llm_tool(
 
         _scrub = scrub_tool_args(kwargs)
         if _scrub.scrubbed:
-            logger.info(
+            logger.debug(
                 "tool_bridge.pii_scrubbed: tool=%s patterns=%s",
                 meta.name,
                 ",".join(_scrub.matches),

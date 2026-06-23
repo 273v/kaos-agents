@@ -416,7 +416,7 @@ class ChatAgent(BaseAgent):
             )
             return tools
 
-        logger.info(
+        logger.debug(
             "tool_fitness_ranker: narrowed catalog %d → %d for query (model=%s rationale=%r)",
             len(tools),
             len(narrowed),

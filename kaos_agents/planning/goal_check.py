@@ -412,7 +412,7 @@ async def check_goal(
     pre_check_hint = _detect_header_then_stop(agent_response)
     if pre_check_hint is not None:
         latency_ms = (time.monotonic() - t_start) * 1000
-        logger.info(
+        logger.debug(
             "GoalChecker: header-then-stop deterministic pre-check fired; "
             "skipping LLM call. hint=%s",
             pre_check_hint,

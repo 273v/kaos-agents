@@ -296,7 +296,7 @@ async def _evaluate_example(
         )
 
     if progress:
-        logger.info(
+        logger.debug(
             "eval[%d] score=%.2f cost=$%.4f tokens=%d",
             idx,
             score,
