@@ -149,7 +149,7 @@ async def compose(
                 pivot_to_goal = (step_props or {}).get("pivot_to") or ""
                 if pivot_to_goal:
                     pivot_goal = pivot_to_goal
-                    logger.info(
+                    logger.debug(
                         "compose: step %s aborted with pivot_to=%s — breaking for "
                         "PIVOTED stop_reason",
                         step_id,

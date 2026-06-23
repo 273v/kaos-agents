@@ -1533,7 +1533,7 @@ def _process_critic(
             verdict.reasoning,
         )
     else:
-        logger.info(
+        logger.debug(
             "%s critic verdict=%s confidence=%.2f overrode_satisfied=%s "
             "session=%s iteration=%d cost=$%.4f latency_ms=%.0f",
             spec.name,

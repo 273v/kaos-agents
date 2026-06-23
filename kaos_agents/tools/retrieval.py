@@ -358,7 +358,7 @@ class BM25SearchTool(KaosTool):
         # Compute expansion signal from score distribution
         expansion_signal = _assess_expansion_need(results, top_k)
 
-        logger.info(
+        logger.debug(
             "retrieval_tools.BM25SearchTool: search complete (memory path), "
             "query=%s result_count=%d top_score=%.3f suggest_expansion=%s",
             query[:100],
@@ -417,7 +417,7 @@ class BM25SearchTool(KaosTool):
             top_k,
         )
 
-        logger.info(
+        logger.debug(
             "retrieval_tools.BM25SearchTool._search_corpus: search complete (corpus path), "
             "query=%s result_count=%d corpus_size=%s top_score=%.3f suggest_expansion=%s",
             query[:100],
@@ -579,7 +579,7 @@ class SynonymSearchTool(KaosTool):
                     output["search_query"] = expanded_query
 
             search_results = output.get("search_results", [])
-            logger.info(
+            logger.debug(
                 "retrieval_tools.SynonymSearchTool: expanded search complete, "
                 "word=%s expanded_query=%s result_count=%d",
                 word,
@@ -706,7 +706,7 @@ class HyDESearchTool(KaosTool):
             formatted = _format_results(results)
 
         n_results = len(formatted)
-        logger.info(
+        logger.debug(
             "retrieval_tools.HyDESearchTool: search complete, "
             "query=%s pseudo_doc_length=%d result_count=%d",
             query[:100],
@@ -805,7 +805,7 @@ class EvaluateCoverageTool(KaosTool):
         gap_queries, _cost = await _reflect_on_coverage_async(query, fake_results)
 
         if gap_queries:
-            logger.info(
+            logger.debug(
                 "retrieval_tools.EvaluateCoverageTool: coverage insufficient, "
                 "query=%s gap_count=%d gap_queries=%r",
                 query[:100],
@@ -828,7 +828,7 @@ class EvaluateCoverageTool(KaosTool):
                 ),
             )
 
-        logger.info(
+        logger.debug(
             "retrieval_tools.EvaluateCoverageTool: coverage sufficient, query=%s",
             query[:100],
         )
@@ -943,7 +943,7 @@ class RerankTool(KaosTool):
         )
 
         if len(candidates) < _RERANK_MIN_CANDIDATES:
-            logger.info(
+            logger.debug(
                 "retrieval_tools.RerankTool: too few candidates for "
                 "reranking, returning BM25 order, "
                 "query=%s candidate_count=%d min_required=%d",
@@ -1003,7 +1003,7 @@ class RerankTool(KaosTool):
                     }
                 )
 
-            logger.info(
+            logger.debug(
                 "retrieval_tools.RerankTool: cross-encoder reranking complete, "
                 "query=%s candidate_count=%d result_count=%d model=%s top_rerank_score=%.3f",
                 query[:100],
@@ -1033,7 +1033,7 @@ class RerankTool(KaosTool):
 
         except ImportError:
             # Fall back to BM25 order with a note
-            logger.info(
+            logger.debug(
                 "retrieval_tools.RerankTool: cross-encoder not available, "
                 "falling back to BM25 order, query=%s",
                 query[:100],
@@ -1125,7 +1125,7 @@ class CorpusInfoTool(KaosTool):
         from kaos_agents.types.memory import MemoryType
 
         if not memory.has_section(MemoryType.DOCUMENTS):
-            logger.info("retrieval_tools.CorpusInfoTool: no documents section in memory")
+            logger.debug("retrieval_tools.CorpusInfoTool: no documents section in memory")
             return ToolResult.create_success(
                 output={"document_count": 0, "total_chars": 0},
                 summary="No documents loaded. Use /load or kaos-agent-chat to add documents first.",
@@ -1158,7 +1158,7 @@ class CorpusInfoTool(KaosTool):
             "has_more_uris": n_docs > _CORPUS_INFO_MAX_URIS,
         }
 
-        logger.info(
+        logger.debug(
             "retrieval_tools.CorpusInfoTool: corpus stats, "
             "document_count=%d total_chars=%d avg_chars_per_doc=%d top_terms=%r",
             n_docs,
@@ -1198,7 +1198,7 @@ class CorpusInfoTool(KaosTool):
         top_terms = [term for term, _ in word_counts.most_common(_CORPUS_INFO_TOP_TERMS)]
         uri_list = sorted(doc_uris)[:_CORPUS_INFO_MAX_URIS]
 
-        logger.info(
+        logger.debug(
             "retrieval_tools.CorpusInfoTool: corpus stats (from context), "
             "document_count=%d passage_count=%d total_chars=%d avg_chars=%d",
             n_docs,
@@ -1343,7 +1343,7 @@ class CorpusManifestTool(KaosTool):
         truncated = len(rows) > limit
         rows = rows[:limit]
 
-        logger.info(
+        logger.debug(
             "retrieval_tools.CorpusManifestTool: manifest built, "
             "document_count=%d sort_by=%s truncated=%s",
             len(rows),
@@ -1473,7 +1473,7 @@ class GroundedAnswerTool(KaosTool):
                     }
                     for c in answer.claims
                 ]
-                logger.info(
+                logger.debug(
                     "retrieval_tools.GroundedAnswerTool: RAG returned Answer, "
                     "question=%s claim_count=%d verified=%s",
                     question[:100],
@@ -1492,7 +1492,7 @@ class GroundedAnswerTool(KaosTool):
 
             if isinstance(result.grounded_answer, InsufficientEvidence):
                 refusal = result.grounded_answer
-                logger.info(
+                logger.debug(
                     "retrieval_tools.GroundedAnswerTool: RAG returned InsufficientEvidence, "
                     "question=%s reason=%s what_would_resolve=%s",
                     question[:100],
@@ -1511,7 +1511,7 @@ class GroundedAnswerTool(KaosTool):
                     ),
                 )
 
-            logger.info(
+            logger.debug(
                 "retrieval_tools.GroundedAnswerTool: RAG returned unexpected result type, "
                 "question=%s result_type=%s",
                 question[:100],

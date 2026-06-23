@@ -309,7 +309,7 @@ def log_verdict(
         )
         return
     counts = " ".join(f"{key}={value}" for key, value in char_counts.items())
-    logger.info(
+    logger.debug(
         "%s verdict label=%s confidence=%.2f cost=$%.4f latency_ms=%.0f %s model=%s",
         name,
         verdict.label,

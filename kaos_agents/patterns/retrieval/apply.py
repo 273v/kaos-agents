@@ -185,7 +185,7 @@ async def apply_retrieval_plan(
         searcher = Searcher.from_documents(records)
         hits = searcher.search(query, top_k=plan.top_k)
         if not hits:
-            logger.info(
+            logger.debug(
                 "retrieval_apply: BM25 ranked zero docs for query=%r — keeping full view",
                 query[:80],
             )
@@ -249,7 +249,7 @@ async def apply_retrieval_plan(
         except ImportError:
             # kaos-nlp-transformers not installed — degrade to BM25
             # over the same query.
-            logger.info(
+            logger.debug(
                 "retrieval_apply: EMBEDDING requested but kaos-nlp-transformers "
                 "missing — falling back to BM25"
             )
@@ -332,7 +332,7 @@ def _apply_search_document(
 
     hits = list(results.results)
     if not hits:
-        logger.info(
+        logger.debug(
             "retrieval_apply: %s yielded zero hits for query=%r — keeping full view",
             strategy.value,
             query[:80],

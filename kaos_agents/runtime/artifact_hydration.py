@@ -331,7 +331,7 @@ async def hydrate_artifacts_from_message(
 
     for artifact_id in fresh_ids:
         if remaining_budget <= 0:
-            logger.info(
+            logger.debug(
                 "artifact_hydration: per-turn budget exhausted; skipping remaining %d artifact(s)",
                 len(fresh_ids) - len(hydrated),
             )
@@ -403,7 +403,7 @@ async def hydrate_artifacts_from_message(
             )
         )
         remaining_budget -= bytes_loaded
-        logger.info(
+        logger.debug(
             "artifact_hydration: injected artifact=%s tier=%s bytes=%d",
             artifact_id,
             tier,

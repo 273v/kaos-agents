@@ -249,7 +249,7 @@ class AgentCorpusFilterTool(KaosTool):
         budget_exceeded = False
         if max_cost_usd is not None and cost > max_cost_usd:
             budget_exceeded = True
-            logger.info(
+            logger.debug(
                 "corpus_filter.budget_exceeded: actual=$%.4f > cap=$%.4f "
                 "(K8 is a single LLM call, mid-call abort is not possible)",
                 cost,

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Demote routine per-request / per-step library logs from `INFO` to `DEBUG`
+  across the runtime, planning, patterns, tools, and actions. These lines
+  (retrieval counts, tool-permission decisions, findings refusals/budget
+  checks, optimizer/critic verdicts, replan progress, artifact hydration,
+  tool registration) fire on every turn and are routine operational
+  telemetry, not events an operator wants at `INFO` by default. The critic
+  fallback path stays at `WARNING`. No message content changes.
+
 ### Fixed
 
 - **Intent misrouting of self-referential / meta turns (removed the

@@ -303,7 +303,7 @@ class AgentInterpretExtractionTool(KaosTool):
             total_so_far = extract_cost_total + synth_cost_total
             if total_so_far >= budget_usd:
                 budget_exhausted = True
-                logger.info(
+                logger.debug(
                     "interpret_extraction: budget cap $%.2f reached at iter %d "
                     "(spent $%.4f); stopping loop with current memo.",
                     budget_usd,

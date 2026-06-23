@@ -539,7 +539,7 @@ class ResearchAgent(ChatAgent):
             return
 
         # Step 2: Escalate to ReAct with retrieval tools
-        logger.info(
+        logger.debug(
             "research_agent._dispatch_streaming: escalating to ReAct — "
             "one-shot returned insufficient evidence, corpus_size=%d",
             corpus_size,
@@ -662,7 +662,7 @@ class ResearchAgent(ChatAgent):
             rag_cost_accumulator: float = 0.0
             cap = self._max_cost_usd
             if cap is not None and rag_cost_accumulator + self._rag_per_call_estimate_usd > cap:
-                logger.info(
+                logger.debug(
                     "research_agent.budget_exceeded: pre-call check refused "
                     "RAG dispatch — cap=$%.4f, estimated next-call=$%.4f, "
                     "accumulated=$%.4f",
@@ -810,7 +810,7 @@ class ResearchAgent(ChatAgent):
                         result = result.model_copy(update={"grounded_answer": collapsed})
                     except Exception:
                         result.grounded_answer = collapsed  # type: ignore[attr-defined]
-                    logger.info(
+                    logger.debug(
                         "research_agent: refused unverified answer (refuse_unverified_answers=True)"
                     )
                 except ImportError:
@@ -939,7 +939,7 @@ class ResearchAgent(ChatAgent):
                     rag_cost_accumulator + self._rag_per_call_estimate_usd > cap
                 ):
                     can_afford_retry = False
-                    logger.info(
+                    logger.debug(
                         "research_agent.retry_skipped: cost cap would be "
                         "exceeded by retry — cap=$%.4f, accumulated=$%.4f, "
                         "per-call estimate=$%.4f",

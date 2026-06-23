@@ -3,9 +3,14 @@
 ``log_verdict`` (``kaos_agents.planning.judge``) is the single
 observability format the M2/M3/M4 ``judge_*`` wrappers now share. These
 tests pin that format so the dedup can't silently drift: a WARNING when
-the critic fell back, otherwise an INFO carrying the verdict + the
+the critic fell back, otherwise a DEBUG carrying the verdict + the
 caller's ``char_counts`` rendered as space-separated ``key=value`` pairs
 in insertion order.
+
+The successful-verdict line is DEBUG (not INFO): a critic verdict fires on
+every critic invocation in the agentic loop, so it is routine per-call
+telemetry that a library must not emit at INFO. Only the fallback case
+(which signals a degraded critic) stays at WARNING.
 """
 
 from __future__ import annotations
@@ -30,9 +35,9 @@ def _verdict(*, fell_back: bool) -> JudgeVerdict:
     )
 
 
-def test_trusted_verdict_logs_info_with_char_counts(caplog: pytest.LogCaptureFixture) -> None:
+def test_trusted_verdict_logs_debug_with_char_counts(caplog: pytest.LogCaptureFixture) -> None:
     log = logging.getLogger("test.critic.info")
-    with caplog.at_level(logging.INFO, logger="test.critic.info"):
+    with caplog.at_level(logging.DEBUG, logger="test.critic.info"):
         log_verdict(
             log,
             "M2",
@@ -41,7 +46,7 @@ def test_trusted_verdict_logs_info_with_char_counts(caplog: pytest.LogCaptureFix
             char_counts={"response_chars": 812, "tool_results_chars": 1190},
         )
     rec = caplog.records[-1]
-    assert rec.levelno == logging.INFO
+    assert rec.levelno == logging.DEBUG
     msg = rec.getMessage()
     assert msg.startswith("M2 verdict label=consistent")
     assert "response_chars=812 tool_results_chars=1190" in msg
@@ -68,7 +73,7 @@ def test_char_counts_render_in_insertion_order(caplog: pytest.LogCaptureFixture)
     caller supplies, in insertion order — so each critic keeps its own
     historic field set and ordering."""
     log = logging.getLogger("test.critic.m4")
-    with caplog.at_level(logging.INFO, logger="test.critic.m4"):
+    with caplog.at_level(logging.DEBUG, logger="test.critic.m4"):
         log_verdict(
             log,
             "M4",
