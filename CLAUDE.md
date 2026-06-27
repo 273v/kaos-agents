@@ -342,6 +342,23 @@ resolver. Both are tested in ``tests/unit/test_cli_chat.py``.
 | `KAOS_AGENT_PLAN_MAX_COST_USD` | 1.0 | Max cost per plan |
 | `KAOS_AGENT_PLAN_MAX_WALL_CLOCK_SECONDS` | 120.0 | Max wall-clock time per plan |
 | `KAOS_AGENT_MAX_COST_USD` | — | `kaos-agent chat` session cost ceiling (USD). CLI flag `--max-cost` takes precedence. Disable with `0`. |
+| `KAOS_AGENT_OCR_VLM_ESCALATION` | False | Escalate low-confidence / garbled Tesseract pages in the scanned-PDF OCR fallback to a vision model (`kaos_llm_core.vision.ocr_page`). Off by default — makes live, cost-incurring vision calls (~$0.005/page on Haiku). Requires the `[vision]` extra + a provider API key; degrades to Tesseract-only when absent. |
+| `KAOS_AGENT_OCR_VLM_MODEL` | — | Vision model for OCR escalation (`provider:model`). None uses the kaos-llm-core default (Claude Haiku). |
+| `KAOS_AGENT_OCR_VLM_MAX_PAGES` | — | Per-document cap on pages escalated to the vision model. None means unbounded. |
+
+### Scanned-PDF OCR escalation (`kaos_agents.runtime.ocr_engines`)
+
+The agent's scanned-PDF fallback (`BaseAgent._ocr_pdf_bytes_to_content_document`)
+renders each page and runs Tesseract. When `ocr_vlm_escalation` is enabled, it
+wraps Tesseract in `TieredOCREngine`, which escalates a page to `VlmOcrEngine`
+(a vision model via `kaos_llm_core.vision.ocr_page`) only when the Tesseract
+output is low-confidence OR a garbled layer (`kaos_pdf.is_low_quality_layer` —
+the stronger gate, since Tesseract is over-confident on hard scans). These
+engines implement kaos-pdf's `OCREngine` ABC and live here (not in kaos-pdf)
+because the VLM path depends on kaos-llm-core, which kaos-pdf must not import
+(extraction → LLM is one-directional). `VlmOcrEngine.extract_sync` is safe to
+call from within the async runtime (it offloads to a worker thread when a loop
+is already running).
 
 ## QA Sequence (mandatory)
 

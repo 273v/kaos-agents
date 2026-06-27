@@ -1772,7 +1772,7 @@ class BaseAgent(KaosAgent):
             return None
 
         try:
-            engine = TesseractEngine()
+            engine: Any = TesseractEngine()
         except TesseractNotInstalledError:
             logger.debug(
                 "base_agent._ocr_pdf_bytes: tesseract not installed; "
@@ -1780,6 +1780,29 @@ class BaseAgent(KaosAgent):
                 filename,
             )
             return None
+
+        # Opt-in VLM escalation: wrap Tesseract in a TieredOCREngine that sends
+        # low-confidence / garbled pages to a vision model. Off by default
+        # (costs live API calls); degrades to Tesseract-only when the [vision]
+        # extra is absent.
+        settings = KaosAgentSettings()
+        if settings.ocr_vlm_escalation:
+            try:
+                from kaos_llm_core.vision import ocr_page as _vision_probe  # noqa: F401
+
+                from kaos_agents.runtime.ocr_engines import TieredOCREngine, VlmOcrEngine
+
+                engine = TieredOCREngine(
+                    engine,
+                    VlmOcrEngine(settings.ocr_vlm_model),
+                    max_escalations=settings.ocr_vlm_max_pages,
+                )
+            except ImportError:
+                logger.debug(
+                    "base_agent._ocr_pdf_bytes: VLM escalation enabled but "
+                    "kaos-llm-core[vision] is not installed; using Tesseract "
+                    "only (install kaos-agents[vision] to enable)",
+                )
 
         blocks: list[Any] = []
         try:

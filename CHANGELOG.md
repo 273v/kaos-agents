@@ -5,6 +5,30 @@ All notable changes to `kaos-agents` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **VLM OCR escalation for scanned PDFs.** New
+  `kaos_agents.runtime.ocr_engines` module with two
+  `kaos_pdf.ocr.base.OCREngine` implementations: `VlmOcrEngine` (runs
+  `kaos_llm_core.vision.ocr_page` — a vision model — over a rendered page) and
+  `TieredOCREngine` (runs Tesseract first, escalates only pages whose output
+  is low-confidence OR a garbled layer per `kaos_pdf.is_low_quality_layer`, to
+  the VLM, with a `max_escalations` per-document budget). The scanned-PDF OCR
+  fallback (`BaseAgent._ocr_pdf_bytes_to_content_document`) uses the tiered
+  engine when escalation is enabled, and is unchanged (Tesseract-only) by
+  default. Tesseract is empirically over-confident on hard scans, so the
+  legibility signal is the primary escalation gate.
+- New settings: `ocr_vlm_escalation` (bool, default `False`, env
+  `KAOS_AGENT_OCR_VLM_ESCALATION`), `ocr_vlm_model`
+  (`KAOS_AGENT_OCR_VLM_MODEL`), and `ocr_vlm_max_pages`
+  (`KAOS_AGENT_OCR_VLM_MAX_PAGES`). Off by default because escalation makes
+  live, cost-incurring vision calls.
+- New `[vision]` extra (`kaos-llm-core[vision]` + `kaos-pdf[ocr]>=0.1.5`).
+  `VlmOcrEngine` raises `VisionOcrUnavailableError` with recovery guidance when
+  the extra is absent, and the agent OCR path degrades to Tesseract-only.
+
 ## [0.1.29] - 2026-06-23
 
 ### Changed
