@@ -63,6 +63,16 @@ class EventDeserializationError(KaosAgentError):
     """
 
 
+class VisionOcrUnavailableError(KaosAgentError):
+    """Raised when VLM-based OCR is requested but its dependencies are missing.
+
+    The VLM OCR engine (:class:`kaos_agents.runtime.ocr_engines.VlmOcrEngine`)
+    needs ``kaos-llm-core[vision]`` (which pulls ``kaos-content[images]``) plus
+    a configured provider API key. The message names the missing piece, the
+    install command to fix it, and the Tesseract-only fallback.
+    """
+
+
 # ---------------------------------------------------------------------------
 # LLM-failure classification (transparency / SOC2 alerting surface).
 # ---------------------------------------------------------------------------

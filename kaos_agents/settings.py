@@ -458,6 +458,27 @@ class KaosAgentSettings(ModuleSettings):
         "One-time cost per document (~$0.001 on Haiku).",
     )
 
+    # OCR (scanned-PDF extraction)
+    ocr_vlm_escalation: bool = Field(
+        default=False,
+        description="When true, the scanned-PDF OCR fallback escalates pages "
+        "whose Tesseract output looks bad (low confidence or garbled layer) to "
+        "a vision model via kaos-llm-core[vision]. Off by default because it "
+        "makes live LLM calls (~$0.005/page on Haiku). Requires the [vision] "
+        "extra and a provider API key; degrades to Tesseract-only when absent.",
+    )
+    ocr_vlm_model: str | None = Field(
+        default=None,
+        description="Vision model for OCR escalation (provider:model). None "
+        "uses the kaos-llm-core default (Claude Haiku).",
+    )
+    ocr_vlm_max_pages: int | None = Field(
+        default=None,
+        ge=1,
+        description="Per-document cap on the number of pages escalated to the "
+        "vision model. None means unbounded. Bounds spend on large scans.",
+    )
+
     # RAG (Research pattern)
     rag_top_k: int = Field(
         default=25,

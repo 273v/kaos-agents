@@ -66,6 +66,12 @@ rerank = ["kaos-nlp-transformers[torch]>=0.1.0,<0.2"]
 # Per-tool-module extras — each maps 1:1 to a `--with-X` CLI flag.
 # Users opt in via e.g. `pip install 'kaos-agents[pdf,source,web]'`.
 pdf = ["kaos-pdf>=0.1.0,<0.2"]
+# VLM-based OCR escalation for scanned PDFs — sends low-confidence / garbled
+# Tesseract pages to a vision model. Pulls kaos-llm-core[vision]
+# (kaos-content[images]: Pillow + numpy) and kaos-pdf[ocr]>=0.1.5 (Tesseract
+# primary + the kaos_pdf.is_low_quality_layer legibility gate). Opt-in; off
+# unless KAOS_AGENT_OCR_VLM_ESCALATION=1 and a provider API key is set.
+vision = ["kaos-llm-core[vision]>=0.1.12,<0.2", "kaos-pdf[ocr]>=0.1.5,<0.2"]
 # WU-J cuts kaos-pdf / kaos-source / kaos-citations to rc1; kaos-office,
 # kaos-web, and kaos-tabular ship in a later WU. Keep their pin floors
 # at the latest published 0.1.0a* until those WUs land — the `<0.2`

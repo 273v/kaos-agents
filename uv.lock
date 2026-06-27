@@ -11,7 +11,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
+exclude-newer = "2026-06-24T00:32:43.680466238Z"
 exclude-newer-span = "PT72H"
 
 [options.exclude-newer-package]
@@ -1054,6 +1054,10 @@ source = [
 tabular = [
     { name = "kaos-tabular" },
 ]
+vision = [
+    { name = "kaos-llm-core", extra = ["vision"] },
+    { name = "kaos-pdf", extra = ["ocr"] },
+]
 web = [
     { name = "kaos-web" },
 ]
@@ -1103,6 +1107,7 @@ requires-dist = [
     { name = "kaos-llm-client", marker = "extra == 'llm'", specifier = ">=0.1.9,<0.2" },
     { name = "kaos-llm-core", marker = "extra == 'full'", specifier = ">=0.1.12,<0.2" },
     { name = "kaos-llm-core", marker = "extra == 'llm'", specifier = ">=0.1.12,<0.2" },
+    { name = "kaos-llm-core", extras = ["vision"], marker = "extra == 'vision'", specifier = ">=0.1.12,<0.2" },
     { name = "kaos-mcp", marker = "extra == 'full'", specifier = ">=0.1.0,<0.2" },
     { name = "kaos-mcp", marker = "extra == 'mcp'", specifier = ">=0.1.0,<0.2" },
     { name = "kaos-nlp-core", specifier = ">=0.1.0,<0.2" },
@@ -1112,6 +1117,7 @@ requires-dist = [
     { name = "kaos-office", extras = ["pptx"], marker = "extra == 'office'", specifier = ">=0.1.0,<0.2" },
     { name = "kaos-pdf", marker = "extra == 'full'", specifier = ">=0.1.0,<0.2" },
     { name = "kaos-pdf", marker = "extra == 'pdf'", specifier = ">=0.1.0,<0.2" },
+    { name = "kaos-pdf", extras = ["ocr"], marker = "extra == 'vision'", specifier = ">=0.1.5,<0.2" },
     { name = "kaos-source", marker = "extra == 'full'", specifier = ">=0.1.0,<0.2" },
     { name = "kaos-source", marker = "extra == 'source'", specifier = ">=0.1.0,<0.2" },
     { name = "kaos-tabular", marker = "extra == 'full'", specifier = ">=0.1.0,<0.2" },
@@ -1124,7 +1130,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.8.1" },
     { name = "pytesseract", marker = "extra == 'live-tests'", specifier = ">=0.3.10" },
 ]
-provides-extras = ["api", "citations", "full", "live-tests", "llm", "mcp", "office", "otel", "pdf", "rerank", "source", "tabular", "web"]
+provides-extras = ["api", "citations", "full", "live-tests", "llm", "mcp", "office", "otel", "pdf", "rerank", "source", "tabular", "vision", "web"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1261,6 +1267,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/93/af/dc2326227eba47e7504ef5b059446f2011da7317b1c57ee0290c3885c10d/kaos_llm_core-0.1.12-py3-none-any.whl", hash = "sha256:41b792a311ed1a66ac0f03da00a95e3b0d98ebb9db267dcc191201eddb427c8f", size = 570560, upload-time = "2026-06-03T22:09:33.298Z" },
 ]
 
+[package.optional-dependencies]
+vision = [
+    { name = "kaos-content", extra = ["images"] },
+]
+
 [[package]]
 name = "kaos-mcp"
 version = "0.1.3"
@@ -1358,16 +1369,21 @@ pptx = [
 
 [[package]]
 name = "kaos-pdf"
-version = "0.1.4"
+version = "0.1.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "kaos-content", extra = ["images", "layout", "markdown"] },
     { name = "kaos-core" },
     { name = "pypdfium2" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/da/8c/eec99cac4e23b0c4b2fd5bec5cd7b9c75f8be55b4f6a9757fee31704248c/kaos_pdf-0.1.4.tar.gz", hash = "sha256:f382605d0d5bf57615a4b8c59f12ce6c5f5ad434684465647bdfc11dac3447e4", size = 72857, upload-time = "2026-05-26T17:14:33.198Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9a/5b/630dfa04f8b84ed9a4047c4fe8aa9ff46cc01a290d84c869d68423a762cc/kaos_pdf-0.1.5.tar.gz", hash = "sha256:6b5117ce00fe1b943a6b3592e678848d290491a5687712977837887e22f5d3b5", size = 279607, upload-time = "2026-06-27T00:26:21.236Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f0/04/766eb48e70fc4102916324d2875c8ff9831f52fd2bd1cf70f06f2ccf2c06/kaos_pdf-0.1.4-py3-none-any.whl", hash = "sha256:f1d3c2fb33081cba221039b524dad206c858e5732cc555bc9b53e09073d51b35", size = 72889, upload-time = "2026-05-26T17:14:31.931Z" },
+    { url = "https://files.pythonhosted.org/packages/c0/ac/157f9e5220d79165067b87ce7e8442c9a780f13cb4d59a3175b68a5814a7/kaos_pdf-0.1.5-py3-none-any.whl", hash = "sha256:4241bc58b34bc5ad080b4f95d6d93e12b4593a132a15a429c9c129af9be43b14", size = 278533, upload-time = "2026-06-27T00:26:19.518Z" },
+]
+
+[package.optional-dependencies]
+ocr = [
+    { name = "pytesseract" },
 ]
 
 [[package]]
