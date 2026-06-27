@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.30] — 2026-06-26
+
+Tiered Tesseract → VLM OCR escalation for scanned-PDF extraction.
+
 ### Added
 
 - **VLM OCR escalation for scanned PDFs.** New
