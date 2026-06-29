@@ -66,7 +66,7 @@ def _stub_call_with(extractor: IntentExtractor, output: Any) -> AsyncMock:
     # We replace the bound method with an AsyncMock whose return value
     # is a real Invocation; ty cannot prove the override is sound, so
     # the inline suppression is intentional.
-    extractor._call.invoke = mock  # ty: ignore[invalid-assignment]
+    extractor._call.invoke = mock
     return mock
 
 
