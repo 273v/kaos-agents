@@ -102,7 +102,7 @@ class TestIntentExtractorThreadsCatalog:
         sig_out = _make_signature(pattern=AgentPattern.CHAT)
         invocation = _make_invocation(sig_out)
         mock = AsyncMock(return_value=invocation)
-        ex._call.invoke = mock  # ty: ignore[invalid-assignment]
+        ex._call.invoke = mock
         catalog = (
             "search: tools for querying current real-world facts\n"
             "documents: tools for reading loaded documents"
@@ -125,7 +125,7 @@ class TestIntentExtractorThreadsCatalog:
         sig_out = _make_signature()
         invocation = _make_invocation(sig_out)
         mock = AsyncMock(return_value=invocation)
-        ex._call.invoke = mock  # ty: ignore[invalid-assignment]
+        ex._call.invoke = mock
         await ex.forward(message="hi")
         await_args = mock.await_args
         assert await_args is not None
