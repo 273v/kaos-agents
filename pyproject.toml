@@ -293,6 +293,15 @@ include = ["kaos_agents", "tests"]
 # the Phase A7 type-check gate.
 exclude = ["tests/scratch"]
 
+[[tool.ty.overrides]]
+# Frozen-model tests deliberately assign to read-only fields inside
+# pytest.raises(ValidationError) to prove immutability; scope the ty
+# invalid-assignment allowance to the test tree only.
+include = ["tests/**"]
+
+[tool.ty.overrides.rules]
+invalid-assignment = "ignore"
+
 [tool.uv]
 package = true
 exclude-newer = "72 hours"

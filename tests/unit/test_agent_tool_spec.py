@@ -69,7 +69,7 @@ class TestAgentToolSpec:
         spec = AgentToolSpec()
         with pytest.raises((AttributeError, Exception)):
             object.__setattr__(spec, "memory_sections", (MemoryType.MESSAGES,))
-            spec.memory_sections = (MemoryType.MESSAGES,)  # ty: ignore[invalid-assignment]
+            spec.memory_sections = (MemoryType.MESSAGES,)
 
 
 @pytest.mark.unit

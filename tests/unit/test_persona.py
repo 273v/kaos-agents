@@ -54,7 +54,7 @@ class TestValueTypeInvariants:
     def test_is_frozen(self) -> None:
         persona = _make()
         with pytest.raises(dataclasses.FrozenInstanceError):
-            persona.name = "mutated"  # ty: ignore[invalid-assignment]
+            persona.name = "mutated"
 
     def test_uses_slots(self) -> None:
         # ``slots=True`` removes the per-instance ``__dict__``.

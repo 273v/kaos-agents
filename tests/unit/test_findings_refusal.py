@@ -125,7 +125,7 @@ class TestFindingsRefusalType:
             candidates_surviving_filter=0,
         )
         with pytest.raises((AttributeError, TypeError)):
-            r.reason = "other"  # ty: ignore[invalid-assignment]
+            r.reason = "other"
 
 
 # ---------------------------------------------------------------------------

@@ -24,7 +24,7 @@ class TestIntentResult:
     def test_frozen(self):
         result = IntentResult(intent=IntentType.RESPOND, confidence=0.9, reasoning="test")
         with pytest.raises(AttributeError):
-            result.confidence = 0.5  # ty: ignore[invalid-assignment]
+            result.confidence = 0.5
 
     def test_fields(self):
         result = IntentResult(
@@ -68,7 +68,7 @@ class TestToolCallRecord:
     def test_frozen(self):
         record = ToolCallRecord(tool_name="test", result_summary="ok")
         with pytest.raises(AttributeError):
-            record.tool_name = "other"  # ty: ignore[invalid-assignment]
+            record.tool_name = "other"
 
 
 class TestAgentResponse:

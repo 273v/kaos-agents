@@ -116,7 +116,7 @@ async def _drive_invocation_tool(
             yield  # pragma: no cover — unreachable; makes ``run`` a generator
 
     real_runner = runner_mod.Runner
-    runner_mod.Runner = _StubRunner  # ty: ignore[invalid-assignment]
+    runner_mod.Runner = _StubRunner
     try:
         result = await tool.execute(inputs, context=context)  # ty: ignore[unresolved-attribute]
     finally:
@@ -445,7 +445,7 @@ class TestFinding4RunStateScopedPerSession:
         # Method-assignment is a deliberate test-only monkeypatch: we
         # need to observe the kwargs the production code passes through
         # to ``vfs.write`` (specifically ``context_id=state.session_id``).
-        runtime.vfs.write = spying_write  # ty: ignore[invalid-assignment]
+        runtime.vfs.write = spying_write
         state = RunState(
             run_id="run_isolation_save",
             session_id="acme-session-42",

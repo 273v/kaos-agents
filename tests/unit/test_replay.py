@@ -108,7 +108,7 @@ class TestRecordEvents:
     def test_recorded_run_is_frozen(self) -> None:
         run = asyncio.run(record_events(_events_from(_baseline_stream())))
         with pytest.raises((AttributeError, TypeError)):
-            run.events = ()  # ty: ignore[invalid-assignment]
+            run.events = ()
 
 
 # ---------------------------------------------------------------------------

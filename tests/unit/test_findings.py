@@ -128,7 +128,7 @@ class TestValueTypes:
     def test_candidate_frozen(self) -> None:
         c = FindingCandidate(finding_id="abc12345", text="hello")
         with pytest.raises((AttributeError, TypeError)):
-            c.text = "world"  # ty: ignore[invalid-assignment]
+            c.text = "world"
 
     def test_findings_result_total_cost_sums(self) -> None:
         r = FindingsResult(

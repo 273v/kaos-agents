@@ -34,7 +34,7 @@ class TestCostBudgetInvariants:
     def test_frozen(self) -> None:
         b = CostBudget(total_usd=1.0)
         with pytest.raises((AttributeError, TypeError)):  # frozen dataclass
-            b.spent_usd = 0.5  # ty: ignore[invalid-assignment]
+            b.spent_usd = 0.5
 
 
 class TestCostBudgetMath:
@@ -175,7 +175,7 @@ class TestPolicyFrozen:
     def test_policy_is_frozen_dataclass(self) -> None:
         p = DefaultEscalationPolicy()
         with pytest.raises((AttributeError, TypeError)):  # frozen dataclass
-            p.high_water_mark = 0.99  # ty: ignore[invalid-assignment]
+            p.high_water_mark = 0.99
 
 
 # ---------------------------------------------------------------------------

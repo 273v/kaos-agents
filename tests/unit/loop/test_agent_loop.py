@@ -103,7 +103,7 @@ def _stub_extractor(intent: IntentResult) -> IntentExtractor:
             usage=TokenUsage(),
         )
 
-    extractor.invoke = _invoke  # ty: ignore[invalid-assignment]
+    extractor.invoke = _invoke
     return extractor
 
 
@@ -263,7 +263,7 @@ def _capturing_extractor(intent: IntentResult) -> tuple[IntentExtractor, list[di
             usage=TokenUsage(),
         )
 
-    extractor.invoke = _invoke  # ty: ignore[invalid-assignment]
+    extractor.invoke = _invoke
     return extractor, captures
 
 

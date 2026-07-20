@@ -112,7 +112,7 @@ class TestCritiqueResult:
     def test_frozen(self) -> None:
         r = CritiqueResult(score=0.9, approved=True, feedback="", reasoning="ok")
         with pytest.raises((AttributeError, TypeError)):
-            r.score = 0.5  # ty: ignore[invalid-assignment]
+            r.score = 0.5
 
     def test_cost_usd_defaults_to_zero(self) -> None:
         """KC9: non-LLM critics keep the zero default so they round-trip

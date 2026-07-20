@@ -256,7 +256,7 @@ class TestImmutableUpdates:
 
         policy = SessionPolicy.default()
         with pytest.raises((AttributeError, dataclasses.FrozenInstanceError)):
-            policy.allowed_groups = frozenset()  # ty: ignore[invalid-assignment]
+            policy.allowed_groups = frozenset()
 
 
 # ─── Loop config defaults ────────────────────────────────────────────

@@ -541,7 +541,7 @@ async def record_live_test(
 
     # Patch only once even with nested record_live_test calls.
     if capture.lock_count == 0:
-        Call._execute = patched_execute  # ty: ignore[invalid-assignment]
+        Call._execute = patched_execute
     capture.lock_count += 1
 
     # KC6: set up a per-test subprocess capture dir + Popen patch so
@@ -787,7 +787,7 @@ def _install_subprocess_env_patches(recorder_dir: Path) -> dict[str, Any]:
         kwargs["env"] = _inject_env(kwargs.get("env"), recorder_dir)
         return original_popen_init(self, *args, **kwargs)
 
-    subprocess.Popen.__init__ = patched_popen_init  # ty: ignore[invalid-assignment]
+    subprocess.Popen.__init__ = patched_popen_init
 
     original_create_exec = asyncio.create_subprocess_exec
     originals["asyncio_exec"] = original_create_exec
@@ -796,7 +796,7 @@ def _install_subprocess_env_patches(recorder_dir: Path) -> dict[str, Any]:
         kwargs["env"] = _inject_env(kwargs.get("env"), recorder_dir)
         return await original_create_exec(*args, **kwargs)
 
-    asyncio.create_subprocess_exec = patched_create_exec  # ty: ignore[invalid-assignment]
+    asyncio.create_subprocess_exec = patched_create_exec
 
     original_create_shell = asyncio.create_subprocess_shell
     originals["asyncio_shell"] = original_create_shell
@@ -805,7 +805,7 @@ def _install_subprocess_env_patches(recorder_dir: Path) -> dict[str, Any]:
         kwargs["env"] = _inject_env(kwargs.get("env"), recorder_dir)
         return await original_create_shell(*args, **kwargs)
 
-    asyncio.create_subprocess_shell = patched_create_shell  # ty: ignore[invalid-assignment]
+    asyncio.create_subprocess_shell = patched_create_shell
 
     return originals
 

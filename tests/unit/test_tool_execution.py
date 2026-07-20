@@ -78,7 +78,7 @@ class TestToolExecutionFields:
         te = ToolExecution(tool_name="x")
         with pytest.raises((AttributeError, Exception)):
             object.__setattr__(te, "tool_name", "y")
-            te.tool_name = "y"  # ty: ignore[invalid-assignment]
+            te.tool_name = "y"
 
 
 @pytest.mark.unit

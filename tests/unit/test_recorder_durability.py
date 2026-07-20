@@ -98,7 +98,7 @@ def _run_streaming_child(
     # Install the fake BEFORE record_live_test so the recorder
     # captures our fake as its ``original_execute``. The recorder
     # wraps whatever ``Call._execute`` is at __aenter__ time.
-    Call._execute = fake_execute  # ty: ignore[invalid-assignment]
+    Call._execute = fake_execute
 
     async def body() -> None:
         async with record_live_test(nodeid, out_dir=Path(out_dir_str)):

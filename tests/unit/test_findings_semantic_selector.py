@@ -514,7 +514,7 @@ class TestFindingsWarningValueType:
     def test_frozen(self) -> None:
         w = FindingsWarning(kind="x", message="m")
         with pytest.raises((AttributeError, TypeError)):
-            w.kind = "y"  # ty: ignore[invalid-assignment]
+            w.kind = "y"
 
     def test_default_details_is_empty_tuple(self) -> None:
         w = FindingsWarning(kind="x", message="m")
