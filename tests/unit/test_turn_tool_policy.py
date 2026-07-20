@@ -381,7 +381,7 @@ class TestTurnToolPolicyValueType:
             latency_ms=120.0,
         )
         with pytest.raises((AttributeError, dataclasses.FrozenInstanceError)):
-            p.rationale = "mutated"  # ty: ignore[invalid-assignment]
+            p.rationale = "mutated"
 
     def test_turn_groups_alias_returns_kept_groups(self) -> None:
         kept = frozenset({"documents", "vfs"})

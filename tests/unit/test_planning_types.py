@@ -24,7 +24,7 @@ class TestStep:
     def test_frozen(self):
         step = Step(id="s1", step_type=StepType.TOOL, description="test")
         with pytest.raises(AttributeError):
-            step.id = "s2"  # ty: ignore[invalid-assignment]
+            step.id = "s2"
 
     def test_tool_step(self):
         step = Step(
@@ -79,7 +79,7 @@ class TestJudgment:
     def test_frozen(self):
         j = Judgment(matched=True, confidence=0.9, reasoning="test", mode=EvalMode.STRUCTURAL)
         with pytest.raises(AttributeError):
-            j.confidence = 0.5  # ty: ignore[invalid-assignment]
+            j.confidence = 0.5
 
 
 class TestDecision:
@@ -203,7 +203,7 @@ class TestPrimitiveTrace:
     def test_frozen(self):
         trace = PrimitiveTrace(primitive="evaluate", step_id="s1", wall_clock_ms=15.5)
         with pytest.raises(AttributeError):
-            trace.wall_clock_ms = 20.0  # ty: ignore[invalid-assignment]
+            trace.wall_clock_ms = 20.0
 
     def test_defaults(self):
         trace = PrimitiveTrace(primitive="route")

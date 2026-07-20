@@ -111,7 +111,7 @@ def main(argv: list[str] | None = None) -> None:
     from tests.benchmarks import multiformat_e2e
 
     multiformat_e2e._CORPUS_DIR = _CROSS_DOC_DIR  # type: ignore[attr-defined]
-    multiformat_e2e._load_questions = _load_cross_doc_questions  # ty: ignore[invalid-assignment]
+    multiformat_e2e._load_questions = _load_cross_doc_questions
 
     result = asyncio.run(
         run_benchmark(

@@ -45,7 +45,7 @@ class TestStepInvariantConstruction:
     def test_frozen(self) -> None:
         inv = StepInvariant(name="x", predicate=lambda _: True, message_on_violation="m")
         with pytest.raises((AttributeError, TypeError)):
-            inv.name = "y"  # ty: ignore[invalid-assignment]
+            inv.name = "y"
 
 
 # ---------------------------------------------------------------------------

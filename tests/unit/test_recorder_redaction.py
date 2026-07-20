@@ -269,7 +269,7 @@ def _patch_call_execute_to_yield(invocation: Any) -> Any:
     async def fake_execute(self_call: Any, inputs: dict[str, Any]) -> Any:
         return invocation
 
-    Call._execute = fake_execute  # ty: ignore[invalid-assignment]
+    Call._execute = fake_execute
     return original
 
 

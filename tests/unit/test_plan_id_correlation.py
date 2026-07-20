@@ -58,7 +58,7 @@ class TestToolCallRecord:
             # at runtime. ty knows the property is read-only at static
             # analysis time too; suppress the spurious diagnostic.
             object.__setattr__(rec, "plan_id", "other")
-            rec.plan_id = "other"  # ty: ignore[invalid-assignment]
+            rec.plan_id = "other"
 
 
 @pytest.mark.unit

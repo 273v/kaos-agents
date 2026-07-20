@@ -84,7 +84,7 @@ def _make_router(
         return (*classifier_result, classifier_cost_usd)
 
     # Bypass the LLM call.
-    router._invoke_classifier = fake_classify  # ty: ignore[invalid-assignment]
+    router._invoke_classifier = fake_classify
     return router, {"legal": legal, "corpus": corpus, "chat": chat}
 
 
@@ -144,13 +144,13 @@ class TestRoutingValueTypes:
     def test_routing_decision_frozen(self) -> None:
         d = RoutingDecision(specialist_name="x", confidence=0.9, reasoning="ok")
         with pytest.raises((AttributeError, TypeError)):
-            d.confidence = 0.1  # ty: ignore[invalid-assignment]
+            d.confidence = 0.1
 
     def test_routing_trace_frozen(self) -> None:
         d = RoutingDecision(specialist_name="x", confidence=0.9, reasoning="ok")
         t = RoutingTrace(decision=d, available_specialists=("x", "y"))
         with pytest.raises((AttributeError, TypeError)):
-            t.decision = d  # ty: ignore[invalid-assignment]
+            t.decision = d
 
 
 # ---------------------------------------------------------------------------

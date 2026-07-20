@@ -118,7 +118,7 @@ def main(argv: list[str] | None = None) -> None:
     # standard multiformat ones. Cleaner than copy-pasting run_benchmark.
     from tests.benchmarks import multiformat_e2e
 
-    multiformat_e2e._load_questions = _load_hard_questions  # ty: ignore[invalid-assignment]
+    multiformat_e2e._load_questions = _load_hard_questions
 
     result = asyncio.run(
         run_benchmark(

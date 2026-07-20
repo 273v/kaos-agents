@@ -199,7 +199,7 @@ class TestToolRetrieval:
         import pytest
 
         with pytest.raises((AttributeError, TypeError)):  # frozen dataclass
-            hits[0].score = 999.0  # ty: ignore[invalid-assignment]
+            hits[0].score = 999.0
 
 
 # ---------------------------------------------------------------------------
