@@ -127,7 +127,9 @@ async def run() -> dict[str, FindingsResult]:
             "see README 'Known limitations' for the full provider matrix."
         )
 
-    nda_paths = sorted(p for p in NDAS_DIR.iterdir() if p.name.endswith(".docx"))
+    nda_paths = sorted(
+        (p for p in NDAS_DIR.iterdir() if p.name.endswith(".docx")), key=lambda p: p.name
+    )
     if len(nda_paths) != 5:
         raise RuntimeError(
             f"Expected 5 NDA fixtures under {NDAS_DIR}, found {len(nda_paths)}. "

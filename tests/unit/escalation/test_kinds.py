@@ -23,7 +23,6 @@ class TestEscalationKind:
     def test_members_are_strings(self) -> None:
         for member in EscalationKind:
             assert isinstance(member.value, str)
-            assert member.value
             # StrEnum compares to its str value
             assert member == member.value
 

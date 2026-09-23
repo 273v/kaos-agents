@@ -16,6 +16,8 @@ Confirms:
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 from kaos_core.exceptions import RegistryError
 
@@ -87,14 +89,9 @@ class TestToolDataTypeSpec:
 
     def test_frozen(self) -> None:
         spec = ToolDataTypeSpec(input_type=DataType.JSON)
-        # Frozen dataclasses raise on mutation. Use the dataclasses
-        # internals to attempt mutation in a way that doesn't trip
-        # ty's static-assignment check while still hitting the same
-        # runtime guard (object.__setattr__ bypasses descriptors but
-        # the frozen-class wrapper still raises).
-        with pytest.raises(Exception):  # noqa: B017
-            object.__setattr__(spec, "input_type", DataType.TEXT)
-            spec.__dict__["input_type"] = DataType.TEXT
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            spec.input_type = DataType.TEXT
+        assert spec.input_type is DataType.JSON
 
     def test_empty_singleton(self) -> None:
         # Identity-stable empty spec — same instance returned every call

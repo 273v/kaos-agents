@@ -19,6 +19,8 @@ Confirms:
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 from kaos_core.exceptions import RegistryError
 
@@ -72,9 +74,9 @@ class TestToolGroupValueType:
 
     def test_frozen_no_mutation(self) -> None:
         group = ToolGroup(name="g", description="d", tool_names=())
-        with pytest.raises(Exception):  # noqa: B017
-            object.__setattr__(group, "name", "changed")
-            group.__dict__["name"] = "changed"
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            group.name = "changed"
+        assert group.name == "g"
 
     def test_equality_by_value(self) -> None:
         a = ToolGroup(name="g", description="d", tool_names=("a",))

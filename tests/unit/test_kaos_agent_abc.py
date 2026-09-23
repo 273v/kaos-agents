@@ -24,7 +24,7 @@ class TestKaosAgentABC:
     def test_cannot_instantiate_abstract(self) -> None:
         """KaosAgent without a run() implementation is abstract."""
         with pytest.raises(TypeError, match="abstract"):
-            KaosAgent()  # type: ignore[abstract]
+            KaosAgent()  # ty: ignore[call-non-callable]  # asserts the runtime TypeError
 
     def test_minimal_subclass_works(self) -> None:
         """A subclass that implements run() is concrete and constructable."""
@@ -109,7 +109,7 @@ class TestKaosPatternABC:
     def test_cannot_instantiate_abstract(self) -> None:
         """KaosPattern without dispatch() is abstract."""
         with pytest.raises(TypeError, match="abstract"):
-            KaosPattern()  # type: ignore[abstract]
+            KaosPattern()  # ty: ignore[call-non-callable]  # asserts the runtime TypeError
 
     def test_default_metadata(self) -> None:
         """Default metadata snake_cases the class name."""

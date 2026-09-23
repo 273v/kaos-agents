@@ -24,7 +24,9 @@ async def main() -> None:
     runtime = KaosRuntime.test_mode()  # in-memory VFS, throwaway session
     memory = SessionMemory("nda-hello")
     agent = ResearchAgent(runtime.vfs)  # default: anthropic:claude-haiku-4-5
-    for path in sorted(p for p in NDAS_DIR.iterdir() if p.name.endswith(".docx")):
+    for path in sorted(
+        (p for p in NDAS_DIR.iterdir() if p.name.endswith(".docx")), key=lambda p: p.name
+    ):
         uri = path.name.replace(" ", "_")  # IRI-safe
         agent.load_document(memory, uri, serialize_markdown(parse_docx(str(path))))
     await SessionStore(runtime.vfs).save(memory)

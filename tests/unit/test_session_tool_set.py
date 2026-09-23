@@ -17,6 +17,7 @@ Confirms:
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 
 import pytest
@@ -82,9 +83,9 @@ class TestSessionToolSetValueType:
 
     def test_frozen_no_mutation(self) -> None:
         ts = SessionToolSet(allowed_tools=frozenset({"a"}))
-        with pytest.raises(Exception):  # noqa: B017
-            object.__setattr__(ts, "allowed_tools", frozenset({"b"}))
-            ts.__dict__["allowed_tools"] = frozenset({"b"})
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            ts.allowed_tools = frozenset({"b"})
+        assert ts.allowed_tools == frozenset({"a"})
 
     def test_equality_by_value(self) -> None:
         a = SessionToolSet(allowed_tools=frozenset({"a", "b"}))
