@@ -9,6 +9,8 @@ test time and asserts the patterns established by Iterations 4-7:
   ``examples=load_examples("<name>")``. The single documented hold-out
   is ``intent/extractor.py:IntentSignature`` (deferred — typed Goal /
   Constraint / Ambiguity outputs need a richer round-trip design).
+  Individual sites that must never carry examples (the conversational
+  respond path) are listed in ``_S8_EXEMPT_CALL_SITES`` with a reason.
 - **S14** — no inline ``Example(inputs=..., outputs=...)`` construction
   inside ``kaos_agents/`` production code; example data must live under
   ``kaos_agents/_assets/examples/<sig>.toml``.
@@ -66,6 +68,23 @@ _S8_DEFERRED_FILES: frozenset[str] = frozenset(
     }
 )
 
+# Individual ``Call(...)`` sites that must NOT pass ``examples=``, keyed by
+# ``(file, Signature class name)``. Narrower than ``_S8_DEFERRED_FILES``:
+# every other ``Call`` in the same file stays under S8. Each entry maps to
+# the reason it is exempt; a stale entry (site gone, or now passing
+# ``examples=``) fails ``test_s8_exempt_call_sites_are_live``.
+_S8_EXEMPT_CALL_SITES: dict[tuple[str, str], str] = {
+    # The conversational respond path intentionally sends no few-shot
+    # examples. Codecs render each example as a literal user/assistant
+    # message pair ahead of the real turn, so a conversational agent reads
+    # them as prior history and confabulates them on self-referential turns.
+    # The anti-hedge guidance lives in the RespondSignature instructions.
+    # See docs/design/2026-06-02-agentic-routing-and-transcript-grounding.md.
+    ("kaos_agents/runtime/agent.py", "RespondSignature"): (
+        "few-shot examples render as chat turns and bleed into apparent history"
+    ),
+}
+
 # The _examples loader module itself contains a docstring example of
 # Call(...) usage. Skip docstring matches.
 _S8_DOCSTRING_FILES: frozenset[str] = frozenset(
@@ -95,7 +114,8 @@ class _CallSiteVisitor(ast.NodeVisitor):
     """
 
     def __init__(self) -> None:
-        self.sites: list[tuple[int, bool]] = []  # (lineno, has_examples)
+        # (lineno, signature name or "", has_examples)
+        self.sites: list[tuple[int, str, bool]] = []
 
     def visit_Call(self, node: ast.Call) -> None:
         is_call_ctor = (isinstance(node.func, ast.Name) and node.func.id == "Call") or (
@@ -106,7 +126,15 @@ class _CallSiteVisitor(ast.NodeVisitor):
             has_examples = any(
                 isinstance(kw, ast.keyword) and kw.arg == "examples" for kw in node.keywords
             )
-            self.sites.append((node.lineno, has_examples))
+            sig = node.args[0]
+            sig_name = (
+                sig.id
+                if isinstance(sig, ast.Name)
+                else sig.attr
+                if isinstance(sig, ast.Attribute)
+                else ""
+            )
+            self.sites.append((node.lineno, sig_name, has_examples))
         self.generic_visit(node)
 
 
@@ -123,8 +151,8 @@ def test_s8_every_call_site_passes_examples() -> None:
             pytest.fail(f"{rel}: failed to parse ({exc})")
         v = _CallSiteVisitor()
         v.visit(tree)
-        for lineno, has_examples in v.sites:
-            if not has_examples:
+        for lineno, sig_name, has_examples in v.sites:
+            if not has_examples and (rel, sig_name) not in _S8_EXEMPT_CALL_SITES:
                 violations.append(f"{rel}:{lineno} — Call(...) without examples=")
 
     assert not violations, (
@@ -133,6 +161,23 @@ def test_s8_every_call_site_passes_examples() -> None:
         "Lift example data to kaos_agents/_assets/examples/<name>.toml and "
         "wire it via the loader.\n" + "\n".join(f"  - {v}" for v in violations)
     )
+
+
+def test_s8_exempt_call_sites_are_live() -> None:
+    """Every ``_S8_EXEMPT_CALL_SITES`` entry must match a real ``Call`` site
+    that omits ``examples=``, so the allowlist cannot silently go stale.
+    """
+    stale: list[str] = []
+    for (rel, sig_name), _reason in _S8_EXEMPT_CALL_SITES.items():
+        path = _REPO_ROOT / rel
+        if not path.is_file():
+            stale.append(f"{rel}: file not found")
+            continue
+        v = _CallSiteVisitor()
+        v.visit(ast.parse(path.read_text()))
+        if not any(name == sig_name and not has_ex for _ln, name, has_ex in v.sites):
+            stale.append(f"{rel}: no Call({sig_name}, ...) without examples=")
+    assert not stale, "Stale S8 exemptions:\n" + "\n".join(f"  - {s}" for s in stale)
 
 
 # ─── S14: no inline Example(...) construction in production code ────────

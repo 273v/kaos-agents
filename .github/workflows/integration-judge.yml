@@ -4,7 +4,7 @@ name: integration-judge
 #
 # Runs the real-LLM corpus-stress + web-tools integration suites with
 # the Opus-as-judge layer enabled (P1.1). On PR: Tier 1+2 only (the
-# fast gate, ~$2-$5). Nightly + workflow_dispatch: full corpus stress
+# fast gate, ~$3). Nightly + workflow_dispatch: full corpus stress
 # (Tier 1+2+3) + full web tools. Hard aggregate cost guard at the
 # tail of each job.
 #
@@ -104,11 +104,10 @@ jobs:
             -v -m "live and not slow" --no-cov --timeout=900 \
             --junit-xml=tests/integration/runs/corpus-stress.junit.xml
 
-      - name: Web tools suite (full 20)
-        run: |
-          uv run pytest tests/integration/test_web_tools_legal_finance_suite.py \
-            -v -m live --no-cov --timeout=900 \
-            --junit-xml=tests/integration/runs/web-tools.junit.xml
+      # The live web-tools suite runs only in nightly-tier-3. It is a
+      # non-gating xfail(strict=False) canary, so on PRs it produced no
+      # signal while costing ~$5 per run and pushing this job past its
+      # budget.
 
       - name: Aggregate cost guard
         if: always()
