@@ -55,7 +55,7 @@ dependencies = [
 # (design_schema with auto schema_id, stamp_source_uri).
 llm = ["kaos-llm-client>=0.1.9,<0.2", "kaos-llm-core>=0.1.12,<0.2"]
 # MCP server bridge (kaos-agents-serve --http and --stdio)
-mcp = ["kaos-mcp>=0.1.0,<0.2"]
+mcp = ["kaos-mcp>=0.1.5,<0.2"]
 # FastAPI HTTP API surface (kaos-agents-serve --api)
 api = ["fastapi[standard]>=0.115"]
 # OpenTelemetry export hook
@@ -104,7 +104,7 @@ full = [
 dev = [
   "kaos-llm-client>=0.1.9,<0.2",
   "kaos-llm-core>=0.1.12,<0.2",
-  "kaos-mcp>=0.1.0,<0.2",
+  "kaos-mcp>=0.1.5,<0.2",
   "kaos-pdf>=0.1.0,<0.2",
   # WU-J does not cut kaos-office / kaos-web / kaos-tabular / kaos-ml-core.
   # Keep their dev pin floors at latest published 0.1.0a* — the `<0.2`
@@ -133,10 +133,16 @@ dev = [
   "fastapi[standard]>=0.115",
   "opentelemetry-api>=1.20",
   "httpx>=0.27",
-  "datasets>=4.8.4",
+  # datasets pulls pyarrow, which publishes no cp315 wheels and does not
+  # build from sdist there. Only the opt-in tests/benchmarks/ loaders use it
+  # (not collected by pytest), so skip it on the pre-GA 3.15 compat leg.
+  "datasets>=4.8.4; python_version < '3.15'",
   "transformers>=5.5.4",
   "mdit-py-plugins>=0.4",
-  "fastembed>=0.4",
+  # fastembed pulls onnxruntime, which publishes no cp315 wheels. The only
+  # consumer (context/retrieval.py `_try_rerank`) soft-imports it and falls
+  # back when absent, so skip it on the pre-GA 3.15 compat leg.
+  "fastembed>=0.4; python_version < '3.15'",
   "reportlab>=4.5.1",
   "python-docx>=1.2.0",
   "openpyxl>=3.1.5",

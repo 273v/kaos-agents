@@ -30,12 +30,9 @@ jobs:
   test:
     name: test (${{ matrix.display-os }} / Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
-    # Python 3.15 is beta and several transitive deps (onnxruntime 1.26
-    # publishes only cp313/cp313t/cp314/cp314t wheels as of 2026-05-22)
-    # don't ship wheels yet. Mark it advisory so the lane reports the
-    # signal without blocking releases. Downgrade once upstream wheels
-    # exist.
-    continue-on-error: ${{ matrix.experimental == true }}
+    # Python 3.15 is pre-GA. Dev deps with no cp315 wheels (fastembed ->
+    # onnxruntime, datasets -> pyarrow) carry `python_version < '3.15'`
+    # markers in pyproject, so the leg installs and must pass.
     strategy:
       fail-fast: false
       matrix:
@@ -49,7 +46,6 @@ jobs:
           - python-version: "3.15"
             os: kaos-x64-16core
             display-os: linux-x64
-            experimental: true
           - python-version: "3.13"
             os: macos-14
             display-os: macos-arm64

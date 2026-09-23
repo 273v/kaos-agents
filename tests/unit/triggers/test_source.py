@@ -18,7 +18,7 @@ class TestTriggerSourceContract:
     def test_abstract_cannot_instantiate(self) -> None:
         """Plain :class:`TriggerSource` raises ``TypeError`` on construction."""
         with pytest.raises(TypeError):
-            TriggerSource()  # type: ignore[abstract]
+            TriggerSource()  # ty: ignore[call-non-callable]  # asserts the runtime TypeError
 
     def test_partial_implementation_cannot_instantiate(self) -> None:
         """A subclass that only implements one abstract method still cannot
@@ -29,7 +29,7 @@ class TestTriggerSourceContract:
                 raise NotImplementedError
 
         with pytest.raises(TypeError):
-            OnlyAiter()  # type: ignore[abstract]
+            OnlyAiter()  # ty: ignore[call-non-callable]  # asserts the runtime TypeError
 
     def test_full_implementation_can_instantiate(self) -> None:
         """A subclass that implements both abstract methods can be

@@ -39,5 +39,8 @@ jobs:
       - name: Install with lowest-direct resolution
         run: uv sync --group dev --resolution=lowest-direct --python 3.13
 
+      # --no-sync: plain `uv run` sees the lock was built with a different
+      # resolution mode and re-syncs to the highest locked versions, which
+      # would silently test the lock instead of the declared minimums.
       - name: Run tests
-        run: uv run pytest -m "not live and not network and not slow" --no-cov -q
+        run: uv run --no-sync pytest -m "not live and not network and not slow" --no-cov -q
