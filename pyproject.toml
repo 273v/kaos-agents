@@ -55,7 +55,7 @@ dependencies = [
 # (design_schema with auto schema_id, stamp_source_uri).
 llm = ["kaos-llm-client>=0.1.9,<0.2", "kaos-llm-core>=0.1.12,<0.2"]
 # MCP server bridge (kaos-agents-serve --http and --stdio)
-mcp = ["kaos-mcp>=0.1.0,<0.2"]
+mcp = ["kaos-mcp>=0.1.5,<0.2"]
 # FastAPI HTTP API surface (kaos-agents-serve --api)
 api = ["fastapi[standard]>=0.115"]
 # OpenTelemetry export hook
@@ -104,7 +104,7 @@ full = [
 dev = [
   "kaos-llm-client>=0.1.9,<0.2",
   "kaos-llm-core>=0.1.12,<0.2",
-  "kaos-mcp>=0.1.0,<0.2",
+  "kaos-mcp>=0.1.5,<0.2",
   "kaos-pdf>=0.1.0,<0.2",
   # WU-J does not cut kaos-office / kaos-web / kaos-tabular / kaos-ml-core.
   # Keep their dev pin floors at latest published 0.1.0a* — the `<0.2`
