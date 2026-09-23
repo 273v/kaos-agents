@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.31] — 2026-09-22
+
+### Fixed
+
+- **`[mcp]` extra now requires `kaos-mcp>=0.1.5`.** Older kaos-mcp releases
+  allowed `mcp` 2.x, which removed `mcp.server.fastmcp`, so a minimal
+  `kaos-agents[mcp]` install could fail to start the MCP server.
+- `examples/nda_review` quickstart scripts sort paths by name explicitly.
+
+### Dependencies
+
+- Lockfile security refresh: starlette 1.6.0, python-multipart 0.0.32,
+  pillow 12.3.0, aiohttp 3.14.3, anyio 4.14.2, cryptography 50.0.1, h2 4.4.1,
+  mcp 1.29.1.
+
 ## [0.1.30] — 2026-06-26
 
 Tiered Tesseract → VLM OCR escalation for scanned-PDF extraction.
